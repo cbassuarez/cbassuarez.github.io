@@ -1,57 +1,114 @@
-// assets/prae.js — lightweight Praetorius adapter (SEO-safe)
-(function () {
-  const out = document.getElementById('out');
+// /assets/prae.js
+(() => {
+  const out   = document.getElementById('out');
   const input = document.getElementById('cmd');
-  const cards = [...document.querySelectorAll('#repo-list .card')];
-  const map = Object.fromEntries(cards.map(card => {
-    const key = card.dataset.key;
-    const a = card.querySelector('a');
-    return [key, { title: a.textContent.trim(), url: a.href }];
-  }));
+  const pane  = document.getElementById('console');
 
-  // If the real Praetorius UMD exposes a global, you can hook it here safely
-  // without breaking SEO. This is purely optional.
-  // Example:
-  // if (window.PraetoriusPortfolio && window.PraetoriusPortfolio.mountConsole) {
-  //   window.PraetoriusPortfolio.mountConsole('#console');
-  // }
+  if (!out || !input) return;
 
-  const help = () => [
-    'commands:',
-    '  help               show this help',
-    '  repos              list repo shortcuts',
-    '  open <key>         open link by key (e.g., open prae)',
-    '  profile            open your GitHub profile',
-    '  clear              clear console'
-  ].join('\n');
+  // Build a map of repo "keys" (from data-key) -> {title,url}
+  const cards = Array.from(document.querySelectorAll('#repo-list [data-key]'));
+  const repos = new Map();
+  cards.forEach((card) => {
+    const key = String(card.getAttribute('data-key') || '').toLowerCase();
+    const a   = card.querySelector('a[href]');
+    if (key && a) repos.set(key, { title: a.textContent.trim(), url: a.href });
+  });
 
-  function log(s='') { out.textContent += s + '\n'; out.scrollTop = out.scrollHeight; }
-  function exec(line) {
-    const [cmd, ...rest] = line.trim().split(/\s+/);
-    if (!cmd) return;
-    switch (cmd) {
-      case 'help': log(help()); break;
-      case 'repos':
-        Object.entries(map).forEach(([k, v]) => log(`${k.padEnd(8)} ${v.title}  → ${v.url}`));
-        break;
-      case 'open': {
-        const key = rest[0];
-        if (!key || !map[key]) { log('usage: open <key>   (try: repos)'); break; }
-        window.open(map[key].url, '_blank', 'noopener');
-        log(`opening: ${map[key].url}`);
-        break;
-      }
-      case 'profile': window.open(map.profile.url, '_blank', 'noopener'); log('opening: profile'); break;
-      case 'clear': out.textContent = ''; break;
-      default: log(`unknown: ${cmd}. try "help"`);
+  const aliases = { h:'help', ls:'repos', o:'open', cls:'clear' };
+  const history = [];
+  let   hi = 0;
+
+  // ---- UI helpers ----
+  const esc = (s) => String(s).replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]));
+  function println(txt = '', cls = '') {
+    const line = cls ? `<span class="${cls}">${esc(txt)}</span>` : esc(txt);
+    out.insertAdjacentHTML('beforeend', line + '\n');
+    out.scrollTop = out.scrollHeight;
+  }
+  function banner() {
+    println('Prae ⌁ type "help" for commands.', 'muted');
+  }
+  function clear() {
+    out.textContent = '';
+  }
+
+  // ---- Commands ----
+  function help() {
+    [
+      'help                Show this help',
+      'repos               List linked repositories',
+      'open <key>          Open repo (keys: ' + [...repos.keys()].join(', ') + ')',
+      'copy <key>          Copy repo URL',
+      'clear               Clear console'
+    ].forEach(l => println(l, 'muted'));
+  }
+
+  function listRepos() {
+    if (!repos.size) return println('No repositories found on the page.', 'warn');
+    repos.forEach((v, k) => println(`[${k}] ${v.title} — ${v.url}`));
+  }
+
+  function openRepo(key) {
+    if (!key) return println('usage: open <key>', 'warn');
+    const r = repos.get(String(key).toLowerCase());
+    if (!r)   return println(`error: unknown key "${key}"`, 'err');
+    window.location.href = r.url;
+  }
+
+  function copyRepo(key) {
+    if (!key) return println('usage: copy <key>', 'warn');
+    const r = repos.get(String(key).toLowerCase());
+    if (!r)   return println(`error: unknown key "${key}"`, 'err');
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(r.url).then(
+        () => println('copied', 'ok'),
+        ()  => println(r.url, 'muted')
+      );
+    } else {
+      println(r.url, 'muted');
     }
   }
 
-  input?.addEventListener('keydown', (e) => {
+  function run(raw) {
+    const parts = String(raw || '').trim().split(/\s+/);
+    if (!parts[0]) return;
+    let cmd = parts.shift().toLowerCase();
+    cmd = aliases[cmd] || cmd;
+
+    switch (cmd) {
+      case 'help':  return help();
+      case 'repos': return listRepos();
+      case 'open':  return openRepo(parts[0]);
+      case 'copy':  return copyRepo(parts[0]);
+      case 'clear': clear(); return banner();
+      default:      return println(`error: unknown command "${cmd}"`, 'err');
+    }
+  }
+
+  // ---- Input wiring ----
+  input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      log('$ ' + input.value);
-      exec(input.value);
+      const v = input.value.trim();
+      if (v) {
+        println(`$ ${v}`);
+        history.push(v);
+        hi = history.length;
+        run(v);
+      }
       input.value = '';
+      e.preventDefault();
+    } else if (e.key === 'ArrowUp') {
+      if (hi > 0) { hi--; input.value = history[hi] || ''; input.setSelectionRange(input.value.length, input.value.length); e.preventDefault(); }
+    } else if (e.key === 'ArrowDown') {
+      if (hi < history.length) { hi++; input.value = history[hi] || ''; input.setSelectionRange(input.value.length, input.value.length); e.preventDefault(); }
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
+      clear(); banner(); e.preventDefault();
     }
   });
+
+  // Click anywhere in the console to focus the input
+  pane?.addEventListener('click', () => input.focus(), { passive: true });
+
+  banner();
 })();
