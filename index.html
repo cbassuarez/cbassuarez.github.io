@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Sebastian Suárez — GitHub Hub</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Selected repositories and projects by Sebastian Suárez (cbassuarez)." />
+  <link rel="canonical" href="https://cbassuarez.github.io/" />
+  <style>
+    :root{--bg:#0f1012;--fg:#eaeaea;--dim:#9aa0a6;--accent:#fff;--pad:16px;--fs:15px;--line:1.55;--maxw:980px}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font:var(--fs)/var(--line) ui-monospace,SFMono-Regular,Menlo,Consolas,"IBM Plex Mono",monospace}
+    header,main,footer{padding:var(--pad)} .wrap{max-width:var(--maxw);margin:0 auto}
+    h1{margin:0 0 8px} p{margin:0 0 16px;color:var(--dim)} a{color:var(--accent);text-decoration:none;border-bottom:1px dotted currentColor}
+    a:hover{border-bottom-style:solid}
+    .grid{display:grid;gap:10px;margin:16px 0 8px} .card{padding:12px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.03)}
+    .card h3{margin:0 0 6px;font-size:15px} .muted{color:var(--dim);font-size:13px}
+    #console{margin-top:22px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(255,255,255,.03)}
+    #console pre{margin:0;padding:12px;white-space:pre-wrap} #prompt{display:flex;align-items:center;border-top:1px solid rgba(255,255,255,.12)}
+    #prompt label{padding:10px 12px;color:var(--dim)} #cmd{flex:1;padding:10px 12px;font:inherit;color:var(--fg);background:transparent;border:0;outline:none}
+  </style>
+  <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"Person",
+    "name":"Sebastian Suárez",
+    "url":"https://cbassuarez.github.io/",
+    "sameAs":[
+      "https://github.com/cbassuarez",
+      "https://github.com/dexdsl",
+      "https://github.com/stagedevices",
+      "https://x.com/measure_plan"
+    ]
+  }
+  </script>
+</head>
+<body>
+  <header class="wrap">
+    <h1>Projects by Sebastian Suárez</h1>
+    <p>Static, crawlable links for SEO. Praetorius powers the console below.</p>
+    <noscript><p class="muted">JavaScript is off — links remain fully usable.</p></noscript>
+  </header>
+
+  <main class="wrap">
+    <!-- KEEP THESE AS REAL ANCHORS (SEO) -->
+    <section aria-label="Featured repositories">
+      <div id="repo-list" class="grid">
+        <article class="card" data-key="prae">
+          <h3><a href="https://github.com/cbassuarez/praetorius">Praetorius — CLI for score/order workflows</a></h3>
+          <div class="muted">Node CLI, generator, CI-ready. <span>key: <code>prae</code></span></div>
+        </article>
+        <article class="card" data-key="profile">
+          <h3><a href="https://github.com/cbassuarez">All repositories — @cbassuarez</a></h3>
+          <div class="muted">Your main GitHub profile. <span>key: <code>profile</code></span></div>
+        </article>
+        <article class="card" data-key="dex">
+          <h3><a href="https://github.com/dexdsl">DexDSL — organization</a></h3>
+          <div class="muted">Open sample library org. <span>key: <code>dex</code></span></div>
+        </article>
+        <article class="card" data-key="stage">
+          <h3><a href="https://github.com/stagedevices">Stage Devices — organization</a></h3>
+          <div class="muted">Apps & tools org. <span>key: <code>stage</code></span></div>
+        </article>
+      </div>
+      <p class="muted">Add more cards above as needed; do not replace them with JS-rendered content.</p>
+    </section>
+
+    <!-- Optional hook for Praetorius UMD auto-mounts (kept empty if unused) -->
+    <section id="works-group" class="wc-group" data-theme="dark" data-size="md"></section>
+
+    <!-- Praetorius-like console (adapter) -->
+    <section id="console" aria-label="Console">
+      <pre id="out">Prae ⌁ type <strong>help</strong> for commands.
+</pre>
+      <div id="prompt"><label for="cmd">$</label><input id="cmd" autocomplete="off" spellcheck="false" placeholder="help, repos, open prae | dex | stage | profile, clear" /></div>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <p class="muted">This hub is indexable even without JS. Praetorius adds terminal UX on top.</p>
+  </footer>
+
+  <!-- 1) Optional: include Praetorius UMD if you build it or use a CDN
+  <script src="assets/praetorius.umd.js"></script>
+  -->
+
+  <!-- 2) Required: lightweight adapter that powers the console -->
+  <script type="module" src="/assets/prae.js"></script>
+</body>
+</html>
