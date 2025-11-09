@@ -1,17 +1,21 @@
 // /assets/prae.js
 (() => {
   const out   = document.getElementById('out');
-  const input = document.getElementById('cmd');
-  const pane  = document.getElementById('console');
+  const input = document.getElementById('wc-cmd');          // ⟵ match your HTML
+  const pane  = document.getElementById('works-console');   // ⟵ match your HTML
+  const form  = input?.closest('form');
 
   if (!out || !input) return;
 
-  // Build a map of repo "keys" (from data-key) -> {title,url}
-  const cards = Array.from(document.querySelectorAll('#repo-list [data-key]'));
+  // Prevent the form from navigating on Enter
+  form?.addEventListener('submit', (e) => e.preventDefault());
+
+  // Build a map of repo keys by reading each .blk: <code>key</code> + first <a href>
   const repos = new Map();
-  cards.forEach((card) => {
-    const key = String(card.getAttribute('data-key') || '').toLowerCase();
-    const a   = card.querySelector('a[href]');
+  Array.from(document.querySelectorAll('#out .blk')).forEach((blk) => {
+    const keyEl = blk.querySelector('code');
+    const a     = blk.querySelector('a[href]');
+    const key   = keyEl?.textContent?.trim().toLowerCase();
     if (key && a) repos.set(key, { title: a.textContent.trim(), url: a.href });
   });
 
@@ -22,8 +26,8 @@
   // ---- UI helpers ----
   const esc = (s) => String(s).replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]));
   function println(txt = '', cls = '') {
-    const line = cls ? `<span class="${cls}">${esc(txt)}</span>` : esc(txt);
-    out.insertAdjacentHTML('beforeend', line + '\n');
+    const klass = cls ? `line ${cls}` : 'line';
+    out.insertAdjacentHTML('beforeend', `<div class="${klass}">${esc(txt)}</div>`);
     out.scrollTop = out.scrollHeight;
   }
   function banner() {
@@ -60,7 +64,7 @@
     if (!key) return println('usage: copy <key>', 'warn');
     const r = repos.get(String(key).toLowerCase());
     if (!r)   return println(`error: unknown key "${key}"`, 'err');
-    if (navigator.clipboard) {
+    if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(r.url).then(
         () => println('copied', 'ok'),
         ()  => println(r.url, 'muted')
@@ -107,8 +111,9 @@
     }
   });
 
-  // Click anywhere in the console to focus the input
+  // Focus the input when clicking the glass
   pane?.addEventListener('click', () => input.focus(), { passive: true });
 
+  // Greet
   banner();
 })();
