@@ -334,6 +334,103 @@
       ]
     }
   ],
+  "kits": [
+    {
+      "id": "909",
+      "label": "909",
+      "lanes": {
+        "k": [
+          "amp-001",
+          "amp-009",
+          "b3-11",
+          "b3-21"
+        ],
+        "s": [
+          "amp-013",
+          "amp-021",
+          "snm-008",
+          "snm-019"
+        ],
+        "h": [
+          "amp-037",
+          "snm-054",
+          "lux-044",
+          "lux-049"
+        ],
+        "o": [
+          "tub-s0020",
+          "tub-xemf-grain",
+          "snm-012",
+          "lux-026",
+          "b3-33"
+        ],
+        "t": [
+          "amp-027",
+          "amp-028",
+          "snm-025",
+          "b3-28"
+        ],
+        "r": [
+          "amp-043",
+          "lux-053",
+          "snm-058",
+          "tub-wetair-veil"
+        ],
+        "c": [
+          "amp-046",
+          "lux-057",
+          "snm-062",
+          "tub-acharia-arc"
+        ]
+      }
+    },
+    {
+      "id": "tub-grid",
+      "label": "tub grid",
+      "lanes": {
+        "k": [
+          "tub-trillion-low",
+          "tub-xemf-mass",
+          "b3-52"
+        ],
+        "s": [
+          "tub-xither-floor",
+          "tub-acharia-spark",
+          "snm-031"
+        ],
+        "h": [
+          "tub-wetair-shine",
+          "tub-wetair-core",
+          "lux-061"
+        ],
+        "o": [
+          "tub-xither-forge",
+          "tub-acharia-depth",
+          "tub-xemf-bloom",
+          "amp-041",
+          "snm-040"
+        ],
+        "t": [
+          "tub-s0016",
+          "tub-s0032",
+          "snm-028",
+          "b3-36"
+        ],
+        "r": [
+          "tub-wetair-drift",
+          "tub-trillion-air",
+          "lux-048",
+          "amp-050"
+        ],
+        "c": [
+          "tub-xither-glass",
+          "tub-acharia-haze",
+          "lux-060",
+          "snm-060"
+        ]
+      }
+    }
+  ],
   "samples": [
     {
       "name": "b3-01",

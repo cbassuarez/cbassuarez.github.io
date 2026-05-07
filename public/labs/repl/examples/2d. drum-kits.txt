@@ -1,0 +1,23 @@
+// title: drum kits
+// lane tokens: k = kick, s = snare, h = hat, o = other, t = tom, r = ride, c = crash
+// wildcard: * picks from the full current kit pool
+
+tempo 92
+meter 4/4
+eval reset
+
+drum   k    .    s    h   |   t    .    r    c
+kit    909
+variance 0.25
+speed  1
+gain   0.44
+crush  10
+pan    left center right center
+
+drum   *    .    h    .   |   o    t    *!   c
+kit    tub-grid
+variance 0.82
+speed  1
+gain   0.36
+resolution 0.24
+pan    right center left center

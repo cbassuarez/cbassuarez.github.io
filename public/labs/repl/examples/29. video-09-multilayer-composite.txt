@@ -1,0 +1,25 @@
+// video-09 — multilayer composite
+// Stack camera + screen with different operators.
+
+tempo 92
+meter 4/4
+
+video camera
+listen on
+opacity 0.68
+edges 0.32
+feedback 0.2
+blend screen
+
+video screen * . ~ *
+opacity 0.82
+threshold 0.28
+slitscan 0.34
+trail 0.28
+blend difference
+
+// always-audible bed
+pulse * . * .
+gain 0.2
+decay 0.08
+tone bright

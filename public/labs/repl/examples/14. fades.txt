@@ -1,4 +1,4 @@
-tempo 88
+tempo 92
 meter 4/4
 
 string   *!4   (*4 A*)   ~    C*!

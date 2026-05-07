@@ -1,0 +1,20 @@
+// video-02 — camera pattern overlay
+// `* . ~ *` runs as committed visual leaves over continuous video.
+
+tempo 92
+meter 4/4
+
+video camera * . ~ *
+speed 1
+opacity 0.86
+threshold 0.26
+trail 0.42
+feedback 0.18
+blend difference
+
+// always-audible bed
+pulse * . * .
+gain 0.2
+decay 0.08
+tone 0.76
+pan left center right center

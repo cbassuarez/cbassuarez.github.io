@@ -81,6 +81,15 @@
       updatedAt: raw && raw.updatedAt ? String(raw.updatedAt) : new Date().toISOString(),
     };
 
+    // Preserve normalized auxiliary features for live input/video sources.
+    if (raw && typeof raw === 'object') {
+      for (const [k, v] of Object.entries(raw)) {
+        if (out[k] != null || k === 'source' || k === 'label' || k === 'updatedAt') continue;
+        const n = Number(v);
+        if (Number.isFinite(n)) out[k] = clamp01(n);
+      }
+    }
+
     return out;
   }
 
@@ -128,8 +137,8 @@
   function liveKeyFor(spec) {
     const raw = spec && spec.raw ? String(spec.raw).toLowerCase() : '';
     const kind = spec && spec.kind ? String(spec.kind).toLowerCase() : raw;
-    if (raw === 'mic' || raw === 'interface' || raw === 'tab' || raw === 'input') return raw;
-    if (kind === 'mic' || kind === 'interface' || kind === 'tab' || kind === 'input') return kind;
+    if (raw === 'mic' || raw === 'interface' || raw === 'tab' || raw === 'input' || raw === 'camera' || raw === 'screen' || raw === 'file' || raw === 'video') return raw;
+    if (kind === 'mic' || kind === 'interface' || kind === 'tab' || kind === 'input' || kind === 'camera' || kind === 'screen' || kind === 'file' || kind === 'video') return kind;
     return '';
   }
 
@@ -244,6 +253,10 @@
       case 'mic':
       case 'interface':
       case 'tab':
+      case 'camera':
+      case 'screen':
+      case 'file':
+      case 'video':
       case 'body':
       case 'memory':
       case 'habit':

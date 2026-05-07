@@ -1,0 +1,36 @@
+// sine + noise voices.
+// These are first-order bodies: direct, legible, good for learning what rows do.
+// sine/osc use pitch syntax like string.
+// noise uses * for a burst and ~ for a held texture.
+
+tempo 92
+meter 4/4
+tuning kirnberger-3
+
+sine     A3   C4   .    ~    |   E4   G4   .    ~
+speed    1    1    1    1/2
+gain     0.38
+decay    1.4
+tone     bright
+harm     pair
+pan      left center right center
+space    0.16
+
+noise    *    .    *    ~    |   .    *    .    ~
+speed    1
+gain     0.32
+decay    0.18
+tone     (* bright dark bright)
+crush    _    8    _    12
+resolution 0  0.25 0    0.55
+pan      right center left center
+scar     0.18
+grain    0.22
+
+// osc is an alias for sine. Leave this low and slow under the lesson.
+osc      A2   ~    E2   ~
+gain     0.20
+decay    2.8
+tone     dark
+harm     simple
+pan      center

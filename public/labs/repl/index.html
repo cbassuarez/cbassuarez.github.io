@@ -1083,6 +1083,14 @@ margin-top: var(--editor-label-rail, 0px);
       text-transform: uppercase;
     }
 
+    .input-panel-subhead {
+      color: var(--cs-yellow);
+      font-weight: 900;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      font-size: 0.68rem;
+    }
+
     .reference-close,
     .input-panel button,
     .input-panel select,
@@ -1094,6 +1102,50 @@ margin-top: var(--editor-label-rail, 0px);
       box-shadow: 2px 2px 0 var(--cs-line);
       padding: 0.14em 0.36em;
       font-weight: 900;
+    }
+
+    .input-panel-controls {
+      gap: 0.62em 0.72em;
+    }
+
+    .input-panel-field {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 0.16em;
+      min-width: 10rem;
+      font-size: 0.63rem;
+      line-height: 1.12;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--cs-muted);
+    }
+
+    .input-panel-field > span {
+      white-space: nowrap;
+    }
+
+    .input-panel-field > select {
+      width: min(14rem, 100%);
+      min-width: 10rem;
+      text-transform: none;
+      letter-spacing: 0.02em;
+      font-size: 0.78rem;
+      line-height: 1.2;
+    }
+
+    .input-panel-readout {
+      align-items: center;
+      gap: 0.62em 0.72em;
+    }
+
+    .input-panel-help {
+      flex: 1 1 22rem;
+      min-width: 16rem;
+      color: var(--cs-muted);
+      font-size: 0.76rem;
+      line-height: 1.26;
+      font-weight: 800;
     }
 
     .reference-section-title,
@@ -4958,6 +5010,8 @@ margin-top: var(--editor-label-rail, 0px);
     .transport-viz .surface-hud[data-surface="tone"] { --surface-accent: var(--cs-yellow, #ffd400); }
     .transport-viz .surface-chip[data-surface="crush"],
     .transport-viz .surface-hud[data-surface="crush"] { --surface-accent: var(--cs-red, #ff2b2b); }
+    .transport-viz .surface-chip[data-surface="resolution"],
+    .transport-viz .surface-hud[data-surface="resolution"] { --surface-accent: var(--cs-red, #ff2b2b); }
     .transport-viz .surface-chip[data-surface="rupture"],
     .transport-viz .surface-chip[data-surface="scar"],
     .transport-viz .surface-hud[data-surface="rupture"],
@@ -5056,6 +5110,7 @@ margin-top: var(--editor-label-rail, 0px);
     .surface-tooltip[data-surface="decay"] { --surface-accent: #7b3cff; }
     .surface-tooltip[data-surface="tone"] { --surface-accent: var(--cs-yellow, #ffd400); }
     .surface-tooltip[data-surface="crush"] { --surface-accent: var(--cs-red, #ff2b2b); }
+    .surface-tooltip[data-surface="resolution"] { --surface-accent: var(--cs-red, #ff2b2b); }
     .surface-tooltip[data-surface="rupture"],
     .surface-tooltip[data-surface="scar"] { --surface-accent: var(--cs-red, #ff2b2b); }
     .surface-tooltip[data-surface="density"],
@@ -5067,6 +5122,7 @@ margin-top: var(--editor-label-rail, 0px);
     .surface-tooltip-title,
     .surface-tooltip-summary,
     .surface-tooltip-detail,
+    .surface-tooltip-spec,
     .surface-tooltip-use,
     .surface-tooltip-modulates {
       margin-left: 0.42rem;
@@ -5122,6 +5178,26 @@ margin-top: var(--editor-label-rail, 0px);
       font-size: 0.78rem;
       letter-spacing: 0.01em;
       line-height: 1.24;
+    }
+
+    .surface-tooltip-spec {
+      display: grid;
+      grid-template-columns: 4.6rem minmax(0, 1fr);
+      gap: 0.45rem;
+      padding: 0.32rem 0.52rem;
+      border-bottom: 2px solid var(--cs-line, #111);
+      font-size: 0.62rem;
+      line-height: 1.2;
+    }
+
+    .surface-tooltip-spec strong {
+      font-weight: 950;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .surface-tooltip-spec span {
+      font-weight: 800;
     }
 
     .surface-tooltip-use {
@@ -5380,11 +5456,11 @@ margin-top: var(--editor-label-rail, 0px);
     <main class="shell repl-shell">
     <h1 class="product-title"><i>seb’s repl</i></h1>
     <p class="lede">
-      a score-grid language for live input, samples, strings, and weather.
+      a score-grid language for live input, samples, strings, weather, and video.
       <code>Cmd-Enter</code> evaluates ·
       <code>Cmd-Shift-Enter</code> replays ·
       <code>Esc</code> stops ·
-      <code>Tab</code> indents.
+      <code>Tab</code> indents / completes.
     </p>
 
     <div id="repl-workspace" class="repl-workspace reference-closed">
@@ -5420,6 +5496,10 @@ margin-top: var(--editor-label-rail, 0px);
             <option value="default.txt">default</option>
             <option value="1. literal-vs-coupled.txt">literal vs coupled</option>
             <option value="2. pitch-organism.txt">pitch organism</option>
+            <option value="2b. sine-noise-voices.txt">sine + noise voices</option>
+            <option value="2c. drone-pluck-pulse.txt">drone + pluck + pulse</option>
+            <option value="2d. drum-kits.txt">drum kits</option>
+            <option value="2e. video-arm-v1.txt" data-video-example="1">video arm v1</option>
             <option value="3. sample-field.txt">sample field</option>
             <option value="4. speed-warp.txt">speed warp</option>
             <option value="5. weather-dew.txt">weather dew</option>
@@ -5438,6 +5518,21 @@ margin-top: var(--editor-label-rail, 0px);
             <option value="18. live-input-as-audible-material.txt">audible mic material</option>
             <option value="19. tab-input-sample-weather.txt">tab input sample weather</option>
             <option value="20. interface-input-cybernetic-score.txt">interface input cybernetic score</option>
+            <option value="21. video-01-camera-basics.txt" data-video-example="1">video 01 camera basics</option>
+            <option value="22. video-02-camera-pattern-overlay.txt" data-video-example="1">video 02 camera pattern overlay</option>
+            <option value="23. video-03-video-as-input-signals.txt" data-video-example="1">video 03 video as input signals</option>
+            <option value="24. video-04-camera-drives-audio.txt" data-video-example="1">video 04 camera drives audio</option>
+            <option value="25. video-05-audio-drives-video.txt" data-video-example="1">video 05 audio drives video</option>
+            <option value="26. video-06-bidirectional-loop.txt" data-video-example="1">video 06 bidirectional loop</option>
+            <option value="27. video-07-screen-capture-body.txt" data-video-example="1">video 07 screen capture body</option>
+            <option value="28. video-08-file-material.txt" data-video-example="1">video 08 file material</option>
+            <option value="29. video-09-multilayer-composite.txt" data-video-example="1">video 09 multilayer composite</option>
+            <option value="30. video-10-video-gen-basics.txt" data-video-example="1">video 10 video gen basics</option>
+            <option value="31. video-11-gen-to-stage-reuse.txt" data-video-example="1">video 11 gen to stage reuse</option>
+            <option value="32. video-12-performance-scene.txt" data-video-example="1">video 12 performance scene</option>
+            <option value="33. tuning-scopes-and-reference.txt">tuning scopes + reference</option>
+            <option value="34. tuning-performance-organism.txt">tuning performance organism</option>
+            <option value="35. pitch-span-glide.txt">pitch ramps</option>
 
 
           </select>
@@ -5445,24 +5540,31 @@ margin-top: var(--editor-label-rail, 0px);
           <span class="sep">·</span>
           <span class="bracket">[</span> <button id="samples-toggle" type="button" aria-expanded="false"><span class="button-main">samples</span><span class="button-shortcut">open bank</span></button> <span class="bracket">]</span>
           <span class="sep">·</span>
-          <span class="bracket">[</span> <button id="input-toggle" type="button" aria-expanded="false" aria-controls="input-panel"><span class="button-main">input</span><span class="button-shortcut">arm route</span></button> <span class="bracket">]</span>
+          <span class="bracket">[</span> <button id="input-toggle" type="button" title="Cmd/Ctrl-I: toggle I/O panel" aria-expanded="false" aria-controls="input-panel"><span class="button-main">i/o</span><span class="button-shortcut">cmd/ctrl i</span></button> <span class="bracket">]</span>
           <span class="sep">·</span>
+          <span id="video-toolbar">
+            <span class="bracket">[</span> <button id="video-toggle" type="button" aria-expanded="false" aria-controls="video-panel"><span class="button-main">video</span><span class="button-shortcut">open stage</span></button> <span class="bracket">]</span>
+            <span class="sep">·</span>
+          </span>
           <span class="bracket">[</span> <button id="reference-toggle" type="button" aria-expanded="false" aria-controls="reference-panel"><span class="button-main">reference</span><span class="button-shortcut">surface map</span></button> <span class="bracket">]</span>
           <span class="sep">·</span>
           <span class="bracket">[</span> <button id="docs-toggle" type="button" aria-expanded="false" aria-controls="docs-panel"><span class="button-main">docs</span><span class="button-shortcut">manual</span></button> <span class="bracket">]</span>
         </div>
 
         <div id="input-panel" class="input-panel" hidden>
-          <div class="input-panel-row">
-            <strong>input</strong>
-            <label>source
+          <div class="input-panel-row input-panel-head">
+            <strong>i/o</strong>
+            <span class="input-panel-subhead">arm sources / route output</span>
+          </div>
+          <div class="input-panel-row input-panel-controls">
+            <label class="input-panel-field"><span>source</span>
               <select id="input-kind">
                 <option value="mic">mic</option>
                 <option value="interface">interface</option>
                 <option value="tab">tab audio</option>
               </select>
             </label>
-            <label>device
+            <label class="input-panel-field"><span>device</span>
               <select id="input-device">
                 <option value="">default</option>
               </select>
@@ -5470,18 +5572,58 @@ margin-top: var(--editor-label-rail, 0px);
             <button id="input-enable" type="button">enable audio input</button>
             <button id="input-stop" type="button">stop input</button>
           </div>
-          <div class="input-panel-row">
+          <div class="input-panel-row input-panel-controls">
+            <label class="input-panel-field"><span>output</span>
+              <select id="output-device">
+                <option value="">system default</option>
+              </select>
+            </label>
+            <button id="output-apply" type="button">apply output</button>
+            <button id="output-refresh" type="button">refresh outputs</button>
+            <span id="output-status" class="input-status source-fallback">output · system default</span>
+          </div>
+          <div class="input-panel-row input-panel-readout">
             <span id="input-status" class="input-status source-fallback">disconnected</span>
             <span class="input-meter" aria-label="input level"><span id="input-meter-fill" class="input-meter-fill"></span></span>
-            <span>DSL: <code>input mic</code>, <code>input interface</code>, <code>input tab</code>; <code>gain 0</code> still listens.</span>
+            <span class="input-panel-help">DSL: <code>input mic</code>, <code>input interface</code>, <code>input tab</code>; <code>gain 0</code> still listens.</span>
+          </div>
+        </div>
+
+        <div id="video-panel" class="input-panel" hidden>
+          <div class="input-panel-row">
+            <strong>video</strong>
+            <label>source
+              <select id="video-kind">
+                <option value="camera">camera</option>
+                <option value="screen">screen</option>
+                <option value="file">file</option>
+              </select>
+            </label>
+            <label id="video-file-wrap" hidden>file
+              <input id="video-file" type="file" accept="video/*" />
+            </label>
+            <button id="video-enable" type="button">enable source</button>
+            <button id="video-stop" type="button">stop source</button>
+            <button id="video-popout" type="button">detach stage</button>
+          </div>
+          <div class="input-panel-row">
+            <span id="video-status" class="input-status source-fallback">idle</span>
+            <span>DSL: <code>video camera</code>, <code>video screen</code>, <code>video file</code>, <code>video gen</code></span>
+          </div>
+          <div class="input-panel-row" style="display:block">
+            <canvas id="video-stage-canvas" width="640" height="360" style="display:block;width:100%;max-width:100%;height:auto;border:1px solid #111;background:#000"></canvas>
           </div>
         </div>
 
         <div id="samples-panel" class="samples-panel" hidden>
           <div class="samples-panel-head">
             <span class="samples-panel-title">sample bank</span>
+            <button id="samples-link" type="button">link folder</button>
+            <button id="samples-relink" type="button">relink</button>
+            <button id="samples-unlink" type="button">unlink</button>
             <input id="samples-filter" type="text" placeholder="filter (e.g. tub, amp-01)" autocomplete="off" spellcheck="false" />
             <span class="samples-panel-hint">click a name to insert it at the cursor</span>
+            <span id="samples-local-status">no local folder linked</span>
           </div>
           <div id="samples-groups" class="samples-groups"></div>
         </div>
@@ -5504,7 +5646,11 @@ margin-top: var(--editor-label-rail, 0px);
             <code class="reference-key">Cmd-Enter</code><span class="reference-value">evaluate</span>
             <code class="reference-key">Cmd-Shift-Enter</code><span class="reference-value">replay</span>
             <code class="reference-key">Esc</code><span class="reference-value">stop</span>
+            <code class="reference-key">Cmd/Ctrl-I</code><span class="reference-value">toggle I/O panel</span>
+            <code class="reference-key">Shift</code><span class="reference-value">on param/effect rows: open legal-value completion</span>
             <code class="reference-key">Tab</code><span class="reference-value">indent / complete</span>
+            <code class="reference-key">↑ ↓ PgUp PgDn</code><span class="reference-value">completion menu navigation (when open)</span>
+            <code class="reference-key">Enter</code><span class="reference-value">commit completion token suffix</span>
           </div>
         </section>
 
@@ -5516,6 +5662,8 @@ margin-top: var(--editor-label-rail, 0px);
             <code class="reference-key">~</code><span class="reference-value">sustain / hold</span>
             <code class="reference-key">(...)</code><span class="reference-value">subdivide one slot</span>
             <code class="reference-key">;</code><span class="reference-value">gate to rhythmic unit</span>
+            <code class="reference-key">&lt; &gt; &lt;&lt; &gt;&gt;</code><span class="reference-value">pitched span start operators</span>
+            <code class="reference-key">G% Bb% C#%</code><span class="reference-value">pitched span end token (same octave)</span>
           </div>
         </section>
 
@@ -5724,7 +5872,7 @@ margin-top: var(--editor-label-rail, 0px);
           <div>
             <div class="docs-eyebrow">printed guide / local manual</div>
             <h2 class="docs-title">seb’s repl</h2>
-            <p class="docs-subtitle">a score-grid language for live input, samples, strings, and weather</p>
+            <p class="docs-subtitle">a score-grid language for live input, samples, strings, weather, and video</p>
           </div>
           <button id="docs-close" class="docs-close" type="button" aria-label="Close documentation">close</button>
         </header>
@@ -5752,21 +5900,29 @@ margin-top: var(--editor-label-rail, 0px);
         <code>Cmd-Shift-Enter</code> replays the current patch without
         unlocking frozen random choices. <code>Esc</code> stops all active
         voices and keeps focus in the editor. <code>Tab</code> inserts two
-        spaces, or accepts an open completion. <code>Cmd-/</code> toggles
-        line comments.
+        spaces, or accepts an open completion. <code>Cmd/Ctrl-I</code> toggles
+        the I/O panel. Tapping <code>Shift</code> on a parameter/effect row opens
+        a legality-scoped completion list for that row.
+        <code>↑</code>/<code>↓</code>/<code>PgUp</code>/<code>PgDn</code>
+        navigate the completion menu while it is open. <code>Enter</code>
+        commits only the missing characters for the selected completion token.
+        Multi-token completion labels are guidance text, not direct insertion.
+        <code>Cmd-/</code> toggles line comments.
       </p>
       <p><strong>how to read this</strong></p>
       <p>
-        Each voice is a block. The first line declares the voice (<code>string</code> or
-        <code>sample</code>) and lays out one or more bars of slots. Lines below
+        Each voice is a block. The first line declares the voice (<code>string</code>,
+        <code>sine</code>, <code>osc</code>, <code>pluck</code>, <code>drone</code>, <code>noise</code>, <code>pulse</code>, <code>drum</code>, <code>sample</code>, or <code>video</code>) and lays out one or more bars of slots. Lines below
         override parameters either as scalars (<code>decay 4</code>) or as one
         value per slot, aligned underneath. Bars are separated by <code>|</code>;
         rests are <code>.</code>; <code>~</code> sustains the previous note.
       </p>
       <p><strong>slots</strong></p>
       <p>
-        <code>A3 C#4 Bb2 F#5</code> — scientific pitch notation; <code>A4 = 440 Hz</code>.<br>
+        <code>A3 C#4 Bb2 F#5</code> — scientific pitch notation; default <code>A4 = 440 Hz</code> unless overridden by <code>tuning</code>.<br>
+        <code>&gt;6* * * G%</code> / <code>&lt;A* * . * Bb%</code> — pitched span starts and ends (<code>&lt; &gt; &lt;&lt; &gt;&gt;</code> start; <code>%</code> ends). Inside an active span, only <code>*</code>, <code>.</code>, <code>~</code>, and a <code>%</code> end token are legal.<br>
         <code>.</code> or <code>-</code> — rest. <code>~</code> — extend the previous note.<br>
+        <code>sine</code> and <code>osc</code> use the same pitch notation as <code>string</code>, with a simpler oscillator tone for hearing modulation clearly. <code>pluck</code> is a short pitched body, while <code>drone</code> keeps a persistent per-block tone and retunes on committed leaves. <code>noise</code> uses <code>*</code> for a burst and <code>~</code> for a held texture; <code>pulse</code> uses <code>*</code> for clock/click events. <code>drum</code> uses <code>k s h o t r c</code> lane tokens (plus <code>*</code> wildcard), a <code>kit</code> row for mapping, and <code>variance 0..1</code> for lane diversity.<br>
         Sample slots are bare ids from the bank: <code>tub-xither-forge</code>, <code>amp-014</code>, <code>b3-32</code>, <code>snm-021</code>, <code>lux-007</code>.
       </p>
       <p><strong>nesting (tuplets, subdivisions)</strong></p>
@@ -5788,15 +5944,18 @@ margin-top: var(--editor-label-rail, 0px);
       <p><strong>parameters</strong></p>
       <p>
         <code>force</code> — <code>pp p mp mf f ff fff</code> or 0–1.<br>
-        <code>decay</code> — seconds (0.4–8). <code>crush</code> — bit depth (4–16).<br>
+        <code>decay</code> — seconds (0.4–8). <code>crush</code> — bit depth (<code>off</code>/0 or 4–16; lower is rougher). <code>resolution</code> — filter/EQ detail aperture (0–1).<br>
         <code>pan</code> — <code>left center right</code> or ±1. <code>gain</code> — <code>quiet half full loud</code> or 0–1.5.<br>
         <code>tone</code> — <code>dark bright</code> or 0–1. <code>harm</code> — <code>simple pair triad rich</code>.<br>
-        <code>octave</code> — integer ±2. <code>every</code> — <code>4 bars</code> or <code>8 beats</code>.<br>
+        <code>octave</code> — integer ±2. <code>glide</code> — positive seconds (pitched voices only). With <code>glide</code> present, span state persists across loop/bar resets until Evaluate or Stop.<br>
+        <code>every</code> — <code>4 bars</code> or <code>8 beats</code>.<br>
         Sample-only: <code>rate</code> — 0.25–4 (pitch shift). <code>start</code> — seconds into the buffer.
       </p>
       <p><strong>directives</strong></p>
       <p>
-        <code>tempo 110</code> · <code>meter 4/4</code>
+        <code>tempo 110</code> · <code>meter 4/4</code> · <code>tuning kirnberger-3</code> · <code>tuning kirnberger-3 432</code> (tuning applies forward until the next <code>tuning</code> line)<br>
+        evaluate mode directive while transport is running:<br>
+        <code>eval reset</code> or <code>eval reset keep</code> (queue evaluate to next bar reset, keep previous tails) · <code>eval reset cut</code> (queue reset and cut old audio) · <code>eval now</code> (default immediate evaluate)
       </p>
       <p><strong>sample bank</strong></p>
       <p>
@@ -5885,7 +6044,7 @@ margin-top: var(--editor-label-rail, 0px);
         individual notes inside <code>(C4 E4)</code>, not only the parent beat.
       </p>
       <p>
-        String voices also accept pitch wildcards. <code>*</code> chooses a random
+        Pitched voices also accept pitch wildcards. <code>*</code> chooses a random
         pitch from the default universe <code>A2–G5</code>, <code>*!</code> freezes
         a fully random pitch at that leaf, <code>*4</code> chooses a random pitch
         class in octave 4, <code>*!4</code> freezes a random pitch class in octave
@@ -5894,6 +6053,17 @@ margin-top: var(--editor-label-rail, 0px);
         intentionally invalid. <code>*4!</code> is also invalid; write
         <code>*!4</code> because <code>!</code> freezes the randomized axis.
       </p>
+
+      <p>
+        Span operators for pitched voices: <code>&gt;</code>/<code>&lt;</code> are local directional spans, <code>&gt;&gt;</code>/<code>&lt;&lt;</code> share one interleaved span cursor per direction. Shared leader rule: for <code>&gt;&gt;</code>, higher starts win (lower starts join but do not dethrone); for <code>&lt;&lt;</code>, lower starts win. End with <code>G%</code>/<code>Bb%</code>/<code>C#%</code>; if you omit an explicit end, the last <code>*</code> in the run closes implicitly (<code>*1</code> for down spans, <code>*8</code> for up spans).
+      </p>
+
+      <pre><code>string >6* * * G% | >6* * * G%
+gain 0.55
+
+string >>6* * * C% | >>6* * * C%
+glide 0.12
+pan   *~</code></pre>
 
       <pre><code>string   *   (* *)   *   *     |   *   *   (* * *)   *!
       string   *3  (*3! *3) *4  *4   |   *   *   (* * *)   *!
@@ -5963,7 +6133,7 @@ margin-top: var(--editor-label-rail, 0px);
       <div class="work-label-body">
         <p>
           seb’s repl is a live-coding instrument for score-grid notation. It
-          organizes sound into voice blocks — strings, samples, live inputs —
+          organizes sound into voice blocks — strings, oscillators, drones, pulses, drums, samples, live inputs —
           and treats each row beneath them as a surface for behavior: level,
           space, pressure, memory, color, timing, and coupling.
         </p>
@@ -6017,15 +6187,23 @@ margin-top: var(--editor-label-rail, 0px);
     })();
   </script>
 
-  <script src="./voices/string.js?v=20260503r10"></script>
-  <script src="./voices/sample.js?v=20260503r10"></script>
+  <script src="./voices/crush.js?v=20260505r5"></script>
+  <script src="./voices/string.js?v=20260507r6"></script>
+  <script src="./voices/sine.js?v=20260507r3"></script>
+  <script src="./voices/noise.js?v=20260505r2"></script>
+  <script src="./voices/pluck.js?v=20260507r3"></script>
+  <script src="./voices/pulse.js?v=20260505r2"></script>
+  <script src="./voices/drone.js?v=20260507r3"></script>
+  <script src="./voices/sample.js?v=20260505r4"></script>
   <script src="./voices/input.js?v=20260503r1"></script>
-  <script src="./dsl.js?v=20260503r8"></script>
-  <script src="./attractors.js?v=20260503r7"></script>
-  <script src="./scheduler.js?v=20260504r1"></script>
+  <script src="./voices/video.js?v=20260505v2"></script>
+  <script src="./tunings/bank.js?v=20260507r6"></script>
+  <script src="./dsl.js?v=20260507r5"></script>
+  <script src="./attractors.js?v=20260505r8"></script>
+  <script src="./scheduler.js?v=20260507r6"></script>
   <script src="./codemirror.bundle.js?v=20260503r1"></script>
-  <script src="./repl-editor.js?v=20260504r1"></script>
-  <script src="./docs.js?v=20260503r1"></script>
-  <script src="./repl.js?v=20260503r13" defer></script>
+  <script src="./repl-editor.js?v=20260507r5"></script>
+  <script src="./docs.js?v=20260507r9"></script>
+  <script src="./repl.js?v=20260507r6" defer></script>
 </body>
 </html>

@@ -1,0 +1,37 @@
+// drone + pluck + pulse voices.
+// Drone is second-order: one block keeps sounding and retunes on committed leaves.
+// Pluck and pulse are first-order: each committed leaf makes a clear event.
+
+tempo 84
+meter 4/4
+tuning kirnberger-3
+
+drone   A2   ~    C3   ~
+speed   1
+gain    0.24
+decay   5.5
+tone    dark
+harm    pair
+pan     center
+space   0.28
+chorus  drift
+
+// scoped handoff: this and following pitched blocks use the new tuning.
+tuning 12-tet-edo 432
+
+pluck   *4   (*4 A*)   .   ~
+speed   1
+gain    0.42
+decay   0.58
+tone    bright
+harm    pair
+pan     left center right center
+
+pulse   *    .    *    .
+speed   1
+gain    0.34
+decay   0.055
+tone    bright
+crush   8
+resolution 0.35
+pan     right center left center

@@ -1,7 +1,7 @@
 // effect surfaces: a literal phrase through a material body.
 // compress stabilizes; space remembers; body/resonance/comb make a chamber.
 
-tempo 88
+tempo 92
 meter 4/4
 
 string   A3   C4   E4   G4

@@ -9,6 +9,39 @@
 (function () {
   'use strict';
 
+  const VIDEO_DEBUG_STORAGE_KEY = 'replDebugVideo';
+
+  function parseDebugBool(value) {
+    const v = String(value == null ? '' : value).trim().toLowerCase();
+    if (v === '1' || v === 'true' || v === 'yes' || v === 'on') return true;
+    if (v === '0' || v === 'false' || v === 'no' || v === 'off') return false;
+    return null;
+  }
+
+  function readVideoDebugFlag() {
+    let queryValue = null;
+    try {
+      const qs = new URLSearchParams(window.location.search || '');
+      if (qs.has('debug-video')) queryValue = qs.get('debug-video');
+      else if (qs.has('video-debug')) queryValue = qs.get('video-debug');
+    } catch (_) {}
+
+    const parsedQuery = parseDebugBool(queryValue);
+    if (parsedQuery != null) {
+      try { localStorage.setItem(VIDEO_DEBUG_STORAGE_KEY, parsedQuery ? '1' : '0'); } catch (_) {}
+      return parsedQuery;
+    }
+
+    try {
+      return localStorage.getItem(VIDEO_DEBUG_STORAGE_KEY) === '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  const VIDEO_DEBUG_ENABLED = readVideoDebugFlag();
+  window.__REPL_DEBUG_VIDEO__ = VIDEO_DEBUG_ENABLED;
+
   const editorMount = document.getElementById('editor');
   const statusEl = document.getElementById('status');
     const playBtn = document.getElementById('play');
@@ -16,23 +49,45 @@
     const stopBtn = document.getElementById('stop');
     const shareBtn = document.getElementById('share');
   const exampleSelect = document.getElementById('example-select');
+  const videoExampleOptions = exampleSelect
+    ? Array.from(exampleSelect.querySelectorAll('option[data-video-example="1"]'))
+    : [];
   const errorList = document.getElementById('errors');
   const patchTitleChip = document.getElementById('patch-title-chip');
   const beatDotsEl = document.getElementById('beat-dots');
   const blockRowsEl = document.getElementById('block-rows');
   const transportVizEl = document.getElementById('transport-viz');
+  const videoToolbarEl = document.getElementById('video-toolbar');
   const samplesToggleBtn = document.getElementById('samples-toggle');
   const inputToggleBtn = document.getElementById('input-toggle');
   const inputPanel = document.getElementById('input-panel');
   const inputKindSelect = document.getElementById('input-kind');
   const inputDeviceSelect = document.getElementById('input-device');
+  const outputDeviceSelect = document.getElementById('output-device');
+  const outputApplyBtn = document.getElementById('output-apply');
+  const outputRefreshBtn = document.getElementById('output-refresh');
+  const outputStatusEl = document.getElementById('output-status');
   const inputEnableBtn = document.getElementById('input-enable');
   const inputStopBtn = document.getElementById('input-stop');
   const inputStatusEl = document.getElementById('input-status');
   const inputMeterFill = document.getElementById('input-meter-fill');
+  const videoToggleBtn = document.getElementById('video-toggle');
+  const videoPanel = document.getElementById('video-panel');
+  const videoKindSelect = document.getElementById('video-kind');
+  const videoFileWrap = document.getElementById('video-file-wrap');
+  const videoFileInput = document.getElementById('video-file');
+  const videoEnableBtn = document.getElementById('video-enable');
+  const videoStopBtn = document.getElementById('video-stop');
+  const videoPopoutBtn = document.getElementById('video-popout');
+  const videoStatusEl = document.getElementById('video-status');
+  const videoStageCanvas = document.getElementById('video-stage-canvas');
   const samplesPanel = document.getElementById('samples-panel');
   const samplesGroupsEl = document.getElementById('samples-groups');
     const samplesFilterInput = document.getElementById('samples-filter');
+    const samplesLinkBtn = document.getElementById('samples-link');
+    const samplesRelinkBtn = document.getElementById('samples-relink');
+    const samplesUnlinkBtn = document.getElementById('samples-unlink');
+    const samplesLocalStatus = document.getElementById('samples-local-status');
     const replWorkspace = document.getElementById('repl-workspace');
     const referenceToggleBtn = document.getElementById('reference-toggle');
     const referencePanel = document.getElementById('reference-panel');
@@ -48,15 +103,30 @@
     const SAMPLES_MANIFEST_URL = './samples/manifest.json';
     const DEFAULT_EXAMPLE_URL = './examples/default.txt';
     const REFERENCE_SEEN_KEY = 'replReferenceSeen';
+    const LOCAL_SAMPLES_DB_NAME = 'replLocalSamples';
+    const LOCAL_SAMPLES_DB_VERSION = 1;
+    const LOCAL_SAMPLES_STORE = 'handles';
+    const LOCAL_SAMPLES_HANDLE_KEY = 'samplesDir';
+    const LOCAL_SAMPLES_EXTENSIONS = new Set(['wav', 'mp3', 'ogg', 'm4a', 'aac', 'flac', 'aif', 'aiff']);
+    const LOCAL_SAMPLE_GROUP_ID = 'local_folder';
+    const LOCAL_SAMPLE_GROUP_LABEL = 'local folder';
 
   let scheduler = null;
   let lastGoodProgram = null;
+  let lastEvaluatedText = '';
   let statusTimer = null;
     let editorAPI = null;
     let shouldAutofocusEditor = true;
     let loadedExampleLabel = '';
     let lastParseErrorText = '';
     let lastRuntimeErrorText = '';
+    let localSamplesDbPromise = null;
+    let localSamplesDirHandle = null;
+    let localSampleObjectUrls = [];
+    let localSamplesBusy = false;
+    let mediaDeviceChangeBound = false;
+    const blockMuteOverridesBySignature = new Map();
+    let lastEditorMuteSnapshotKey = '';
 
   // ---------------- patch title plate ----------------
 
@@ -102,6 +172,116 @@
     }
 
     return null;
+  }
+
+  function blockMuteSignature(block) {
+    if (!block) return '';
+    const voice = String(block.voice || 'block').toLowerCase();
+    const line = Number(block.line);
+    const lineKey = Number.isFinite(line) && line > 0 ? `L${Math.floor(line)}` : 'noline';
+    return `${voice}@${lineKey}`;
+  }
+
+  function blockByLine(program, lineNumber) {
+    const blocks = program && Array.isArray(program.blocks) ? program.blocks : [];
+    const target = Number(lineNumber);
+    if (!Number.isFinite(target) || target <= 0) return null;
+    for (const block of blocks) {
+      if (Number(block && block.line) === Math.floor(target)) return block;
+    }
+    return null;
+  }
+
+  function applyStoredBlockMuteOverrides(program) {
+    const blocks = program && Array.isArray(program.blocks) ? program.blocks : [];
+    for (const block of blocks) {
+      const sig = blockMuteSignature(block);
+      if (!sig) continue;
+      if (!blockMuteOverridesBySignature.has(sig)) continue;
+      block.mutedDefault = Boolean(blockMuteOverridesBySignature.get(sig));
+    }
+  }
+
+  function setStoredBlockMuteOverride(block, muted) {
+    const sig = blockMuteSignature(block);
+    if (!sig) return;
+    const next = Boolean(muted);
+    blockMuteOverridesBySignature.set(sig, next);
+    block.mutedDefault = next;
+  }
+
+  function schedulerMuteStates() {
+    if (!scheduler || typeof scheduler.getMuteStates !== 'function') return [];
+    try {
+      return scheduler.getMuteStates() || [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function editorMuteLinesSnapshot() {
+    const runtime = schedulerMuteStates();
+    if (runtime.length > 0) {
+      return runtime.map((entry) => ({
+        line: entry.line,
+        muted: Boolean(entry.muted),
+        pending: Boolean(entry.pending),
+        pendingMuted: entry.pendingMuted == null ? Boolean(entry.muted) : Boolean(entry.pendingMuted),
+        tags: Array.isArray(entry.tags) ? entry.tags.slice() : [],
+      }));
+    }
+
+    const program = lastGoodProgram;
+    const blocks = program && Array.isArray(program.blocks) ? program.blocks : [];
+    return blocks.map((block) => ({
+      line: block && block.line,
+      muted: Boolean(block && block.mutedDefault),
+      pending: false,
+      pendingMuted: Boolean(block && block.mutedDefault),
+      tags: Array.isArray(block && block.tags) ? block.tags.slice() : [],
+    }));
+  }
+
+  function syncEditorBlockMuteLines() {
+    if (!editorAPI || typeof editorAPI.setMutedBlockLines !== 'function') return;
+    const snapshot = editorMuteLinesSnapshot();
+    const key = snapshot
+      .map((entry) => `${Number(entry.line) || 0}:${entry.muted ? 1 : 0}:${entry.pending ? 1 : 0}:${entry.pendingMuted ? 1 : 0}`)
+      .join('|');
+    if (key === lastEditorMuteSnapshotKey) return;
+    lastEditorMuteSnapshotKey = key;
+    editorAPI.setMutedBlockLines(snapshot);
+  }
+
+  function toggleBlockMuteFromEditor(lineNumber) {
+    const line = Number(lineNumber);
+    if (!Number.isFinite(line) || line <= 0) return;
+
+    let handledByScheduler = false;
+    if (scheduler && typeof scheduler.toggleBlockMutedByLine === 'function') {
+      const result = scheduler.toggleBlockMutedByLine(line, { quantize: 'bar' });
+      if (result && result.ok) {
+        handledByScheduler = true;
+        const block = blockByLine(lastGoodProgram, line);
+        if (block) {
+          const targetMuted = result.pending ? Boolean(result.pendingMuted) : Boolean(result.muted);
+          setStoredBlockMuteOverride(block, targetMuted);
+        }
+      }
+    }
+
+    if (!handledByScheduler) {
+      const block = blockByLine(lastGoodProgram, line);
+      if (block) {
+        const nextMuted = !Boolean(block.mutedDefault);
+        setStoredBlockMuteOverride(block, nextMuted);
+        if (scheduler && typeof scheduler.setBlockMutedByLine === 'function') {
+          scheduler.setBlockMutedByLine(line, nextMuted, { quantize: 'now' });
+        }
+      }
+    }
+
+    syncEditorBlockMuteLines();
   }
 
   function sourceLabelFromAttractor(block) {
@@ -206,9 +386,21 @@
     const transport = formatTime(t.transport);
     const tempo = lastGoodProgram ? Math.round(lastGoodProgram.tempo) : 110;
     const meter = lastGoodProgram ? `${lastGoodProgram.meter.num}/${lastGoodProgram.meter.den}` : '4/4';
+    const tunings = collectProgramTunings(lastGoodProgram);
+    let tuningPart = '';
+    if (tunings.length === 1) {
+      const label = tuningLabel(tunings[0]);
+      const measured = tuningMeasuredLabel(tunings[0]);
+      tuningPart = ` · tuning ${label}${measured ? ` ${measured}` : ''}`;
+    } else if (tunings.length > 1) {
+      const shown = tunings.slice(0, 3).map((t) => tuningLabel(t)).join(' -> ');
+      const more = tunings.length > 3 ? ` +${tunings.length - 3}` : '';
+      tuningPart = ` · tuning scoped (${shown}${more})`;
+    }
     const stateLabel = scheduler.isRunning() ? 'playing' : 'stopped';
     const bar = t.bar + 1; // human-readable: bar 1 = first bar
-    statusEl.textContent = `${tempo} bpm · ${meter} · ${stateLabel} · ${transport} · bar ${bar}`;
+    statusEl.textContent = `${tempo} bpm · ${meter}${tuningPart} · ${stateLabel} · ${transport} · bar ${bar}`;
+    refreshVideoStatus();
   }
 
   function formatTime(s) {
@@ -240,6 +432,29 @@
     li.textContent = text;
     li.style.color = '#a04';
     errorList.appendChild(li);
+  }
+
+  function videoDebugEnabled() {
+    return VIDEO_DEBUG_ENABLED;
+  }
+
+  function applyVideoDebugGate() {
+    if (videoDebugEnabled()) return;
+
+    if (window.VideoVoice && typeof window.VideoVoice.cleanup === 'function') {
+      try { window.VideoVoice.cleanup(); } catch (_) {}
+    }
+    if (videoToolbarEl) videoToolbarEl.hidden = true;
+    if (videoPanel) videoPanel.hidden = true;
+    if (videoToggleBtn) {
+      videoToggleBtn.hidden = true;
+      videoToggleBtn.setAttribute('aria-expanded', 'false');
+    }
+    for (const option of videoExampleOptions) {
+      if (!option) continue;
+      option.hidden = true;
+      if (option.selected) option.selected = false;
+    }
   }
     
     // ---------------- field report / bug form ----------------
@@ -498,6 +713,94 @@
 
   // ---------------- evaluation ----------------
 
+    function evaluatePolicyForProgram(program) {
+      const raw = program && program.transport ? program.transport.evaluate : null;
+      if (raw && typeof raw === 'object') {
+        const mode = typeof raw.mode === 'string' ? raw.mode.toLowerCase() : '';
+        return {
+          mode: mode === 'reset' ? 'reset' : 'immediate',
+          cutOnReset: Boolean(raw.cutOnReset),
+        };
+      }
+      const mode = typeof raw === 'string' ? raw.toLowerCase() : '';
+      return {
+        mode: mode === 'reset' ? 'reset' : 'immediate',
+        cutOnReset: false,
+      };
+    }
+
+    function collectProgramTunings(program) {
+      const out = [];
+      const seen = new Set();
+      const blocks = program && Array.isArray(program.blocks) ? program.blocks : [];
+      for (const block of blocks) {
+        const tuning = block && block.tuning ? block.tuning : null;
+        if (!tuning || typeof tuning !== 'object') continue;
+        const id = String(tuning.id || tuning.requestedId || '');
+        if (!id) continue;
+        const a4 = Number.isFinite(Number(tuning.a4Hz)) ? Number(tuning.a4Hz) : null;
+        const key = `${id}::${a4 == null ? '' : a4}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(tuning);
+      }
+      if (out.length === 0 && program && program.tuning) {
+        out.push(program.tuning);
+      }
+      return out;
+    }
+
+    function tuningLabel(tuning) {
+      if (!tuning || typeof tuning !== 'object') return 'selected';
+      const id = tuning.id || tuning.requestedId || 'selected';
+      const a4 = Number.isFinite(Number(tuning.a4Hz)) ? Number(tuning.a4Hz) : null;
+      return `${id}${a4 != null ? ` @${a4}Hz` : ''}`;
+    }
+
+    function tuningMeasuredLabel(tuning) {
+      if (
+        !tuning
+        || !window.ReplTunings
+        || typeof window.ReplTunings.tuningToRuntime !== 'function'
+        || typeof window.ReplTunings.midiToFreq !== 'function'
+      ) return '';
+      try {
+        const runtime = window.ReplTunings.tuningToRuntime(tuning);
+        const a4 = runtime ? Number(window.ReplTunings.midiToFreq(69, runtime)) : NaN;
+        const c4 = runtime ? Number(window.ReplTunings.midiToFreq(60, runtime)) : NaN;
+        if (Number.isFinite(a4) && Number.isFinite(c4)) {
+          return `A4=${a4.toFixed(2)}Hz C4=${c4.toFixed(2)}Hz`;
+        }
+      } catch (_) {}
+      return '';
+    }
+
+    function tuningWarningText(program) {
+      const tunings = collectProgramTunings(program).filter((t) => t && t.non12);
+      if (tunings.length === 0) return '';
+      if (tunings.length === 1) {
+        const t = tunings[0];
+        const id = t.id || t.requestedId || 'selected tuning';
+        return `tuning '${id}' uses ${t.noteCount || 'non-12'} notes per octave — pitch names (A4, C4, etc.) are abstract mapping labels in this system`;
+      }
+      const list = tunings.slice(0, 3).map((t) => t.id || t.requestedId || 'selected').join(', ');
+      const more = tunings.length > 3 ? ` (+${tunings.length - 3} more)` : '';
+      return `scoped tunings include non-12 systems (${list}${more}) — pitch names (A4, C4, etc.) are abstract mapping labels in those systems`;
+    }
+
+    function tuningActivationText(program) {
+      const tunings = collectProgramTunings(program);
+      if (tunings.length === 0) return '';
+      if (tunings.length === 1) {
+        const label = tuningLabel(tunings[0]);
+        const measured = tuningMeasuredLabel(tunings[0]);
+        return `tuning '${label}' active${measured ? ` · ${measured}` : ''}`;
+      }
+      const list = tunings.slice(0, 3).map((t) => tuningLabel(t)).join(' -> ');
+      const more = tunings.length > 3 ? ` +${tunings.length - 3}` : '';
+      return `scoped tuning active (${tunings.length} regions) · ${list}${more}`;
+    }
+
     async function evaluateAndRun() {
       const text = editorAPI ? editorAPI.getValue() : '';
       const result = window.ReplDSL.parse(text);
@@ -510,8 +813,17 @@
 
       clearErrors();
       lastParseErrorText = '';
+      applyStoredBlockMuteOverrides(result.program);
       lastGoodProgram = result.program;
       refreshPatchTitle();
+
+      const tuningActivation = tuningActivationText(result.program);
+      const tuningWarning = tuningWarningText(result.program);
+      if (tuningActivation || tuningWarning) {
+        if (tuningActivation) showWarning(tuningActivation);
+        if (tuningWarning) showWarning(tuningWarning);
+        setTimeout(clearErrors, 2400);
+      }
 
       try {
         if (window.ReplAttractors && window.ReplAttractors.warm) {
@@ -519,12 +831,16 @@
         }
 
         renderTransportShell(result.program);
+        syncEditorBlockMuteLines();
 
         if (!scheduler) bootScheduler();
         if (!scheduler) return;
 
         const armed = await armInputsForProgram(result.program);
         if (!armed) return;
+        const videoArmed = await armVideoForProgram(result.program);
+        if (!videoArmed) return;
+        lastEvaluatedText = text;
 
         // Hard evaluate/play:
         // - stop current audio first
@@ -533,12 +849,29 @@
         //
         // This intentionally differs from safePlay(), because Cmd-Enter / [play]
         // should rebuild runtime state and allow frozen random choices to reroll.
+        const evaluatePolicy = evaluatePolicyForProgram(result.program);
+        if (scheduler.isRunning() && evaluatePolicy.mode === 'reset' && typeof scheduler.queueEvaluateAtReset === 'function') {
+          const when = scheduler.queueEvaluateAtReset(result.program, { stopVoices: evaluatePolicy.cutOnReset });
+          if (Number.isFinite(Number(when))) {
+            showWarning(
+              evaluatePolicy.cutOnReset
+                ? 'evaluate queued — next bar reset will cut previous audio (eval reset cut)'
+                : 'evaluate queued — next bar reset keeps previous tails (eval reset keep)'
+            );
+            setTimeout(clearErrors, 1800);
+          }
+          syncEditorBlockMuteLines();
+          lastRuntimeErrorText = '';
+          return;
+        }
+
         if (scheduler.isRunning()) {
           scheduler.stop();
         }
 
         scheduler.update(result.program);
         scheduler.start();
+        syncEditorBlockMuteLines();
         lastRuntimeErrorText = '';
       } catch (err) {
         lastRuntimeErrorText = err && err.stack ? err.stack : String(err || 'unknown runtime error');
@@ -554,8 +887,17 @@
         return;
       }
 
+      const currentText = editorAPI ? String(editorAPI.getValue() || '') : '';
+      if (currentText !== String(lastEvaluatedText || '')) {
+        showWarning('patch changed since last evaluate — running evaluate');
+        await evaluateAndRun();
+        return;
+      }
+
       const armed = await armInputsForProgram(lastGoodProgram);
       if (!armed) return;
+      const videoArmed = await armVideoForProgram(lastGoodProgram);
+      if (!videoArmed) return;
 
       if (typeof scheduler.safeRestart === 'function') {
         scheduler.safeRestart();
@@ -564,12 +906,14 @@
         scheduler.stop();
         scheduler.start();
       }
+      syncEditorBlockMuteLines();
     }
 
     function stop() {
       if (scheduler) {
         scheduler.stop();
       }
+      syncEditorBlockMuteLines();
       setStatusLine();
       clearActiveClasses();
     }
@@ -584,9 +928,32 @@
     if (window.InputVoice && window.InputVoice.setAudioContext) {
       window.InputVoice.setAudioContext(audioCtx);
     }
+    if (videoDebugEnabled() && window.VideoVoice && window.VideoVoice.setAudioContext) {
+      window.VideoVoice.setAudioContext(audioCtx);
+    }
+    if (videoDebugEnabled() && window.VideoVoice && window.VideoVoice.setStageCanvas && videoStageCanvas) {
+      window.VideoVoice.setStageCanvas(videoStageCanvas);
+    }
     const masterBus = window.StringVoice.getMasterBus();
     scheduler = window.ReplScheduler.create({ audioCtx, masterBus });
+    syncEditorBlockMuteLines();
     scheduler.onMissingSample((name) => {
+      if (typeof name === 'string' && name.startsWith('drum-kit:')) {
+        const id = name.slice('drum-kit:'.length) || '(missing)';
+        if (id === '(missing)') {
+          showWarning(`drum block is missing a kit row — add 'kit <id>'`);
+        } else {
+          showWarning(`drum kit '${id}' is not defined in the sample manifest`);
+        }
+        return;
+      }
+      if (typeof name === 'string' && name.startsWith('drum-lane:')) {
+        const parts = name.split(':');
+        const kitId = parts[1] || '?';
+        const lane = parts[2] || '?';
+        showWarning(`drum kit '${kitId}' has no resolved samples for lane '${lane}'`);
+        return;
+      }
       showWarning(`'${name}' isn't in the bank yet — see /labs/repl/samples/README.md`);
     });
   }
@@ -740,7 +1107,7 @@
   // ---------------- editor keybindings ----------------
   //
   // Editor-local keymap (Cmd-Enter, Cmd-Shift-Enter, Esc, Tab, Cmd-/, Cmd-S,
-  // Cmd-K) lives in repl-editor.js. The button handlers below cover the
+  // Cmd-I, Cmd-K) lives in repl-editor.js. The button handlers below cover the
   // pointer-driven path and refocus the editor afterwards.
 
     playBtn.addEventListener('click', async () => {
@@ -1001,6 +1368,9 @@
         summary: 'pattern-time multiplier / temporal pressure',
         detail: 'Changes how quickly a block consumes its score material. When coupled, speed becomes the surface where signal motion can bend musical time.',
         use: 'higher drive = faster bodies, warped pacing, or drifted clock behavior',
+        audio: 'Pattern-time cursor speed; not sample playback rate.',
+        range: 'number or ratio, typically 0.0625–16; default 1',
+        examples: ['speed 1/2', 'speed 2', 'speed *'],
         drivenBy: ['volatility', 'density', 'rupture'],
       },
       pan: {
@@ -1008,6 +1378,9 @@
         summary: 'left-right position / spatial lateral motion',
         detail: 'Moves material across the stereo field. It is the simplest surface for drift, jitter, and attractor steering.',
         use: 'higher drive = more lateral motion, instability, or spatial displacement',
+        audio: 'Stereo pan before block output/effects.',
+        range: 'left/center/right or -1..1; default center',
+        examples: ['pan left', 'pan -0.4', 'pan *~'],
         drivenBy: ['volatility', 'intensity', 'pressure'],
       },
       gain: {
@@ -1015,6 +1388,9 @@
         summary: 'level / amplitude opening',
         detail: 'Controls how present a block is in the mix. It is usually the first surface touched by intensity and confidence.',
         use: 'higher drive = louder, closer, more exposed material',
+        audio: 'Event amplitude scalar before shared output.',
+        range: 'quiet/half/full/loud or 0..1.5; default 1',
+        examples: ['gain quiet', 'gain 0.45', 'gain mic.intensity 0 1'],
         drivenBy: ['intensity', 'pressure'],
       },
       force: {
@@ -1022,6 +1398,9 @@
         summary: 'gesture weight / physical push',
         detail: 'Applies body-like pressure to synthesis and coupled behavior. Useful when a source should push the patch instead of merely modulating it.',
         use: 'higher drive = heavier articulation, stronger impact, more push',
+        audio: 'Attack/excitation weight for synth and percussive voices.',
+        range: 'pp p mp mf f ff fff or 0..1; default mf-ish',
+        examples: ['force mf', 'force 0.8', 'force quake.rupture 0.2 1'],
         drivenBy: ['pressure', 'intensity', 'rupture'],
       },
       compress: {
@@ -1036,6 +1415,9 @@
         summary: 'room send / spatial bloom',
         detail: 'Opens reverberant space around the block. Coupling this surface lets the environment expand, contract, or smear around the source.',
         use: 'higher drive = wider room, longer tail, more atmospheric spread',
+        audio: 'Block wet send into delay/reverb-like space.',
+        range: '0..1 or modes memory/weather/room/horizon',
+        examples: ['space 0.25', 'space room', 'space *~'],
         drivenBy: ['intensity', 'tension', 'volatility'],
       },
       body: {
@@ -1071,6 +1453,9 @@
         summary: 'release length / tail behavior',
         detail: 'Changes how long a gesture remains after articulation. Useful for turning density and tension into lingering or clipped behavior.',
         use: 'higher drive = longer tails, stretched release, or more unstable endings',
+        audio: 'Envelope release/tail duration.',
+        range: 'seconds, clamped 0.4..8 for DSL rows; voice may narrow internally',
+        examples: ['decay 0.8', 'decay 3.5', 'decay *'],
         drivenBy: ['tension', 'density', 'intensity'],
       },
       tone: {
@@ -1078,20 +1463,39 @@
         summary: 'brightness / harmonic emphasis',
         detail: 'Tilts the block toward darker or brighter harmonic behavior. It is a compact surface for timbral pressure.',
         use: 'higher drive = brighter edge, stronger tone focus, more harmonic bite',
+        audio: 'Filter brightness and harmonic aperture.',
+        range: 'dark/bright or 0..1; default 0.6',
+        examples: ['tone dark', 'tone 0.75', 'tone weather.pressure 0.2 0.9'],
         drivenBy: ['tension', 'pressure'],
       },
       crush: {
         name: 'crush',
-        summary: 'bit damage / digital abrasion',
-        detail: 'Introduces reduction, grit, or broken digital texture. It is the surface where pressure can become audible damage.',
-        use: 'higher drive = more grit, fracture, hard edges, and degraded signal',
+        summary: 'bit depth / amplitude resolution',
+        detail: 'Quantizes amplitude to a literal bit depth. Resolution is separate: a filter/EQ aperture, not a crusher.',
+        use: 'lower bits = more quantization; 16 is nearly clean, 4 is severe',
+        audio: 'Amplitude bit-depth reduction after voice envelope/filter.',
+        range: 'off/0 or integer 4..16; default off',
+        examples: ['crush off', 'crush 8', 'crush 4'],
         drivenBy: ['pressure', 'rupture', 'tension'],
+      },
+      resolution: {
+        name: 'resolution',
+        summary: 'detail aperture / filter EQ',
+        detail: 'Opens a linear filter/EQ aperture for perceived detail. It does not quantize amplitude and does not downsample.',
+        use: 'higher values = more open top end and clearer transient detail',
+        audio: 'Low-pass aperture after voice envelope/filter; independent from crush.',
+        range: 'off/0..1; default off',
+        examples: ['resolution 0.35', 'resolution 1', 'resolution mic.rupture 0 1'],
+        drivenBy: ['rupture', 'pressure', 'density'],
       },
       rate: {
         name: 'rate',
         summary: 'sample speed / playback motion',
         detail: 'Changes sample playback speed and direction-like behavior. It lets unstable sources bend sample motion directly.',
         use: 'higher drive = faster playback, pitch-linked motion, or sample instability',
+        audio: 'Sample playbackRate only; does not change phrase timing.',
+        range: 'number/ratio 0.25..4; default 1',
+        examples: ['rate 1/2', 'rate 2', 'rate *~'],
         drivenBy: ['volatility', 'density', 'tension'],
       },
       start: {
@@ -1099,6 +1503,9 @@
         summary: 'sample entry point / cut location',
         detail: 'Moves where sample playback begins. This surface turns rupture into cuts, skips, and re-articulations inside recorded material.',
         use: 'higher drive = more displacement, sharper cuts, less stable sample origin',
+        audio: 'Sample buffer start offset.',
+        range: 'seconds or normalized-like number, clamped to buffer length',
+        examples: ['start 0', 'start 0.4', 'start mic.rupture 0 0.8'],
         drivenBy: ['rupture', 'volatility'],
       },
       sample: {
@@ -1108,11 +1515,178 @@
         use: 'higher drive = more active selection, tighter bias, or denser archive behavior',
         drivenBy: ['density', 'rupture', 'intensity'],
       },
+      kit: {
+        name: 'kit',
+        summary: 'drum lane map / curated hit pool',
+        detail: 'Selects the manifest-defined drum kit used by drum lane tokens (k/s/h/o/t/r/c/*). It is the curatorial surface for deterministic lane hits and wildcard pool behavior.',
+        use: 'change kit id = new lane pools while timing and pattern stay unchanged',
+        audio: 'Routes drum lane tokens to kit sample pools; does not change timing.',
+        range: 'manifest kit ids, e.g. 909, tub-grid',
+        examples: ['kit 909', 'kit tub-grid'],
+        drivenBy: ['sample', 'density'],
+      },
+      variance: {
+        name: 'variance',
+        summary: 'drum sample diversity / lane stability blend',
+        detail: 'Controls how much drum lane picks vary from the lane anchor. 0 locks each lane to a stable sample; 1 re-picks from the lane pool on every hit.',
+        use: 'lower = stable lane identity; higher = more per-hit variation',
+        audio: 'Sample selection diversity for drum lanes only; does not alter event timing.',
+        range: 'off/0..1; default 1',
+        examples: ['variance 0', 'variance 0.35', 'variance 1'],
+        drivenBy: ['density', 'sample', 'rupture'],
+      },
+      opacity: {
+        name: 'opacity',
+        summary: 'video layer alpha / stage presence',
+        detail: 'Sets how strongly a video layer appears in the compositor.',
+        use: 'higher = more visible video layer',
+        range: '0..1; default 1',
+        examples: ['opacity 0.9', 'opacity camera.motion 0.2 1'],
+        drivenBy: ['motion', 'presence'],
+      },
+      threshold: {
+        name: 'threshold',
+        summary: 'luma cutoff / binary segmentation',
+        detail: 'Cuts image values around a moving threshold for hard masks and high-contrast silhouettes.',
+        use: 'higher = fewer bright pixels survive',
+        range: '0..1; default 0',
+        examples: ['threshold 0.35', 'threshold mic.intensity 0.2 0.7'],
+        drivenBy: ['rupture', 'brightness'],
+      },
+      edges: {
+        name: 'edges',
+        summary: 'edge emphasis / contour extraction',
+        detail: 'Accents image boundaries and contour activity.',
+        use: 'higher = stronger contour visibility',
+        range: '0..1; default 0',
+        examples: ['edges 0.4', 'edges camera.motion 0.1 0.8'],
+        drivenBy: ['motion', 'contrast'],
+      },
+      posterize: {
+        name: 'posterize',
+        summary: 'color quantization / tone steps',
+        detail: 'Reduces tonal gradation into discrete levels.',
+        use: 'higher = fewer tone levels',
+        range: '0..1; default 0',
+        examples: ['posterize 0.5', 'posterize *'],
+        drivenBy: ['rupture', 'density'],
+      },
+      invert: {
+        name: 'invert',
+        summary: 'polarity inversion / negative image',
+        detail: 'Crossfades between normal and inverted image polarity.',
+        use: 'higher = stronger negative inversion',
+        range: '0..1; default 0',
+        examples: ['invert 1', 'invert camera.flicker 0 1'],
+        drivenBy: ['flicker', 'rupture'],
+      },
+      contrast: {
+        name: 'contrast',
+        summary: 'contrast gain / value spread',
+        detail: 'Expands or compresses visual dynamic range.',
+        use: 'higher = harder value separation',
+        range: '0..1; default 0',
+        examples: ['contrast 0.6', 'contrast camera.contrast 0 1'],
+        drivenBy: ['contrast', 'pressure'],
+      },
+      saturate: {
+        name: 'saturate',
+        summary: 'chroma gain / color intensity',
+        detail: 'Boosts or suppresses color intensity.',
+        use: 'higher = stronger color saturation',
+        range: '0..1; default 0',
+        examples: ['saturate 0.4', 'saturate weather.dew 0.1 0.8'],
+        drivenBy: ['presence', 'density'],
+      },
+      displace: {
+        name: 'displace',
+        summary: 'spatial warp / motion distortion',
+        detail: 'Warps pixel positions with lightweight displacement fields.',
+        use: 'higher = stronger geometric warp',
+        range: '0..1; default 0',
+        examples: ['displace 0.3', 'displace camera.flowx 0 1'],
+        drivenBy: ['flowx', 'flowy'],
+      },
+      feedback: {
+        name: 'feedback',
+        summary: 'frame recursion / memory smear',
+        detail: 'Feeds prior frame state back into current layer.',
+        use: 'higher = longer visual memory trails',
+        range: '0..1; default 0',
+        examples: ['feedback 0.25', 'feedback camera.stillness 0.1 0.8'],
+        drivenBy: ['stillness', 'density'],
+      },
+      delay: {
+        name: 'delay',
+        summary: 'frame lag / temporal offset',
+        detail: 'Mixes delayed frame history against current frame.',
+        use: 'higher = more delayed ghosts',
+        range: '0..1; default 0',
+        examples: ['delay 0.2', 'delay camera.motion 0 0.6'],
+        drivenBy: ['motion', 'rupture'],
+      },
+      slitscan: {
+        name: 'slitscan',
+        summary: 'temporal slicing / scan remap',
+        detail: 'Recombines current image from staggered historical strips.',
+        use: 'higher = deeper temporal striping',
+        range: '0..1; default 0',
+        examples: ['slitscan 0.45', 'slitscan camera.flowy 0 1'],
+        drivenBy: ['flowx', 'flowy'],
+      },
+      trail: {
+        name: 'trail',
+        summary: 'history trail / persistence',
+        detail: 'Accumulates short frame history as translucent trails.',
+        use: 'higher = longer persistence tails',
+        range: '0..1; default 0',
+        examples: ['trail 0.5', 'trail camera.stillness 0.1 0.85'],
+        drivenBy: ['stillness', 'motion'],
+      },
+      mask: {
+        name: 'mask',
+        summary: 'mask amount / visibility gate',
+        detail: 'Controls secondary mask influence in the compositor layer.',
+        use: 'higher = stronger mask gating',
+        range: '0..1; default 0',
+        examples: ['mask 0.35', 'mask camera.edges 0 1'],
+        drivenBy: ['edges', 'presence'],
+      },
+      key: {
+        name: 'key',
+        summary: 'key strength / cutout pressure',
+        detail: 'Controls cutout/key aggressiveness for layer compositing.',
+        use: 'higher = harder keyed isolation',
+        range: '0..1; default 0',
+        examples: ['key 0.3', 'key camera.brightness 0 1'],
+        drivenBy: ['brightness', 'contrast'],
+      },
+      color: {
+        name: 'color',
+        summary: 'hue bias / chroma steering',
+        detail: 'Offsets global hue and color cast for the layer.',
+        use: 'higher = stronger hue shift',
+        range: '0..1; default 0',
+        examples: ['color 0.7', 'color weather.dew 0 1'],
+        drivenBy: ['pressure', 'presence'],
+      },
+      blend: {
+        name: 'blend',
+        summary: 'composite operator / layer arithmetic',
+        detail: 'Selects how a video layer combines with the stage buffer.',
+        use: 'choose normal/screen/multiply/overlay/difference/lighter',
+        range: 'named mode or 0..1',
+        examples: ['blend difference', 'blend screen'],
+        drivenBy: ['rupture', 'density'],
+      },
       fade: {
         name: 'fade',
         summary: 'entry-exit envelope / presence gate',
         detail: 'Controls whether a block enters, leaves, or holds in place. It makes presence itself a performable surface.',
         use: 'higher drive = clearer entrances, exits, holds, or threshold behavior',
+        audio: 'Block presence envelope after event gain/effects.',
+        range: 'fade in/out/inout/outin seconds, hold, clear',
+        examples: ['fade in 30s', 'fade inout 20s', 'fade clear'],
         drivenBy: ['intensity', 'rupture'],
       },
       harm: {
@@ -1120,6 +1694,9 @@
         summary: 'harmonic selection / partial emphasis',
         detail: 'Bends harmonic emphasis inside pitched material. It turns control streams into changes in intervallic color.',
         use: 'higher drive = stronger harmonic pull, brighter partials, altered interval color',
+        audio: 'Partial/harmonic count or mode for pitched voices.',
+        range: 'simple/pair/triad/rich or 1..5; default pair',
+        examples: ['harm simple', 'harm 4', 'harm *'],
         drivenBy: ['tension', 'pressure'],
       },
       octave: {
@@ -1127,6 +1704,9 @@
         summary: 'register displacement / octave pressure',
         detail: 'Moves material between octave bands. This surface keeps pitch identity while changing scale and register.',
         use: 'higher drive = broader register jumps, more vertical displacement',
+        audio: 'Integer octave transposition for pitched voices.',
+        range: 'integer -2..2; default 0',
+        examples: ['octave -1', 'octave 1', 'octave *'],
         drivenBy: ['tension', 'volatility'],
       },
       resonance: {
@@ -1148,6 +1728,9 @@
         summary: 'granular texture / particle behavior',
         detail: 'Breaks material into smaller pieces and controls particle activity. It turns density into audible particulate motion.',
         use: 'higher drive = more particles, finer texture, denser fragmentation',
+        audio: 'Granular/particle density for sample and texture behavior.',
+        range: '0..1 or modes memory/scatter/freeze',
+        examples: ['grain 0.25', 'grain scatter', 'grain mic.noisiness 0 0.7'],
         drivenBy: ['density', 'volatility', 'rupture'],
       },
       chorus: {
@@ -1176,6 +1759,9 @@
         summary: 'cut memory / accumulated damage',
         detail: 'Leaves marks from discontinuities and attacks. It lets rupture become a remembered texture instead of a one-time event.',
         use: 'higher drive = more cuts, marks, hard edits, and historical damage',
+        audio: 'Cut/residue amount in sample and texture behavior.',
+        range: '0..1 or modes memory/rupture/ghost',
+        examples: ['scar 0.2', 'scar rupture', 'scar *'],
         drivenBy: ['rupture', 'pressure'],
       },
       literal: {
@@ -1271,10 +1857,24 @@
       },
       crush: {
         label: 'CRUSH',
-        role: 'bit-depth damage / digital pressure',
+        role: 'amplitude bit depth',
         bends: ['rupture', 'scar', 'body'],
-        units: ['number', 'symbol', 'signal'],
-        cues: [{ test: () => true, text: 'digital abrasion / hard edge' }],
+        units: ['off', '4-16', 'signal'],
+        cues: [
+          { test: (item) => numericAverage(item.values) > 0 && numericAverage(item.values) <= 6, text: 'severe bit-depth quantization' },
+          { test: (item) => numericAverage(item.values) > 0 && numericAverage(item.values) < 12, text: 'audible bit-depth crunch' },
+          { test: () => true, text: 'amplitude resolution control' },
+        ],
+      },
+      resolution: {
+        label: 'RESOLUTION',
+        role: 'sample-hold time reduction',
+        bends: ['rupture', 'pressure', 'density'],
+        units: ['off', '0-1', 'signal'],
+        cues: [
+          { test: (item) => numericAverage(item.values) >= 0.75, text: 'coarse sample-hold stepping' },
+          { test: (item) => numericAverage(item.values) > 0, text: 'reduced time resolution' },
+        ],
       },
       rate: {
         label: 'RATE',
@@ -1296,6 +1896,24 @@
         bends: ['archive', 'density', 'rupture'],
         units: ['selector', 'word', 'signal'],
         cues: [{ test: () => true, text: 'archive selection pressure' }],
+      },
+      kit: {
+        label: 'KIT',
+        role: 'drum lane mapping / curated hit pool',
+        bends: ['sample', 'density', 'selection'],
+        units: ['kit id'],
+        cues: [{ test: () => true, text: 'drum lane pool selection' }],
+      },
+      variance: {
+        label: 'VARIANCE',
+        role: 'drum lane sample diversity',
+        bends: ['sample', 'density', 'identity'],
+        units: ['off', '0-1', 'signal'],
+        cues: [
+          { test: (item) => numericAverage(item.values) <= 0.1, text: 'stable lane anchors (minimal variation)' },
+          { test: (item) => numericAverage(item.values) >= 0.75, text: 'high lane variance (frequent repicks)' },
+          { test: () => true, text: 'probabilistic blend of anchors and fresh picks' },
+        ],
       },
       fade: {
         label: 'FADE',
@@ -1385,6 +2003,9 @@
         const t = node.token;
         if (t.kind === 'rest') return 'rest';
         if (t.kind === 'sample' || t.kind === 'sample-selector') return 'sample';
+        if (t.kind === 'noise') return 'sample';
+        if (t.kind === 'pulse') return 'sample';
+        if (t.kind === 'drum') return 'sample';
         return 'note';
       }
       return 'rest';
@@ -1618,15 +2239,15 @@
       if (name === 'speed' || name === 'rate') return 'clock';
       if (name === 'pan') return 'pan';
       if (name === 'gain') return 'level';
-      if (name === 'compress' || name === 'crush') return 'clamp';
+      if (name === 'compress' || name === 'crush' || name === 'resolution' || name === 'variance' || name === 'threshold' || name === 'edges' || name === 'mask' || name === 'key') return 'clamp';
       if (name === 'force') return 'pressure';
       if (name === 'decay' || name === 'fade') return 'tail';
-      if (name === 'space' || name === 'blur' || name === 'chorus') return 'field';
+      if (name === 'space' || name === 'blur' || name === 'chorus' || name === 'trail' || name === 'feedback' || name === 'delay' || name === 'slitscan') return 'field';
       if (name === 'pitch' || name === 'octave' || name === 'harm') return 'pitch';
       if (name === 'grain' || name === 'density') return 'particle';
-      if (name === 'sample' || name === 'start') return 'tape';
+      if (name === 'sample' || name === 'start' || name === 'kit') return 'tape';
       if (name === 'scar' || name === 'rupture') return 'cut';
-      if (name === 'tone' || name === 'filter' || name === 'color' || name === 'body') return 'stamp';
+      if (name === 'tone' || name === 'filter' || name === 'color' || name === 'body' || name === 'blend' || name === 'posterize' || name === 'invert' || name === 'contrast' || name === 'saturate' || name === 'displace' || name === 'opacity' || name === 'monitor' || name === 'listen') return 'stamp';
       if (item.kind === 'number') return 'level';
       if (item.kind === 'pattern' || item.kind === 'modulation') return 'clock';
       return 'stamp';
@@ -1636,10 +2257,15 @@
       const nums = (item && Array.isArray(item.values) ? item.values : [])
         .map((value) => Number(value))
         .filter(Number.isFinite);
-      if (nums.length) return Math.max(0, Math.min(1, nums.reduce((sum, value) => sum + value, 0) / nums.length));
+      if (nums.length) {
+        const avg = nums.reduce((sum, value) => sum + value, 0) / nums.length;
+        if (item && item.name === 'crush') return avg <= 0 ? 0 : Math.max(0, Math.min(1, (16 - avg) / 12));
+        return Math.max(0, Math.min(1, avg));
+      }
       const text = String(item && item.raw ? item.raw : '').trim();
       const n = Number(text);
       if (!Number.isFinite(n)) return 0.5;
+      if (item && item.name === 'crush') return n <= 0 ? 0 : Math.max(0, Math.min(1, (16 - n) / 12));
       if (n > 1) return Math.max(0, Math.min(1, n / 8));
       return Math.max(0, Math.min(1, n));
     }
@@ -1804,12 +2430,21 @@
       const meta = surfaceMetaFor(name);
       const label = escapeTooltipText(String(name || 'literal').toUpperCase());
       const chips = meta.drivenBy.map((item) => `<span>${escapeTooltipText(item)}</span>`).join('');
+      const specs = [
+        ['audio', meta.audio],
+        ['range', meta.range],
+        ['examples', Array.isArray(meta.examples) ? meta.examples.join(' / ') : meta.examples],
+      ]
+        .filter((item) => item[1])
+        .map(([key, value]) => `<div class="surface-tooltip-spec"><strong>${escapeTooltipText(key)}</strong><span>${escapeTooltipText(value)}</span></div>`)
+        .join('');
 
       return `
         <div class="surface-tooltip-stamp"><span class="surface-tooltip-mark" aria-hidden="true"></span> SURFACE / ${label}</div>
         <div class="surface-tooltip-title">${escapeTooltipText(meta.name)}</div>
         <div class="surface-tooltip-summary">${escapeTooltipText(meta.summary)}</div>
         <div class="surface-tooltip-detail">${escapeTooltipText(meta.detail)}</div>
+        ${specs}
         <div class="surface-tooltip-use">${escapeTooltipText(meta.use)}</div>
         <div class="surface-tooltip-modulates"><strong>driven by</strong><div>${chips}</div></div>
       `;
@@ -2009,7 +2644,10 @@
       if (block.fade && block.fade.mode && block.fade.mode !== 'clear') push('fade');
       if (block.speed && (hasParamControlStream(block.speed) || block.speed.kind === 'vector')) push('speed');
 
-      for (const name of ['pan', 'gain', 'rate', 'start', 'crush', 'force', 'decay', 'tone', 'harm', 'octave']) {
+      for (const name of ['pan', 'gain', 'rate', 'start', 'crush', 'resolution', 'variance', 'force', 'decay', 'tone', 'harm', 'octave']) {
+        if (hasParamControlStream(params[name])) push(name);
+      }
+      for (const name of ['opacity', 'threshold', 'edges', 'posterize', 'invert', 'contrast', 'saturate', 'displace', 'feedback', 'delay', 'slitscan', 'trail', 'mask', 'key', 'color', 'blend', 'monitor', 'listen']) {
         if (hasParamControlStream(params[name])) push(name);
       }
 
@@ -2017,7 +2655,7 @@
         if (effects[name]) push(name);
       }
 
-      if (block.voice === 'string') {
+      if (block.voice === 'string' || block.voice === 'sine' || block.voice === 'osc' || block.voice === 'pluck' || block.voice === 'drone') {
         const hasRandomPitch = blockHasTokenKind(block, (tok) => tok && tok.kind === 'note-random');
         if (hasRandomPitch) push('pitch');
       }
@@ -2029,6 +2667,16 @@
         if (hasSelector) push('sample');
       }
 
+      if (block.voice === 'drum') {
+        push('kit');
+        push('sample');
+      }
+      if (block.voice === 'video' || block.voice === 'video-gen') {
+        for (const name of ['opacity', 'threshold', 'edges', 'posterize', 'invert', 'contrast', 'saturate', 'displace', 'feedback', 'delay', 'slitscan', 'trail', 'mask', 'key', 'color', 'blend', 'monitor', 'listen']) {
+          if (params[name]) push(name);
+        }
+      }
+
       // Attractors color the medium even when patch values are literal.
       if (block.attractor) {
         push('filter');
@@ -2038,15 +2686,39 @@
         push('gain');
         push('pan');
 
-        if (block.voice === 'string') {
+        if (block.voice === 'string' || block.voice === 'sine' || block.voice === 'osc' || block.voice === 'pluck' || block.voice === 'drone') {
           push('decay');
           push('tone');
           push('crush');
+          push('resolution');
           push('pitch');
-        } else if (block.voice === 'sample') {
+        } else if (block.voice === 'noise' || block.voice === 'pulse') {
+          push('decay');
+          push('tone');
+          push('crush');
+          push('resolution');
+          push('scar');
+          push('grain');
+        } else if (block.voice === 'sample' || block.voice === 'drum') {
           push('rate');
           push('start');
+          push('crush');
+          push('resolution');
           push('sample');
+          if (block.voice === 'drum') {
+            push('kit');
+            push('variance');
+          }
+        } else if (block.voice === 'video' || block.voice === 'video-gen') {
+          push('opacity');
+          push('threshold');
+          push('edges');
+          push('feedback');
+          push('trail');
+          push('blend');
+          push('color');
+          push('monitor');
+          push('listen');
         }
 
         if (block.speed) push('speed');
@@ -2326,7 +2998,7 @@
       if (program.blocks.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'empty-msg';
-        empty.textContent = '(no voices yet — add a string or sample line)';
+        empty.textContent = '(no voices yet — add a string, sine, drone, drum, pulse, noise, sample, or video line)';
         blockRowsEl.appendChild(empty);
         return;
       }
@@ -2417,12 +3089,26 @@
 
         const label = document.createElement('div');
         label.className = 'block-label';
-        label.textContent = block.voice === 'input' && block.input ? `input ${block.input.kind}` : `${block.voice}`;
+        label.textContent = block.voice === 'input' && block.input
+          ? `input ${block.input.kind}`
+          : (block.voice === 'video-gen' ? 'video gen' : `${block.voice}`);
 
         const slotsWrap = document.createElement('div');
         slotsWrap.className = 'slot-dots';
 
         const slotEls = [];
+        // Bars may hold different slot counts under the equal-time bar
+        // protocol, so place separators using cumulative barSlotCounts
+        // rather than every Nth slot.
+        const barSlotCounts = Array.isArray(block.barSlotCounts) && block.barSlotCounts.length > 0
+          ? block.barSlotCounts
+          : [block.slots.length];
+        const barEnds = new Set();
+        let acc = 0;
+        for (let b = 0; b < barSlotCounts.length - 1; b++) {
+          acc += barSlotCounts[b];
+          barEnds.add(acc);
+        }
         for (let i = 0; i < block.slots.length; i++) {
           const dot = document.createElement('span');
           dot.className = 'dot ' + classifySlotForViz(block.slots[i]);
@@ -2430,8 +3116,7 @@
           slotsWrap.appendChild(dot);
           slotEls.push(dot);
 
-          // Add a thin bar separator after every slotsPerBar slots (except last).
-          if ((i + 1) % block.slotsPerBar === 0 && i + 1 < block.slots.length) {
+          if (barEnds.has(i + 1) && i + 1 < block.slots.length) {
             const sep = document.createElement('span');
             sep.style.width = '0';
             sep.style.borderLeft = '1px solid #aaa';
@@ -2488,7 +3173,7 @@
         d.style.removeProperty('--beat-progress');
       }
       for (const blk of blockRowEls) {
-        if (blk.row) blk.row.classList.remove('active', 'silent', 'live', 'fallback');
+        if (blk.row) blk.row.classList.remove('active', 'silent', 'live', 'fallback', 'muted', 'mute-pending');
         for (const d of blk.slotEls) d.classList.remove('active', 'live', 'fallback');
       }
     }
@@ -2509,6 +3194,7 @@
       }
 
       const t = scheduler.now();
+      syncEditorBlockMuteLines();
       if (transportVizEl) {
         transportVizEl.dataset.running = 'true';
         transportVizEl.style.setProperty('--beat-progress', String(Math.max(0, Math.min(1, Number(t.beatProgress) || 0))));
@@ -2535,13 +3221,16 @@
         const block = lastGoodProgram.blocks[i];
 
         for (const d of blk.slotEls) d.classList.remove('active', 'live', 'fallback');
-        if (blk.row) blk.row.classList.remove('active', 'silent', 'live', 'fallback');
+        if (blk.row) blk.row.classList.remove('active', 'silent', 'live', 'fallback', 'muted', 'mute-pending');
         if (!state || !block) continue;
 
         const attractorState = state.attractorState || attractorStateForBlock(block);
+        const isMuted = Boolean(state.muted);
         if (blk.row) {
-          blk.row.classList.toggle('silent', Boolean(state.silent));
-          blk.row.classList.toggle('active', !state.silent && state.inBlockIdx >= 0);
+          blk.row.classList.toggle('silent', Boolean(state.silent) || isMuted);
+          blk.row.classList.toggle('muted', isMuted);
+          blk.row.classList.toggle('mute-pending', Boolean(state.mutePending));
+          blk.row.classList.toggle('active', !state.silent && !isMuted && state.inBlockIdx >= 0);
           blk.row.classList.toggle('live', Boolean(attractorState && attractorState.source === 'live'));
           blk.row.classList.toggle('fallback', Boolean(attractorState && attractorState.source && attractorState.source !== 'live'));
         }
@@ -2559,7 +3248,7 @@
               blk.surfacesEl,
               surfacesForBlock(block),
               Boolean(
-                (!state.silent && state.inBlockIdx >= 0) ||
+                (!state.silent && !isMuted && state.inBlockIdx >= 0) ||
                 block.attractor ||
                 (block.effects && Object.keys(block.effects).length) ||
                 (block.fade && block.fade.mode && block.fade.mode !== 'clear')
@@ -2568,14 +3257,14 @@
         }
 
         if (blk.everyEl) {
-          if (state.silent) {
+          if (isMuted || state.silent) {
             blk.everyEl.style.color = '#bbb';
           } else if (state.every) {
             blk.everyEl.style.color = '#0000cc';
           }
         }
 
-        if (!state.silent && state.inBlockIdx >= 0 && state.inBlockIdx < blk.slotEls.length) {
+        if (!state.silent && !isMuted && state.inBlockIdx >= 0 && state.inBlockIdx < blk.slotEls.length) {
           const activeDot = blk.slotEls[state.inBlockIdx];
           activeDot.classList.add('active');
 
@@ -2669,8 +3358,7 @@
       return false;
     }
 
-    if (inputPanel) inputPanel.hidden = false;
-    if (inputToggleBtn) inputToggleBtn.setAttribute('aria-expanded', 'true');
+    setInputPanelOpen(true);
 
     const state = window.InputVoice.getState ? window.InputVoice.getState() : {};
     for (const kind of kinds) {
@@ -2697,6 +3385,62 @@
     return true;
   }
 
+  function videoSourcesForProgram(program) {
+    const kinds = new Set();
+    const blocks = program && Array.isArray(program.blocks) ? program.blocks : [];
+    for (const block of blocks) {
+      if (!block || (block.voice !== 'video' && block.voice !== 'video-gen')) continue;
+      const source = block.voice === 'video-gen'
+        ? (block.videoGen && block.videoGen.source ? String(block.videoGen.source).toLowerCase() : 'camera')
+        : (block.video && block.video.kind ? String(block.video.kind).toLowerCase() : 'camera');
+      if (source === 'tab') kinds.add('screen');
+      else if (source === 'camera' || source === 'screen' || source === 'file') kinds.add(source);
+      else if (source === 'gen' || source.startsWith('vgen-')) {
+        // local generated clips do not need capture permissions
+      } else {
+        kinds.add('camera');
+      }
+    }
+    return Array.from(kinds);
+  }
+
+  async function armVideoForProgram(program) {
+    const sources = videoSourcesForProgram(program);
+    if (!sources.length) return true;
+    if (!videoDebugEnabled()) {
+      showWarning('video blocks are disabled (enable with ?debug-video=1)');
+      return false;
+    }
+    if (!window.VideoVoice || !window.VideoVoice.enableSource) {
+      showWarning('this patch uses video, but the video module is unavailable');
+      return false;
+    }
+
+    if (videoPanel) videoPanel.hidden = false;
+    if (videoToggleBtn) videoToggleBtn.setAttribute('aria-expanded', 'true');
+
+    if (window.VideoVoice.setStageCanvas && videoStageCanvas) {
+      window.VideoVoice.setStageCanvas(videoStageCanvas);
+    }
+
+    for (const source of sources) {
+      if (source === 'file') {
+        if (videoKindSelect) videoKindSelect.value = 'file';
+        if (videoFileWrap) videoFileWrap.hidden = false;
+        showWarning('choose a file in the video panel to arm video file source');
+        continue;
+      }
+      try {
+        await window.VideoVoice.enableSource(source, {});
+      } catch (err) {
+        showWarning(err && err.message ? err.message : `could not enable ${source} video source`);
+        return false;
+      }
+    }
+    refreshVideoStatus();
+    return true;
+  }
+
   async function refreshInputDevices() {
     if (!inputDeviceSelect || !window.InputVoice || !window.InputVoice.listDevices) return;
     const current = inputDeviceSelect.value;
@@ -2717,6 +3461,110 @@
 
     if (current && Array.from(inputDeviceSelect.options).some((opt) => opt.value === current)) {
       inputDeviceSelect.value = current;
+    }
+  }
+
+  function setOutputPanelStatus(text, className) {
+    if (!outputStatusEl) return;
+    outputStatusEl.textContent = text || 'output · system default';
+    outputStatusEl.className = `input-status ${className || 'source-fallback'}`;
+  }
+
+  function outputDeviceLabelById(deviceId) {
+    if (!deviceId) return 'system default';
+    if (!outputDeviceSelect) return 'selected output';
+    const match = Array.from(outputDeviceSelect.options).find((opt) => opt.value === deviceId);
+    return match ? String(match.textContent || 'selected output') : 'selected output';
+  }
+
+  async function refreshOutputDevices() {
+    if (!outputDeviceSelect || !outputApplyBtn || !outputRefreshBtn) return;
+    if (!window.StringVoice) {
+      outputDeviceSelect.disabled = true;
+      outputApplyBtn.disabled = true;
+      outputRefreshBtn.disabled = true;
+      setOutputPanelStatus('output unavailable', 'source-error');
+      return;
+    }
+
+    const supported = window.StringVoice.outputRoutingSupported
+      ? window.StringVoice.outputRoutingSupported() === true
+      : false;
+
+    const previous = outputDeviceSelect.value;
+    outputDeviceSelect.innerHTML = '';
+
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = 'system default';
+    outputDeviceSelect.appendChild(defaultOpt);
+
+    if (!supported || !window.StringVoice.listOutputDevices || !window.StringVoice.getOutputRoutingState) {
+      outputDeviceSelect.disabled = true;
+      outputApplyBtn.disabled = true;
+      outputRefreshBtn.disabled = true;
+      setOutputPanelStatus('output selection unsupported in this browser', 'source-fallback');
+      return;
+    }
+
+    let devices = [];
+    try {
+      devices = await window.StringVoice.listOutputDevices();
+    } catch (_) {
+      devices = [];
+    }
+
+    for (const device of devices) {
+      if (!device || !device.deviceId) continue;
+      if (String(device.deviceId) === 'default') continue;
+      const opt = document.createElement('option');
+      opt.value = String(device.deviceId);
+      const label = String(device.label || '').trim();
+      opt.textContent = label || 'audio output';
+      outputDeviceSelect.appendChild(opt);
+    }
+
+    const state = window.StringVoice.getOutputRoutingState();
+    const sinkId = state && typeof state.sinkId === 'string' ? state.sinkId : '';
+    const hasSinkOption = Array.from(outputDeviceSelect.options).some((opt) => opt.value === sinkId);
+    const hasPreviousOption = Array.from(outputDeviceSelect.options).some((opt) => opt.value === previous);
+    outputDeviceSelect.value = hasSinkOption ? sinkId : (hasPreviousOption ? previous : '');
+
+    outputDeviceSelect.disabled = false;
+    outputApplyBtn.disabled = false;
+    outputRefreshBtn.disabled = false;
+
+    if (state && state.error) {
+      setOutputPanelStatus(`output error · ${state.error}`, 'source-error');
+      return;
+    }
+    if (outputDeviceSelect.options.length <= 1 && !sinkId) {
+      setOutputPanelStatus('output · system default (enable input permission to list more devices)', 'source-fallback');
+      return;
+    }
+    setOutputPanelStatus(`output · ${outputDeviceLabelById(outputDeviceSelect.value)}`, sinkId ? 'source-live' : 'source-fallback');
+  }
+
+  async function applySelectedOutputDevice() {
+    if (!outputDeviceSelect || !window.StringVoice || !window.StringVoice.setOutputDevice) {
+      setOutputPanelStatus('output routing unavailable', 'source-error');
+      return;
+    }
+
+    if (!scheduler) bootScheduler();
+    if (window.StringVoice.resume) {
+      try { await window.StringVoice.resume(); } catch (_) {}
+    }
+
+    const target = String(outputDeviceSelect.value || '');
+    try {
+      await window.StringVoice.setOutputDevice(target);
+      setOutputPanelStatus(`output · ${outputDeviceLabelById(target)}`, target ? 'source-live' : 'source-fallback');
+      clearErrors();
+    } catch (err) {
+      const message = err && err.message ? err.message : 'could not switch output device';
+      showWarning(message);
+      setOutputPanelStatus(`output error · ${message}`, 'source-error');
     }
   }
 
@@ -2745,15 +3593,30 @@
     window.InputVoice.stop(inputKind());
   }
 
+  function setInputPanelOpen(shouldOpen) {
+    if (!inputToggleBtn || !inputPanel) return;
+    const open = Boolean(shouldOpen);
+    inputPanel.hidden = !open;
+    inputToggleBtn.setAttribute('aria-expanded', String(open));
+    if (open) {
+      refreshInputDevices();
+      refreshOutputDevices();
+    }
+  }
+
+  function toggleInputPanel(forceState) {
+    if (!inputToggleBtn || !inputPanel) return;
+    if (typeof forceState === 'boolean') {
+      setInputPanelOpen(forceState);
+      return;
+    }
+    setInputPanelOpen(inputPanel.hidden);
+  }
+
   function bindInputPanel() {
     if (!inputToggleBtn || !inputPanel) return;
 
-    inputToggleBtn.addEventListener('click', () => {
-      const next = inputPanel.hidden;
-      inputPanel.hidden = !next;
-      inputToggleBtn.setAttribute('aria-expanded', String(next));
-      if (next) refreshInputDevices();
-    });
+    inputToggleBtn.addEventListener('click', () => toggleInputPanel());
 
     if (inputKindSelect) {
       inputKindSelect.addEventListener('change', () => {
@@ -2766,18 +3629,499 @@
 
     if (inputEnableBtn) inputEnableBtn.addEventListener('click', enableSelectedInput);
     if (inputStopBtn) inputStopBtn.addEventListener('click', stopSelectedInput);
+    if (outputApplyBtn) outputApplyBtn.addEventListener('click', applySelectedOutputDevice);
+    if (outputRefreshBtn) outputRefreshBtn.addEventListener('click', refreshOutputDevices);
 
     if (window.InputVoice && window.InputVoice.onStateChange) {
       window.InputVoice.onStateChange(renderInputPanelState);
     }
 
+    if (!mediaDeviceChangeBound && navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === 'function') {
+      navigator.mediaDevices.addEventListener('devicechange', () => {
+        refreshInputDevices();
+        refreshOutputDevices();
+      });
+      mediaDeviceChangeBound = true;
+    }
+
     refreshInputDevices();
+    refreshOutputDevices();
+  }
+
+  function selectedVideoKind() {
+    return videoKindSelect ? String(videoKindSelect.value || 'camera') : 'camera';
+  }
+
+  function refreshVideoStatus() {
+    if (!videoDebugEnabled()) return;
+    if (!videoStatusEl) return;
+    if (!window.VideoVoice || !window.VideoVoice.getState) {
+      videoStatusEl.textContent = 'video unavailable';
+      videoStatusEl.className = 'input-status source-error';
+      return;
+    }
+    const snap = window.VideoVoice.getState();
+    const kind = selectedVideoKind();
+    const state = snap && snap.sources ? snap.sources[kind] : null;
+    if (!state) {
+      videoStatusEl.textContent = 'idle';
+      videoStatusEl.className = 'input-status source-fallback';
+      return;
+    }
+    const bits = [kind, state.status];
+    if (state.label && state.status === 'live') bits.push(state.label);
+    if (state.error && state.status === 'error') bits.push(state.error);
+    videoStatusEl.textContent = bits.join(' · ');
+    videoStatusEl.className = 'input-status ' + (state.status === 'live' ? 'source-live' : state.status === 'error' ? 'source-error' : 'source-fallback');
+  }
+
+  async function enableSelectedVideoSource() {
+    if (!videoDebugEnabled()) return;
+    if (!window.VideoVoice || !window.VideoVoice.enableSource) {
+      showWarning('video module is unavailable');
+      return;
+    }
+    if (!scheduler) bootScheduler();
+    const kind = selectedVideoKind();
+    if (kind === 'file') {
+      const file = videoFileInput && videoFileInput.files ? videoFileInput.files[0] : null;
+      if (!file) {
+        showWarning('choose a video file first');
+        return;
+      }
+      try {
+        window.VideoVoice.attachFile(file);
+        clearErrors();
+      } catch (err) {
+        showWarning(err && err.message ? err.message : 'video file load failed');
+      }
+      refreshVideoStatus();
+      return;
+    }
+
+    try {
+      await window.VideoVoice.enableSource(kind, {});
+      clearErrors();
+    } catch (err) {
+      showWarning(err && err.message ? err.message : `could not enable ${kind} video source`);
+    }
+    refreshVideoStatus();
+  }
+
+  function stopSelectedVideoSource() {
+    if (!videoDebugEnabled()) return;
+    if (!window.VideoVoice || !window.VideoVoice.stopSource) return;
+    window.VideoVoice.stopSource(selectedVideoKind());
+    refreshVideoStatus();
+  }
+
+  function toggleVideoPanel(forceOpen) {
+    if (!videoDebugEnabled()) return;
+    if (!videoPanel || !videoToggleBtn) return;
+    const next = forceOpen == null ? videoPanel.hidden : Boolean(forceOpen);
+    videoPanel.hidden = !next;
+    videoToggleBtn.setAttribute('aria-expanded', String(next));
+    if (next && window.VideoVoice && window.VideoVoice.setStageCanvas && videoStageCanvas) {
+      window.VideoVoice.setStageCanvas(videoStageCanvas);
+    }
+    refreshVideoStatus();
+  }
+
+  function bindVideoPanel() {
+    if (!videoDebugEnabled()) return;
+    if (!videoPanel || !videoToggleBtn) return;
+    videoToggleBtn.addEventListener('click', () => toggleVideoPanel());
+    if (videoKindSelect) {
+      videoKindSelect.addEventListener('change', () => {
+        const kind = selectedVideoKind();
+        if (videoFileWrap) videoFileWrap.hidden = kind !== 'file';
+        if (window.VideoVoice && window.VideoVoice.setSourcePreference) {
+          window.VideoVoice.setSourcePreference(kind);
+        }
+        refreshVideoStatus();
+      });
+    }
+    if (videoEnableBtn) videoEnableBtn.addEventListener('click', enableSelectedVideoSource);
+    if (videoStopBtn) videoStopBtn.addEventListener('click', stopSelectedVideoSource);
+    if (videoFileInput) {
+      videoFileInput.addEventListener('change', () => {
+        if (selectedVideoKind() !== 'file') return;
+        enableSelectedVideoSource();
+      });
+    }
+    if (videoPopoutBtn) {
+      videoPopoutBtn.addEventListener('click', () => {
+        if (!window.VideoVoice || !window.VideoVoice.openFloatingStageWindow) return;
+        const ok = window.VideoVoice.openFloatingStageWindow();
+        if (!ok) showWarning('popup blocked — allow popups to detach stage');
+      });
+    }
+    refreshVideoStatus();
   }
 
   // ---------------- samples browse panel ----------------
 
   let samplesGroupsCache = null;
   let samplesPanelRendered = false;
+
+  function sampleVoiceSupportsOverlay() {
+    return Boolean(
+      window.SampleVoice
+      && typeof window.SampleVoice.setOverlayBank === 'function'
+      && typeof window.SampleVoice.clearOverlayBank === 'function'
+    );
+  }
+
+  function canUseLocalSampleFolders() {
+    return typeof window.showDirectoryPicker === 'function'
+      && typeof window.indexedDB !== 'undefined'
+      && sampleVoiceSupportsOverlay();
+  }
+
+  function invalidateSamplesPanel() {
+    samplesGroupsCache = null;
+    samplesPanelRendered = false;
+  }
+
+  function refreshSamplesPanelIfOpen() {
+    if (!samplesPanel || samplesPanel.hasAttribute('hidden')) return;
+    renderSamplesPanel(samplesFilterInput ? samplesFilterInput.value : '');
+  }
+
+  function setLocalSamplesStatus(text) {
+    if (!samplesLocalStatus) return;
+    samplesLocalStatus.textContent = text || '';
+  }
+
+  function updateLocalSamplesControls() {
+    const supported = canUseLocalSampleFolders();
+    const busy = localSamplesBusy;
+    if (samplesLinkBtn) samplesLinkBtn.disabled = !supported || busy;
+    if (samplesRelinkBtn) samplesRelinkBtn.disabled = !supported || busy;
+    if (samplesUnlinkBtn) samplesUnlinkBtn.disabled = !supported || busy || !localSamplesDirHandle;
+  }
+
+  function revokeLocalSampleObjectUrls() {
+    for (const url of localSampleObjectUrls) {
+      if (!url) continue;
+      try { URL.revokeObjectURL(url); } catch (_) {}
+    }
+    localSampleObjectUrls = [];
+  }
+
+  function clearLocalSampleOverlay() {
+    revokeLocalSampleObjectUrls();
+    if (sampleVoiceSupportsOverlay()) {
+      window.SampleVoice.clearOverlayBank();
+    }
+    invalidateSamplesPanel();
+    refreshSamplesPanelIfOpen();
+  }
+
+  async function openLocalSamplesDb() {
+    if (typeof window.indexedDB === 'undefined') return null;
+    if (localSamplesDbPromise) return localSamplesDbPromise;
+
+    localSamplesDbPromise = new Promise((resolve, reject) => {
+      const req = window.indexedDB.open(LOCAL_SAMPLES_DB_NAME, LOCAL_SAMPLES_DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(LOCAL_SAMPLES_STORE)) {
+          db.createObjectStore(LOCAL_SAMPLES_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error('could not open local samples database'));
+      req.onblocked = () => reject(new Error('local samples database is blocked'));
+    }).catch((err) => {
+      localSamplesDbPromise = null;
+      throw err;
+    });
+
+    return localSamplesDbPromise;
+  }
+
+  async function readSavedSamplesHandle() {
+    const db = await openLocalSamplesDb();
+    if (!db) return null;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(LOCAL_SAMPLES_STORE, 'readonly');
+      const store = tx.objectStore(LOCAL_SAMPLES_STORE);
+      const req = store.get(LOCAL_SAMPLES_HANDLE_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error || new Error('could not read local sample folder handle'));
+      tx.onabort = () => reject(tx.error || new Error('local samples read transaction aborted'));
+    });
+  }
+
+  async function saveSamplesHandle(handle) {
+    const db = await openLocalSamplesDb();
+    if (!db) return;
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(LOCAL_SAMPLES_STORE, 'readwrite');
+      const store = tx.objectStore(LOCAL_SAMPLES_STORE);
+      const req = store.put(handle, LOCAL_SAMPLES_HANDLE_KEY);
+      req.onerror = () => reject(req.error || new Error('could not save local sample folder handle'));
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error || new Error('local samples write transaction aborted'));
+    });
+  }
+
+  async function deleteSavedSamplesHandle() {
+    const db = await openLocalSamplesDb();
+    if (!db) return;
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(LOCAL_SAMPLES_STORE, 'readwrite');
+      const store = tx.objectStore(LOCAL_SAMPLES_STORE);
+      const req = store.delete(LOCAL_SAMPLES_HANDLE_KEY);
+      req.onerror = () => reject(req.error || new Error('could not delete local sample folder handle'));
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error || new Error('local samples delete transaction aborted'));
+    });
+  }
+
+  async function queryReadPermission(handle) {
+    if (!handle || typeof handle.queryPermission !== 'function') return 'denied';
+    try {
+      const state = await handle.queryPermission({ mode: 'read' });
+      if (state === 'granted' || state === 'prompt' || state === 'denied') return state;
+      return 'denied';
+    } catch (_) {
+      return 'denied';
+    }
+  }
+
+  async function requestReadPermission(handle) {
+    if (!handle || typeof handle.requestPermission !== 'function') return 'denied';
+    try {
+      const state = await handle.requestPermission({ mode: 'read' });
+      if (state === 'granted' || state === 'prompt' || state === 'denied') return state;
+      return 'denied';
+    } catch (_) {
+      return 'denied';
+    }
+  }
+
+  function isAudioFilename(name) {
+    const raw = String(name || '');
+    const idx = raw.lastIndexOf('.');
+    if (idx <= 0 || idx >= raw.length - 1) return false;
+    const ext = raw.slice(idx + 1).toLowerCase();
+    return LOCAL_SAMPLES_EXTENSIONS.has(ext);
+  }
+
+  async function collectAudioFilesRecursive(dirHandle, pathParts, out) {
+    for await (const entry of dirHandle.values()) {
+      if (!entry || !entry.name) continue;
+      if (entry.kind === 'directory') {
+        await collectAudioFilesRecursive(entry, pathParts.concat([entry.name]), out);
+        continue;
+      }
+      if (entry.kind !== 'file' || !isAudioFilename(entry.name)) continue;
+      const file = await entry.getFile();
+      if (!file) continue;
+      out.push({
+        relPath: pathParts.concat([entry.name]).join('/'),
+        file,
+      });
+    }
+  }
+
+  function slugifyLocalSamplePath(relPath) {
+    const lowered = String(relPath || '').toLowerCase().replace(/\\/g, '/');
+    const noExt = lowered.replace(/\.[^./]+$/, '');
+    const slug = noExt
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^[-_]+|[-_]+$/g, '');
+    return slug || 'sample';
+  }
+
+  function buildLocalOverlayFromFiles(files) {
+    const sorted = files.slice().sort((a, b) => String(a.relPath || '').localeCompare(String(b.relPath || '')));
+    const used = new Set();
+    const samples = [];
+    const groupSamples = [];
+    const createdUrls = [];
+
+    for (const item of sorted) {
+      if (!item || !item.file) continue;
+      const base = `local-${slugifyLocalSamplePath(item.relPath)}`;
+      let name = base;
+      let suffix = 2;
+      while (used.has(name)) {
+        name = `${base}-${suffix}`;
+        suffix += 1;
+      }
+      used.add(name);
+      const url = URL.createObjectURL(item.file);
+      createdUrls.push(url);
+      samples.push({
+        name,
+        url,
+        file: item.file.name || '',
+        source: `local:${item.relPath}`,
+        group: LOCAL_SAMPLE_GROUP_ID,
+      });
+      groupSamples.push(name);
+    }
+
+    const groups = groupSamples.length
+      ? [{ id: LOCAL_SAMPLE_GROUP_ID, label: LOCAL_SAMPLE_GROUP_LABEL, samples: groupSamples }]
+      : [];
+
+    return { samples, groups, createdUrls };
+  }
+
+  async function applyLocalSamplesFromHandle(handle, options) {
+    if (!canUseLocalSampleFolders() || !handle) return false;
+    const opts = options && typeof options === 'object' ? options : {};
+    const requireGranted = Boolean(opts.requireGranted);
+    const statusWhenPrompt = opts.statusWhenPrompt || 'local folder saved — click relink to grant access';
+    const statusPrefix = opts.statusPrefix || 'local folder';
+
+    const permission = await queryReadPermission(handle);
+    if (permission === 'denied') {
+      clearLocalSampleOverlay();
+      localSamplesDirHandle = handle;
+      setLocalSamplesStatus(`${statusPrefix} access denied — relink to grant access`);
+      updateLocalSamplesControls();
+      return false;
+    }
+    if (permission !== 'granted') {
+      if (requireGranted) {
+        const requested = await requestReadPermission(handle);
+        if (requested !== 'granted') {
+          clearLocalSampleOverlay();
+          localSamplesDirHandle = handle;
+          setLocalSamplesStatus(statusWhenPrompt);
+          updateLocalSamplesControls();
+          return false;
+        }
+      } else {
+        clearLocalSampleOverlay();
+        localSamplesDirHandle = handle;
+        setLocalSamplesStatus(statusWhenPrompt);
+        updateLocalSamplesControls();
+        return false;
+      }
+    }
+
+    const files = [];
+    await collectAudioFilesRecursive(handle, [], files);
+    const overlay = buildLocalOverlayFromFiles(files);
+    clearLocalSampleOverlay();
+    localSampleObjectUrls = overlay.createdUrls;
+    window.SampleVoice.setOverlayBank({
+      samples: overlay.samples,
+      groups: overlay.groups,
+    });
+    localSamplesDirHandle = handle;
+    invalidateSamplesPanel();
+    refreshSamplesPanelIfOpen();
+    setLocalSamplesStatus(`${statusPrefix}: ${overlay.samples.length} loaded`);
+    updateLocalSamplesControls();
+    return true;
+  }
+
+  function setLocalSamplesBusy(nextBusy) {
+    localSamplesBusy = Boolean(nextBusy);
+    updateLocalSamplesControls();
+  }
+
+  async function chooseLocalSamplesFolder() {
+    if (typeof window.showDirectoryPicker !== 'function') return null;
+    return window.showDirectoryPicker({ id: 'repl-samples', mode: 'read' });
+  }
+
+  async function linkLocalSamplesFolder() {
+    if (!canUseLocalSampleFolders()) return;
+    setLocalSamplesBusy(true);
+    setLocalSamplesStatus('linking local folder...');
+    try {
+      const handle = await chooseLocalSamplesFolder();
+      if (!handle) {
+        setLocalSamplesStatus('local folder link canceled');
+        return;
+      }
+      const linked = await applyLocalSamplesFromHandle(handle, {
+        requireGranted: true,
+        statusPrefix: `local folder "${handle.name || 'linked'}"`,
+      });
+      if (linked) {
+        try {
+          await saveSamplesHandle(handle);
+        } catch (err) {
+          showWarning(err && err.message ? err.message : 'could not persist local sample folder link');
+          setLocalSamplesStatus(`local folder "${handle.name || 'linked'}" loaded (not persisted)`);
+        }
+      }
+    } catch (err) {
+      const name = err && err.name ? String(err.name) : '';
+      if (name === 'AbortError') {
+        setLocalSamplesStatus('local folder link canceled');
+      } else {
+        showWarning(err && err.message ? err.message : 'could not link local sample folder');
+        setLocalSamplesStatus('local folder link failed');
+      }
+    } finally {
+      setLocalSamplesBusy(false);
+    }
+  }
+
+  async function unlinkLocalSamplesFolder() {
+    setLocalSamplesBusy(true);
+    try {
+      clearLocalSampleOverlay();
+      localSamplesDirHandle = null;
+      if (canUseLocalSampleFolders()) {
+        try {
+          await deleteSavedSamplesHandle();
+        } catch (err) {
+          showWarning(err && err.message ? err.message : 'could not clear saved local sample folder');
+        }
+      }
+      setLocalSamplesStatus('local folder unlinked');
+    } finally {
+      setLocalSamplesBusy(false);
+    }
+  }
+
+  async function initLocalSamplesFromSavedHandle() {
+    if (!canUseLocalSampleFolders()) {
+      if (!sampleVoiceSupportsOverlay()) {
+        setLocalSamplesStatus('local folder samples unavailable in this build');
+      } else {
+        setLocalSamplesStatus('local folder linking not supported in this browser');
+      }
+      updateLocalSamplesControls();
+      return;
+    }
+
+    setLocalSamplesBusy(true);
+    setLocalSamplesStatus('checking saved local folder...');
+    try {
+      const handle = await readSavedSamplesHandle();
+      if (!handle) {
+        setLocalSamplesStatus('no local folder linked');
+        localSamplesDirHandle = null;
+        clearLocalSampleOverlay();
+        return;
+      }
+      await applyLocalSamplesFromHandle(handle, {
+        requireGranted: false,
+        statusPrefix: `local folder "${handle.name || 'saved'}"`,
+        statusWhenPrompt: 'saved local folder needs permission — click relink',
+      });
+    } catch (err) {
+      showWarning(err && err.message ? err.message : 'could not restore local sample folder link');
+      clearLocalSampleOverlay();
+      localSamplesDirHandle = null;
+      setLocalSamplesStatus('local folder restore failed');
+    } finally {
+      setLocalSamplesBusy(false);
+    }
+  }
 
   function renderSamplesPanel(filter) {
     if (!samplesGroupsEl) return;
@@ -2824,8 +4168,38 @@
 
   function insertAtCursor(text) {
     if (!editorAPI) return;
+    const value = typeof text === 'string' ? text : '';
+    if (!value) return;
+
+    const doc = (typeof editorAPI.getValue === 'function')
+      ? String(editorAPI.getValue() || '')
+      : '';
+    const rawCursor = (typeof editorAPI.getCursor === 'function')
+      ? editorAPI.getCursor()
+      : 0;
+    const cursor = Number.isFinite(rawCursor)
+      ? Math.max(0, Math.min(doc.length, rawCursor | 0))
+      : 0;
+
+    // Collapse to one caret before insertion so a stale selection range
+    // cannot redirect edits away from the user's intended cursor point.
+    if (typeof editorAPI.setCursor === 'function') editorAPI.setCursor(cursor);
     editorAPI.focus();
-    editorAPI.insertText(text);
+
+    if (typeof editorAPI.dispatchTextChange !== 'function') {
+      editorAPI.insertText(value);
+      return;
+    }
+
+    const before = cursor > 0 ? doc.slice(cursor - 1, cursor) : '';
+    const after = cursor < doc.length ? doc.slice(cursor, cursor + 1) : '';
+    const needLead = before && !/\s|\(/.test(before);
+    const needTrail = after && !/\s|\)/.test(after);
+    const insert = `${needLead ? ' ' : ''}${value}${needTrail ? ' ' : ''}`;
+    editorAPI.dispatchTextChange(cursor, cursor, insert);
+    if (typeof editorAPI.setCursor === 'function') {
+      editorAPI.setCursor(cursor + insert.length);
+    }
   }
 
   function toggleSamplesPanel(forceState) {
@@ -2854,12 +4228,23 @@
     samplesToggleBtn.addEventListener('click', () => toggleSamplesPanel());
   }
   if (samplesGroupsEl) {
+    // Preserve editor caret when clicking sample pills.
+    samplesGroupsEl.addEventListener('mousedown', (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      const pill = target.closest('.samples-pill');
+      if (!pill) return;
+      e.preventDefault();
+    });
+
     // Event delegation: any click on a .samples-pill inserts its data-name.
     samplesGroupsEl.addEventListener('click', (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
       const pill = target.closest('.samples-pill');
       if (!pill) return;
+      e.preventDefault();
+      e.stopPropagation();
       const name = pill.getAttribute('data-name');
       if (!name) return;
       insertAtCursor(name);
@@ -2884,8 +4269,17 @@
       }
     });
   }
+  if (samplesLinkBtn) samplesLinkBtn.addEventListener('click', () => { linkLocalSamplesFolder(); });
+  if (samplesRelinkBtn) samplesRelinkBtn.addEventListener('click', () => { linkLocalSamplesFolder(); });
+  if (samplesUnlinkBtn) samplesUnlinkBtn.addEventListener('click', () => { unlinkLocalSamplesFolder(); });
+  window.addEventListener('beforeunload', () => {
+    revokeLocalSampleObjectUrls();
+  });
+  updateLocalSamplesControls();
 
+    applyVideoDebugGate();
     bindInputPanel();
+    bindVideoPanel();
     bindFieldReport();
 
   // ---------------- status ticker ----------------
@@ -2907,6 +4301,7 @@
     editorAPI = window.createReplEditor({
       parent: editorMount,
       initialText: '',
+      blockMuteLines: editorMuteLinesSnapshot(),
       onChange: () => {
         // Reserved for future autosave/diagnostics hooks. The CM linter
         // already runs on doc changes; we don't hard-evaluate here.
@@ -2919,6 +4314,10 @@
         safePlay,
         stop,
         share: shareCurrent,
+        toggleIO: toggleInputPanel,
+      },
+      onToggleBlockMute: ({ lineNumber }) => {
+        toggleBlockMuteFromEditor(lineNumber);
       },
       getSampleNames: () => (
         window.SampleVoice && window.SampleVoice.list ? window.SampleVoice.list() : []
@@ -2926,6 +4325,13 @@
       getSampleGroups: () => (
         window.SampleVoice && window.SampleVoice.groups ? window.SampleVoice.groups() : []
       ),
+      getDrumKits: () => (
+        window.SampleVoice && window.SampleVoice.kits ? window.SampleVoice.kits() : []
+      ),
+      getVideoGeneratedIds: () => (
+        videoDebugEnabled() && window.VideoVoice && window.VideoVoice.getGeneratedIds ? window.VideoVoice.getGeneratedIds() : []
+      ),
+      enableVideoDebug: videoDebugEnabled(),
       parseForDiagnostics: (text) => (
         window.ReplDSL && window.ReplDSL.parse ? window.ReplDSL.parse(text) : { ok: true }
       ),
@@ -2942,6 +4348,7 @@
     if (window.SampleVoice) {
       window.SampleVoice.loadManifest(SAMPLES_MANIFEST_URL).catch(() => {});
     }
+    initLocalSamplesFromSavedHandle();
     const loaded = await loadFromHash();
     if (!loaded) await loadDefaultExample();
     // Pre-render the transport panel from a parse of the loaded text so
@@ -2949,11 +4356,13 @@
     const initialText = editorAPI ? editorAPI.getValue() : '';
     const parsed = window.ReplDSL.parse(initialText);
       if (parsed.ok) {
+        applyStoredBlockMuteOverrides(parsed.program);
         lastGoodProgram = parsed.program;
         if (window.ReplAttractors && window.ReplAttractors.warm) {
           window.ReplAttractors.warm(parsed.program);
         }
         renderTransportShell(parsed.program);
+        syncEditorBlockMuteLines();
       }
         if (editorAPI && shouldAutofocusEditor) editorAPI.focus();
   })();

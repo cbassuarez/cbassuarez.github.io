@@ -1,0 +1,16 @@
+tempo 180
+meter 3/4
+tuning kirnberger-3
+
+// shared >> leader: this top anchor wins for descending ramps
+pluck >>6* * *
+speed 1
+decay 0
+
+pluck >>* * *
+speed .99
+decay 0
+
+pluck >>* * *
+speed .98
+decay 0

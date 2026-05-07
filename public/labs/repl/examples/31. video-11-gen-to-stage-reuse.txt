@@ -1,0 +1,28 @@
+// video-11 — gen to stage reuse
+// Route generated material back into a file-mode video block.
+
+tempo 92
+meter 4/4
+
+video gen * . * .
+source camera
+style drift
+seed memory-loop
+duration 5s
+cache live
+feedback 0.28
+displace 0.22
+color 0.72
+
+video file * ~ . *
+source clip vgen-0001
+opacity 0.88
+posterize 0.38
+trail 0.34
+blend screen
+
+// always-audible bed
+pulse * . * .
+gain 0.18
+decay 0.06
+tone 0.8

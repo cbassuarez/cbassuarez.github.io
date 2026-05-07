@@ -1,0 +1,24 @@
+// video-03 — video as input signals
+// Camera analysis becomes a control field for audio.
+
+tempo 92
+meter 4/4
+tuning kirnberger-3
+
+video camera
+listen on
+opacity 0.78
+edges 0.22
+blend screen
+
+sine A3 ~ C4 ~
+gain camera.motion 0.16 0.58
+pan camera.centroidx -0.72 0.72
+tone camera.brightness 0.2 0.9
+space camera.stillness 0.08 0.52
+
+// always-audible bed
+pulse * . * .
+gain 0.16
+decay 0.07
+tone 0.74

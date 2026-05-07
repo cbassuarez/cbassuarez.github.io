@@ -1,5 +1,6 @@
-tempo 88
+tempo 92
 meter 4/4
+tuning kirnberger-3
 
 // same phrase, no coupling
 

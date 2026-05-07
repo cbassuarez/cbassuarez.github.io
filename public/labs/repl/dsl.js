@@ -10,12 +10,18 @@
 (function (root) {
   'use strict';
 
-    const VOICE_NAMES = new Set(['string', 'sample']);
+    const VOICE_NAMES = new Set(['string', 'sample', 'sine', 'osc', 'noise', 'pluck', 'pulse', 'drone', 'drum', 'video']);
+    const VIDEO_SOURCE_NAMES = new Set(['camera', 'screen', 'file', 'gen']);
     const INPUT_SOURCE_NAMES = new Set(['mic', 'interface', 'tab']);
     const INPUT_ROW_NAMES = new Set(['monitor', 'listen']);
-    const PARAM_NAMES = new Set(['force', 'decay', 'crush', 'pan', 'gain', 'tone', 'harm', 'octave', 'every', 'rate', 'start', 'speed']);
+    const PARAM_NAMES = new Set([
+      'force', 'decay', 'crush', 'resolution', 'pan', 'gain', 'tone', 'harm', 'octave',
+      'every', 'rate', 'start', 'speed', 'glide', 'variance', 'monitor', 'listen',
+      'opacity', 'threshold', 'edges', 'posterize', 'invert', 'contrast', 'saturate',
+      'displace', 'feedback', 'delay', 'slitscan', 'trail', 'mask', 'key', 'color', 'blend',
+    ]);
     const LIVE_CONTROL_NAMES = new Set(['time', 'beat', 'leaf', 'choose', 'trigger']);
-    const LIVE_SOURCE_NAMES = new Set(['mic', 'interface', 'tab', 'input']);
+    const LIVE_SOURCE_NAMES = new Set(['mic', 'interface', 'tab', 'input', 'camera', 'screen', 'file', 'video']);
     const LIVE_FEATURE_NAMES = new Set([
       'intensity', 'rms', 'loudness',
       'volatility', 'flux',
@@ -28,11 +34,15 @@
       'brightness', 'centroid',
       'noisiness', 'flatness',
       'roughness',
+      'motion', 'presence', 'contrast', 'colortemp', 'saturation', 'edges',
+      'flowx', 'flowy', 'stillness', 'flicker', 'centroidx', 'centroidy',
+      'faces', 'body', 'depth',
     ]);
     const EFFECT_NAMES = new Set(['compress', 'space', 'resonance', 'comb', 'grain', 'chorus', 'excite', 'blur', 'scar', 'body']);
     const BLOCK_DIRECTIVES = new Set(['attractor', 'source']);
+    const VIDEO_GEN_ROW_NAMES = new Set(['source', 'style', 'seed', 'duration', 'cache']);
     const FADE_DIRECTIVES = new Set(['fade']);
-    const FILE_DIRECTIVES = new Set(['tempo', 'meter']);
+    const FILE_DIRECTIVES = new Set(['tempo', 'meter', 'eval', 'evaluate', 'tuning']);
 
     const EFFECT_MODE_NAMES = {
       compress: new Set(['feedback', 'glue', 'clamp']),
@@ -56,19 +66,73 @@
     const NOTE_RE = /^([A-Ga-g])([#b])?(-?\d{1,2})$/;
     const RANDOM_PITCH_CLASSES = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
     const RANDOM_PITCH_OCTAVES = [2, 3, 4, 5];
+    const PITCHED_VOICES = new Set(['string', 'sine', 'osc', 'pluck', 'drone']);
 
-  function stripComment(line) {
+  function isPitchedVoice(voice) {
+    return PITCHED_VOICES.has(String(voice || '').toLowerCase());
+  }
+
+  function splitLineComment(line) {
+    const source = String(line == null ? '' : line);
     // `//` is a comment only at the start of a line or after whitespace.
     // Otherwise it can appear inside sample selector tokens like
     // `snm-*//tub-*` and must be left alone.
-    let i = line.indexOf('//');
+    let i = source.indexOf('//');
     while (i >= 0) {
-      if (i === 0 || /\s/.test(line[i - 1])) {
-        return line.slice(0, i);
+      if (i === 0 || /\s/.test(source[i - 1])) {
+        return {
+          code: source.slice(0, i),
+          comment: source.slice(i + 2),
+        };
       }
-      i = line.indexOf('//', i + 1);
+      i = source.indexOf('//', i + 1);
     }
-    return line;
+    return { code: source, comment: '' };
+  }
+
+  function stripComment(line) {
+    return splitLineComment(line).code;
+  }
+
+  function parseBlockMetaComment(commentText) {
+    const raw = String(commentText || '');
+    if (!raw) return null;
+    const out = { has: false, tags: [], mutedDefault: null };
+    const seenTags = new Set();
+    const metaRe = /@([a-z][a-z0-9_-]*)([^@]*)/gi;
+    let m = null;
+
+    while ((m = metaRe.exec(raw)) !== null) {
+      const key = String(m[1] || '').toLowerCase();
+      const payload = String(m[2] || '').trim();
+      if (key === 'tag') {
+        const parts = payload.split(/[\s,]+/).filter(Boolean);
+        for (const part of parts) {
+          const slug = String(part || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9._-]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+          if (!slug || seenTags.has(slug)) continue;
+          seenTags.add(slug);
+          out.tags.push(slug);
+        }
+        out.has = true;
+        continue;
+      }
+      if (key === 'muted') {
+        const flag = payload.split(/\s+/, 1)[0].toLowerCase();
+        if (!flag) {
+          out.mutedDefault = true;
+        } else if (flag === 'off' || flag === 'false' || flag === '0' || flag === 'no' || flag === 'live' || flag === 'unmuted') {
+          out.mutedDefault = false;
+        } else {
+          out.mutedDefault = true;
+        }
+        out.has = true;
+      }
+    }
+
+    return out.has ? out : null;
   }
 
     function isNoteToken(tok) { return NOTE_RE.test(tok); }
@@ -198,6 +262,99 @@
         };
       }
 
+      return null;
+    }
+
+    function parsePitchSpanStartPayload(raw) {
+      const payload = String(raw || '');
+      if (!payload) return null;
+
+      const anchor = payload.match(/^([0-8])\*$/);
+      if (anchor) {
+        return {
+          kind: 'octave-anchor',
+          octave: Number(anchor[1]),
+          raw: payload,
+        };
+      }
+
+      if (isNoteToken(payload)) {
+        const note = noteTokenValue(payload);
+        if (note) {
+          return {
+            kind: 'note',
+            note,
+            raw: payload,
+          };
+        }
+      }
+
+      const wildcard = parsePitchWildcard(payload);
+      if (wildcard) {
+        return {
+          kind: 'wildcard',
+          token: wildcard,
+          raw: payload,
+        };
+      }
+
+      return null;
+    }
+
+    function parsePitchSpanStartToken(tok) {
+      const raw = String(tok || '');
+      const m = raw.match(/^(<<|>>|<|>)(.+)$/);
+      if (!m) return null;
+      const marker = m[1];
+      const payloadRaw = m[2];
+      const shared = marker.length === 2;
+      const direction = marker.indexOf('>') >= 0 ? 'down' : 'up';
+      const startSpec = parsePitchSpanStartPayload(payloadRaw);
+      if (!startSpec) return null;
+
+      return {
+        kind: 'pitch-span-start',
+        value: {
+          direction,
+          shared,
+          startSpec,
+          marker,
+          raw,
+        },
+        raw,
+      };
+    }
+
+    function parsePitchSpanEndToken(tok) {
+      const raw = String(tok || '');
+      const m = raw.match(/^([A-Ga-g])([#b])?%$/);
+      if (!m) return null;
+
+      return {
+        kind: 'pitch-span-end',
+        value: {
+          implicit: false,
+          targetSpec: {
+            kind: 'pitch-class-same-octave',
+            pitchClass: String(m[1] || '').toUpperCase(),
+            accidental: m[2] || '',
+            sameOctave: true,
+            raw,
+          },
+          raw,
+        },
+        raw,
+      };
+    }
+
+    function pitchSpanTokenError(tok) {
+      const raw = String(tok || '');
+      if (/^(<<|>>|<|>)/.test(raw)) {
+        return `invalid pitch-span start '${raw}' — use <A4, >A*, >>*4, <<*!4, or >6*`;
+      }
+      if (/%$/.test(raw)) {
+        return `invalid pitch-span end '${raw}' — use pitch-class % forms like G%, Bb%, or C#%`;
+      }
       return null;
     }
     function isRestToken(tok) { return tok === '.' || tok === '-'; }
@@ -347,19 +504,30 @@
       };
     }
 
-  function noteToFreq(tok) {
+  function noteTokenValue(tok) {
     const m = tok.match(NOTE_RE);
     if (!m) return null;
-    const name = m[1].toUpperCase();
+    const pitchClass = m[1].toUpperCase();
     const accidental = m[2] || '';
     const octave = parseInt(m[3], 10);
+
     const semitoneOffsets = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
-    let semis = semitoneOffsets[name];
+    let semis = semitoneOffsets[pitchClass];
     if (semis == null) return null;
     if (accidental === '#') semis += 1;
     if (accidental === 'b') semis -= 1;
+
     const midi = (octave + 1) * 12 + semis;
-    return 440 * Math.pow(2, (midi - 69) / 12);
+    const freq = 440 * Math.pow(2, (midi - 69) / 12);
+
+    return {
+      name: `${pitchClass}${accidental}${octave}`,
+      pitchClass,
+      accidental,
+      octave,
+      midi,
+      freq,
+    };
   }
 
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -409,13 +577,25 @@
         if (isRestToken(body)) return { kind: 'rest', value: null, raw: body };
         if (isSustainToken(body)) return { kind: 'sustain', value: null, raw: body };
 
-        if (voice === 'string') {
+        if (isPitchedVoice(voice)) {
+          const spanStart = parsePitchSpanStartToken(body);
+          if (spanStart) {
+            spanStart.gated = gate.gated === true;
+            return spanStart;
+          }
+
+          const spanEnd = parsePitchSpanEndToken(body);
+          if (spanEnd) {
+            spanEnd.gated = gate.gated === true;
+            return spanEnd;
+          }
+
           if (isNoteToken(body)) {
-            const freq = noteToFreq(body);
-            if (freq) {
+            const note = noteTokenValue(body);
+            if (note) {
               return {
                 kind: 'note',
-                value: { name: body, freq },
+                value: note,
                 gated: gate.gated === true,
               };
             }
@@ -456,12 +636,156 @@
           return null;
         }
 
+        if (voice === 'noise' || voice === 'pulse') {
+          if (body === '*' || body === '*!') {
+            return {
+              kind: voice === 'pulse' ? 'pulse' : 'noise',
+              value: { frozen: body === '*!', raw: body },
+              gated: gate.gated === true,
+              raw: body,
+            };
+          }
+
+          return null;
+        }
+
+        if (voice === 'drum') {
+          const m = body.match(/^([kshortc]|\*)(!)?$/i);
+          if (!m) return null;
+          const lane = String(m[1] || '').toLowerCase();
+          return {
+            kind: 'drum',
+            value: { lane, frozen: m[2] === '!', raw: body },
+            gated: gate.gated === true,
+            raw: body,
+          };
+        }
+
+        if (voice === 'video' || voice === 'video-gen') {
+          if (body === '*' || body === '*!') {
+            return {
+              kind: 'video-hit',
+              value: { frozen: body === '*!', raw: body },
+              gated: gate.gated === true,
+              raw: body,
+            };
+          }
+          return null;
+        }
+
         return null;
       }
 
     let pos = 0;
-    let bars = 1;
     const slots = [];
+    const barSlotCounts = [];
+    let currentBarSlots = 0;
+
+    function pushSlot(node) {
+      slots.push(node);
+      currentBarSlots++;
+    }
+
+    function collectLeafRefs(node, out) {
+      if (!node) return;
+      if (node.kind === 'leaf') {
+        out.push(node);
+        return;
+      }
+      if (node.kind === 'group' && Array.isArray(node.children)) {
+        for (const child of node.children) collectLeafRefs(child, out);
+      }
+    }
+
+    function finalizePitchSpans() {
+      if (!isPitchedVoice(voice)) return;
+
+      const leaves = [];
+      for (const slot of slots) collectLeafRefs(slot, leaves);
+
+      let open = null;
+
+      function closeImplicit(reason) {
+        if (!open) return;
+        if (!Number.isFinite(open.lastStarLeafIndex)) {
+          errors.push({
+            line: lineNumber,
+            message: `pitch-span '${open.startRaw}' is missing an end target — add a % end token (e.g. G%) or include a trailing * to close implicitly`,
+          });
+          open = null;
+          return;
+        }
+
+        const leaf = leaves[open.lastStarLeafIndex];
+        const fallbackOctave = open.direction === 'down' ? 1 : 8;
+        const implicitRaw = `*${fallbackOctave}`;
+        if (leaf && leaf.token) {
+          leaf.token = {
+            kind: 'pitch-span-end',
+            raw: implicitRaw,
+            value: {
+              implicit: true,
+              reason: reason || 'end-of-run',
+              targetSpec: {
+                kind: 'wildcard-fixed-octave',
+                octave: fallbackOctave,
+                raw: implicitRaw,
+              },
+            },
+          };
+        }
+        open = null;
+      }
+
+      for (let i = 0; i < leaves.length; i++) {
+        const leaf = leaves[i];
+        const tok = leaf && leaf.token ? leaf.token : null;
+        if (!tok) continue;
+
+        if (tok.kind === 'pitch-span-start') {
+          if (open) closeImplicit('next-start');
+          open = {
+            direction: tok.value && tok.value.direction ? tok.value.direction : 'down',
+            shared: Boolean(tok.value && tok.value.shared),
+            startRaw: tok.raw || '',
+            lastStarLeafIndex: null,
+          };
+          continue;
+        }
+
+        if (tok.kind === 'pitch-span-end') {
+          if (!open) {
+            errors.push({
+              line: lineNumber,
+              message: `pitch-span end '${tok.raw || '%'}' has no active span start`,
+            });
+            continue;
+          }
+          open = null;
+          continue;
+        }
+
+        if (!open) continue;
+
+        if (tok.kind === 'rest' || tok.kind === 'sustain') {
+          tok.pitchSpanCarry = true;
+          continue;
+        }
+
+        if (tok.kind === 'note-random' && tok.value && tok.value.raw === '*') {
+          tok.pitchSpanStep = true;
+          open.lastStarLeafIndex = i;
+          continue;
+        }
+
+        errors.push({
+          line: lineNumber,
+          message: `inside an active pitch-span, only '*', '.', '~', and an end token like G% are allowed`,
+        });
+      }
+
+      if (open) closeImplicit('end-of-block');
+    }
 
     function parseGroup() {
       const children = [];
@@ -487,17 +811,28 @@
           if (!leaf) {
             const gateError = voiceGateError(t);
             const stripped = splitVoiceGateToken(t);
-            const wildcardError = voice === 'string'
+            const wildcardError = isPitchedVoice(voice)
               ? pitchWildcardError(stripped.body || t)
+              : null;
+            const spanError = isPitchedVoice(voice)
+              ? pitchSpanTokenError(stripped.body || t)
               : null;
 
             if (gateError) {
               errors.push({ line: lineNumber, message: gateError });
             } else if (wildcardError) {
               errors.push({ line: lineNumber, message: wildcardError });
+            } else if (spanError) {
+              errors.push({ line: lineNumber, message: spanError });
             } else {
-              const hint = voice === 'string'
-                ? ` — voice 'string' takes notes like A3, C#4, Bb2, *, *!, *4, *!4, A*, A*!, and may gate them with ';'`
+              const hint = isPitchedVoice(voice)
+                ? ` — voice '${voice}' takes notes/wildcards plus pitch spans like >6*, >>A*, <<*!4, and end tokens like G%`
+              : (voice === 'noise' || voice === 'pulse')
+                  ? ` — voice '${voice}' takes hit tokens like * or *!, rests '.', and sustains '~'`
+              : (voice === 'drum')
+                  ? ` — voice 'drum' takes lane tokens k/s/h/o/t/r/c, wildcard * or *!, rests '.', and sustains '~'`
+                : (voice === 'video' || voice === 'video-gen')
+                  ? ` — voice '${voice}' takes visual event tokens * or *!, rests '.', and sustains '~'`
                 : ` — voice 'sample' takes bank ids/selectors like tub-xither-forge, snm-*, snm-*&20, and may gate them with ';'`;
               errors.push({ line: lineNumber, message: `'${t}' isn't valid here${hint}` });
             }
@@ -516,13 +851,20 @@
     while (pos < tokens.length) {
       const t = tokens[pos];
       if (t === '|') {
-        bars++;
+        // Bar lines act as equal-time bar separators: each bar takes the
+        // same wall-clock time, but bars may hold different slot counts.
+        // Empty bars (leading '|', consecutive '||', trailing '|') are
+        // treated as no-ops rather than zero-slot bars.
+        if (currentBarSlots > 0) {
+          barSlotCounts.push(currentBarSlots);
+          currentBarSlots = 0;
+        }
         pos++;
         continue;
       }
       if (t === '(') {
         pos++;
-        slots.push(parseGroup());
+        pushSlot(parseGroup());
         continue;
       }
       if (t === ')') {
@@ -534,29 +876,45 @@
         if (!leaf) {
           const gateError = voiceGateError(t);
           const stripped = splitVoiceGateToken(t);
-          const wildcardError = voice === 'string'
+          const wildcardError = isPitchedVoice(voice)
             ? pitchWildcardError(stripped.body || t)
+            : null;
+          const spanError = isPitchedVoice(voice)
+            ? pitchSpanTokenError(stripped.body || t)
             : null;
 
           if (gateError) {
             errors.push({ line: lineNumber, message: gateError });
           } else if (wildcardError) {
             errors.push({ line: lineNumber, message: wildcardError });
+          } else if (spanError) {
+            errors.push({ line: lineNumber, message: spanError });
           } else {
-            const hint = voice === 'string'
-              ? ` — voice 'string' takes notes like A3, C#4, Bb2, *, *!, *4, *!4, A*, A*!, and may gate them with ';'`
-              : ` — voice 'sample' takes bank ids/selectors like tub-xither-forge, snm-*, snm-*&20, and may gate them with ';'`;
+            const hint = isPitchedVoice(voice)
+              ? ` — voice '${voice}' takes notes/wildcards plus pitch spans like >6*, >>A*, <<*!4, and end tokens like G%`
+            : (voice === 'noise' || voice === 'pulse')
+                ? ` — voice '${voice}' takes hit tokens like * or *!, rests '.', and sustains '~'`
+            : (voice === 'drum')
+                ? ` — voice 'drum' takes lane tokens k/s/h/o/t/r/c, wildcard * or *!, rests '.', and sustains '~'`
+              : (voice === 'video' || voice === 'video-gen')
+                ? ` — voice '${voice}' takes visual event tokens * or *!, rests '.', and sustains '~'`
+                : ` — voice 'sample' takes bank ids/selectors like tub-xither-forge, snm-*, snm-*&20, and may gate them with ';'`;
             errors.push({ line: lineNumber, message: `'${t}' isn't valid here${hint}` });
           }
-          slots.push({ kind: 'leaf', token: { kind: 'rest', value: null } });
+          pushSlot({ kind: 'leaf', token: { kind: 'rest', value: null } });
           pos++;
           continue;
         }
-      slots.push({ kind: 'leaf', token: leaf });
+      pushSlot({ kind: 'leaf', token: leaf });
       pos++;
     }
 
-    return { slots, bars, errors };
+    if (currentBarSlots > 0) barSlotCounts.push(currentBarSlots);
+    if (barSlotCounts.length === 0) barSlotCounts.push(slots.length);
+    finalizePitchSpans();
+    const bars = barSlotCounts.length;
+
+    return { slots, bars, barSlotCounts, errors };
   }
 
     // -------------------- parameter resolution --------------------
@@ -627,9 +985,9 @@
       // stream grouping in this DSL.
       s = s.replace(/\s+/g, '');
       s = s.replace(/π/g, 'pi');
-      s = s.replace(/(\d(?:\.\d+)?)pi/g, '$1*pi');
+      s = s.replace(/((?:\d+(?:\.\d+)?)|(?:\.\d+))pi/g, '$1*pi');
 
-      if (!/^-?(?:\d+(?:\.\d+)?|pi)(?:[*/]-?(?:\d+(?:\.\d+)?|pi))*$/.test(s)) {
+      if (!/^-?(?:(?:\d+(?:\.\d+)?)|(?:\.\d+)|pi)(?:[*/]-?(?:(?:\d+(?:\.\d+)?)|(?:\.\d+)|pi))*$/.test(s)) {
         return NaN;
       }
 
@@ -685,6 +1043,49 @@
         if (Number.isFinite(num)) return { ok: true, value: clamp(Math.round(num), 4, 16) };
         return { ok: false, message: `crush must be 0/off or 4–16` };
 
+      case 'resolution':
+        if (lower === 'off') return { ok: true, value: 0 };
+        if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
+        return { ok: false, message: `resolution must be off or 0–1` };
+
+      case 'variance':
+        if (lower === 'off') return { ok: true, value: 0 };
+        if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
+        return { ok: false, message: `variance must be off or 0–1` };
+
+      case 'monitor':
+      case 'listen':
+        if (lower === 'on' || lower === 'yes' || lower === 'true' || lower === '1') return { ok: true, value: 1 };
+        if (lower === 'off' || lower === 'no' || lower === 'false' || lower === '0') return { ok: true, value: 0 };
+        if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
+        return { ok: false, message: `${name} must be on/off or 0–1` };
+
+      case 'opacity':
+      case 'threshold':
+      case 'edges':
+      case 'posterize':
+      case 'invert':
+      case 'contrast':
+      case 'saturate':
+      case 'displace':
+      case 'feedback':
+      case 'delay':
+      case 'slitscan':
+      case 'trail':
+      case 'mask':
+      case 'key':
+      case 'color':
+        if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
+        return { ok: false, message: `${name} must be 0–1, *, ~, _, *!, *&N, or *~` };
+
+      case 'blend':
+        if (lower === 'normal' || lower === 'source-over') return { ok: true, value: 'source-over' };
+        if (lower === 'screen' || lower === 'multiply' || lower === 'overlay' || lower === 'difference' || lower === 'lighter') {
+          return { ok: true, value: lower };
+        }
+        if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
+        return { ok: false, message: `blend must be normal/source-over/screen/multiply/overlay/difference/lighter or 0–1` };
+
       case 'pan':
         if (lower in PAN_NAMED) return { ok: true, value: PAN_NAMED[lower] };
         if (Number.isFinite(num)) return { ok: true, value: clamp(num, -1, 1) };
@@ -720,6 +1121,10 @@
         case 'speed':
           if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0.0625, 16) };
           return { ok: false, message: `speed '${raw}' — use a factor like 2, 1/2, pi/4, *, *!, or *&8` };
+
+        case 'glide':
+          if (Number.isFinite(num) && num > 0) return { ok: true, value: num };
+          return { ok: false, message: `glide must be a positive number of seconds` };
 
         default:
           return { ok: false, message: `unknown parameter '${name}'` };
@@ -778,14 +1183,34 @@
         case 'force': return [0.2, 1];
         case 'decay': return [0.4, 8];
         case 'crush': return [0, 16];
+        case 'resolution': return [0, 1];
+        case 'variance': return [0, 1];
         case 'tone': return [0, 1];
         case 'harm': return [1, 5];
         case 'octave': return [-2, 2];
         case 'rate': return [0.25, 4];
         case 'start': return [0, 0.85];
         case 'speed': return [0.5, 2];
+        case 'glide': return [0.04, 0.4];
         case 'monitor': return [0, 1];
         case 'listen': return [0, 1];
+        case 'opacity':
+        case 'threshold':
+        case 'edges':
+        case 'posterize':
+        case 'invert':
+        case 'contrast':
+        case 'saturate':
+        case 'displace':
+        case 'feedback':
+        case 'delay':
+        case 'slitscan':
+        case 'trail':
+        case 'mask':
+        case 'key':
+        case 'color':
+        case 'blend':
+          return [0, 1];
         default: return [0, 1];
       }
     }
@@ -834,7 +1259,7 @@
       if (name === 'choose') {
         const ref = parseLiveRef(tokens[0]);
         if (!ref) {
-          return { ok: false, error: { line: lineNumber, message: `choose needs a live source like mic, mic.brightness, input, interface, or tab` } };
+          return { ok: false, error: { line: lineNumber, message: `choose needs a live source like mic, input, interface, tab, camera, screen, file, or video` } };
         }
         if (tokens.length > 2) {
           return { ok: false, error: { line: lineNumber, message: `choose takes 'choose mic' or 'choose mic.feature [amount]'` } };
@@ -849,7 +1274,7 @@
       if (name === 'trigger') {
         const ref = parseLiveRef(tokens[0]);
         if (!ref) {
-          return { ok: false, error: { line: lineNumber, message: `trigger needs a live source feature like mic.rupture` } };
+          return { ok: false, error: { line: lineNumber, message: `trigger needs a live source feature like mic.rupture or camera.motion` } };
         }
         if (tokens.length > 2) {
           return { ok: false, error: { line: lineNumber, message: `trigger takes 'trigger mic.rupture [threshold]'` } };
@@ -864,7 +1289,7 @@
       if (name === 'time' || name === 'beat' || name === 'leaf') {
         const ref = parseLiveRef(tokens[0]);
         if (!ref) {
-          return { ok: false, error: { line: lineNumber, message: `${name} needs a live source feature like mic.intensity, mic.density, or mic.rupture` } };
+          return { ok: false, error: { line: lineNumber, message: `${name} needs a live source feature like mic.intensity, camera.motion, or video.rupture` } };
         }
         if (tokens.length > 2) {
           return { ok: false, error: { line: lineNumber, message: `${name} takes '${name} mic.feature [amount]'` } };
@@ -1034,6 +1459,25 @@
         value: {
           kind: raw,
           label: args.slice(1).join(' ') || raw,
+        },
+      };
+    }
+
+    function parseVideoSourceLine(tail, lineNumber) {
+      const args = tail.trim().split(/\s+/).filter(Boolean);
+      if (args.length === 0) {
+        return { ok: false, error: { line: lineNumber, message: `video needs a source: camera, screen, file, or gen` } };
+      }
+      const raw = String(args[0] || '').toLowerCase();
+      if (!VIDEO_SOURCE_NAMES.has(raw)) {
+        return { ok: false, error: { line: lineNumber, message: `video source must be camera, screen, file, or gen` } };
+      }
+      return {
+        ok: true,
+        value: {
+          kind: raw,
+          label: raw,
+          patternTokens: args.slice(1),
         },
       };
     }
@@ -1216,10 +1660,51 @@
     const blocks = [];
     let tempo = 110;
     let meter = { num: 4, den: 4 };
+    // Default to bar-aligned evaluate so cmd+enter swaps at the next bar
+    // boundary. Use `eval now` (or `eval immediate`) for instant swaps.
+    let evaluateMode = 'reset';
+    let evaluateCutOnReset = false;
+    let activeTuning = null;
 
     const rawLines = String(text).replace(/\r\n?/g, '\n').split('\n');
 
     let currentBlock = null;
+    let pendingBlockMeta = null;
+
+    function mergePendingBlockMeta(meta) {
+      if (!meta) return;
+      if (!pendingBlockMeta) {
+        pendingBlockMeta = { tags: [], mutedDefault: false };
+      }
+      if (Array.isArray(meta.tags)) {
+        for (const t of meta.tags) {
+          const tag = String(t || '').toLowerCase();
+          if (!tag) continue;
+          if (!pendingBlockMeta.tags.includes(tag)) pendingBlockMeta.tags.push(tag);
+        }
+      }
+      if (meta.mutedDefault != null) {
+        pendingBlockMeta.mutedDefault = Boolean(meta.mutedDefault);
+      }
+    }
+
+    function consumePendingBlockMeta() {
+      const meta = pendingBlockMeta
+        ? {
+          tags: pendingBlockMeta.tags.slice(),
+          mutedDefault: Boolean(pendingBlockMeta.mutedDefault),
+        }
+        : { tags: [], mutedDefault: false };
+      pendingBlockMeta = null;
+      return meta;
+    }
+
+    function applyPendingBlockMeta(block) {
+      if (!block) return;
+      const meta = consumePendingBlockMeta();
+      block.tags = meta.tags;
+      block.mutedDefault = meta.mutedDefault;
+    }
 
     function endBlock() {
       if (currentBlock) {
@@ -1228,12 +1713,165 @@
       }
     }
 
+    function parseEvaluateFlag(args, lineNumber, requireMode, sourceName) {
+      if (!Array.isArray(args) || args.length === 0) {
+        if (requireMode) {
+          return {
+            ok: false,
+            error: {
+              line: lineNumber,
+              message: `${sourceName || 'eval'} needs a mode — use 'eval reset [cut|keep]' or 'eval now'`,
+            },
+          };
+        }
+        return { ok: true, mode: null, cutOnReset: null };
+      }
+
+      let tokens = args
+        .map((tok) => String(tok || '').toLowerCase())
+        .filter(Boolean);
+
+      if (tokens[0] === 'eval' || tokens[0] === 'evaluate') {
+        tokens = tokens.slice(1);
+      }
+
+      if (tokens.length >= 1) {
+        const modeTok = tokens[0];
+        const mode = (modeTok === 'reset' || modeTok === 'bar' || modeTok === 'loop')
+          ? 'reset'
+          : ((modeTok === 'now' || modeTok === 'immediate') ? 'immediate' : null);
+        if (!mode) {
+          return {
+            ok: false,
+            error: {
+              line: lineNumber,
+              message: `unknown evaluate mode '${args.join(' ')}' — use 'eval reset [cut|keep]' or 'eval now'`,
+            },
+          };
+        }
+
+        let cutOnReset = null;
+        if (tokens.length >= 2) {
+          const flag = tokens[1];
+          if (flag === 'cut' || flag === 'stop' || flag === 'hard') {
+            cutOnReset = true;
+          } else if (flag === 'keep' || flag === 'soft' || flag === 'tail' || flag === 'tails' || flag === 'blend') {
+            cutOnReset = false;
+          } else {
+            return {
+              ok: false,
+              error: {
+                line: lineNumber,
+                message: `unknown eval reset flag '${tokens[1]}' — use 'cut' or 'keep'`,
+              },
+            };
+          }
+        }
+
+        if (tokens.length > 2) {
+          return {
+            ok: false,
+            error: {
+              line: lineNumber,
+              message: `too many eval flags in '${args.join(' ')}' — use 'eval reset [cut|keep]'`,
+            },
+          };
+        }
+
+        return { ok: true, mode, cutOnReset };
+      }
+      return { ok: true, mode: null, cutOnReset: null };
+    }
+
+    function cloneTuningValue(tuning) {
+      if (!tuning || typeof tuning !== 'object') return null;
+      return {
+        ...tuning,
+        pitchCents: Array.isArray(tuning.pitchCents) ? tuning.pitchCents.slice() : [],
+        noteNames: Array.isArray(tuning.noteNames) ? tuning.noteNames.slice() : [],
+      };
+    }
+
+    function parseTuningDirective(args, lineNumber) {
+      if (!Array.isArray(args) || args.length < 1) {
+        return {
+          ok: false,
+          error: { line: lineNumber, message: `tuning needs a preset id, e.g. 'tuning kirnberger-3'` },
+        };
+      }
+
+      const tunings = root.ReplTunings;
+      if (!tunings || typeof tunings.resolvePreset !== 'function' || typeof tunings.buildProgramTuning !== 'function') {
+        return {
+          ok: false,
+          error: { line: lineNumber, message: `tuning catalog is unavailable — reload and try again` },
+        };
+      }
+
+      const presetIdRaw = String(args[0] || '').trim();
+      if (!presetIdRaw) {
+        return {
+          ok: false,
+          error: { line: lineNumber, message: `tuning needs a preset id, e.g. 'tuning kirnberger-3'` },
+        };
+      }
+
+      const preset = tunings.resolvePreset(presetIdRaw);
+      if (!preset) {
+        return {
+          ok: false,
+          error: {
+            line: lineNumber,
+            message: `unknown tuning '${presetIdRaw}' — choose a valid preset id from the tuning catalog`,
+          },
+        };
+      }
+
+      if (args.length > 2) {
+        return {
+          ok: false,
+          error: { line: lineNumber, message: `tuning accepts at most one optional A4 value, e.g. 'tuning ${preset.id} 432'` },
+        };
+      }
+
+      let a4Hz = null;
+      if (args.length === 2) {
+        if (typeof tunings.normalizeA4Hz !== 'function') {
+          return {
+            ok: false,
+            error: { line: lineNumber, message: `tuning runtime is unavailable for A4 override` },
+          };
+        }
+        a4Hz = tunings.normalizeA4Hz(args[1]);
+        if (a4Hz == null) {
+          return {
+            ok: false,
+            error: { line: lineNumber, message: `tuning A4 must be a positive number, e.g. 432 or 440` },
+          };
+        }
+      }
+
+      const value = tunings.buildProgramTuning(preset, a4Hz);
+      if (!value) {
+        return {
+          ok: false,
+          error: { line: lineNumber, message: `could not build tuning '${presetIdRaw}'` },
+        };
+      }
+
+      value.requestedId = presetIdRaw;
+      return { ok: true, value };
+    }
+
     for (let i = 0; i < rawLines.length; i++) {
       const lineNumber = i + 1;
+      const split = splitLineComment(rawLines[i]);
+      const specialMeta = parseBlockMetaComment(split.comment);
+      if (specialMeta) mergePendingBlockMeta(specialMeta);
       if (/^\s*#/.test(rawLines[i])) {
         continue;
       }
-      const stripped = stripComment(rawLines[i]).trimEnd();
+      const stripped = split.code.trimEnd();
       const trimmedForCheck = stripped.trim();
 
       if (!trimmedForCheck) {
@@ -1265,6 +1903,30 @@
           } else {
             meter = { num: parseInt(m[1], 10), den: parseInt(m[2], 10) };
           }
+        } else if (head === 'tuning') {
+          const tuningDirective = parseTuningDirective(args, lineNumber);
+          if (!tuningDirective.ok) {
+            errors.push(tuningDirective.error);
+          } else {
+            activeTuning = tuningDirective.value;
+          }
+          continue;
+        } else if (head === 'eval' || head === 'evaluate') {
+          const evalDirective = parseEvaluateFlag(args, lineNumber, true, 'eval');
+          if (!evalDirective.ok) {
+            errors.push(evalDirective.error);
+          } else if (evalDirective.mode) {
+            evaluateMode = evalDirective.mode;
+            if (evalDirective.cutOnReset != null) evaluateCutOnReset = Boolean(evalDirective.cutOnReset);
+          }
+          continue;
+        }
+        const evalFlag = parseEvaluateFlag(args.slice(1), lineNumber, false, `${head} directive`);
+        if (!evalFlag.ok) {
+          errors.push(evalFlag.error);
+        } else if (evalFlag.mode) {
+          evaluateMode = evalFlag.mode;
+          if (evalFlag.cutOnReset != null) evaluateCutOnReset = Boolean(evalFlag.cutOnReset);
         }
         continue;
       }
@@ -1281,11 +1943,13 @@
 
         currentBlock = {
           voice: 'input',
+          tuning: cloneTuningValue(activeTuning),
           input: parsedInput.value,
           slots: [
             { kind: 'leaf', token: { kind: 'input', value: parsedInput.value.kind } },
           ],
           slotsPerBar: 1,
+          barSlotCounts: [1],
           bars: 1,
           params: {},
           effects: {},
@@ -1296,8 +1960,74 @@
           paramLines: {},
           controls: {},
           every: null,
+          kit: null,
           line: lineNumber,
         };
+        applyPendingBlockMeta(currentBlock);
+        continue;
+      }
+
+      // ---- video line ----
+      if (head === 'video') {
+        endBlock();
+        const parsedVideo = parseVideoSourceLine(tail, lineNumber);
+        if (!parsedVideo.ok) {
+          errors.push(parsedVideo.error);
+          continue;
+        }
+
+        const videoSource = parsedVideo.value.kind;
+        const slotTokens = parsedVideo.value.patternTokens && parsedVideo.value.patternTokens.length
+          ? tokenizeSlotLine(parsedVideo.value.patternTokens.join(' '))
+          : [];
+        let slots = [{ kind: 'leaf', token: { kind: 'rest', value: null, raw: '.' } }];
+        let bars = 1;
+        let barSlotCounts = [1];
+
+        if (slotTokens.length > 0) {
+          const voiceName = videoSource === 'gen' ? 'video-gen' : 'video';
+          const result = parseSlotStream(slotTokens, voiceName, lineNumber);
+          if (result.errors.length) {
+            for (const e of result.errors) errors.push(e);
+          }
+          if (result.slots.length > 0) {
+            slots = result.slots;
+            bars = result.bars;
+            barSlotCounts = result.barSlotCounts;
+          }
+        }
+
+        const voice = videoSource === 'gen' ? 'video-gen' : 'video';
+        currentBlock = {
+          voice,
+          tuning: cloneTuningValue(activeTuning),
+          slots,
+          continuousOnly: slotTokens.length === 0,
+          slotsPerBar: Math.max(1, slots.length / bars),
+          barSlotCounts,
+          bars,
+          params: {},
+          effects: {},
+          speed: { kind: 'scalar', value: 1 },
+          attractor: null,
+          source: {},
+          fade: null,
+          paramLines: {},
+          controls: {},
+          every: null,
+          kit: null,
+          input: null,
+          video: {
+            kind: videoSource === 'gen' ? 'camera' : videoSource,
+            mode: videoSource === 'gen' ? 'gen' : 'capture',
+            sourceClipId: '',
+          },
+          videoGen: videoSource === 'gen'
+            ? { source: 'camera', style: '', seed: '', duration: 0, cache: '' }
+            : null,
+          line: lineNumber,
+        };
+        applyPendingBlockMeta(currentBlock);
         continue;
       }
 
@@ -1315,17 +2045,18 @@
         }
         const slots = result.slots;
         const bars = result.bars;
+        const barSlotCounts = result.barSlotCounts;
         if (slots.length === 0) {
           errors.push({ line: lineNumber, message: `no slots parsed from '${tail}'` });
           continue;
         }
-        if (slots.length % bars !== 0) {
-          errors.push({ line: lineNumber, message: `bar count (${bars}) doesn't divide slot count (${slots.length}) evenly` });
-        }
           currentBlock = {
             voice: head,
+            tuning: cloneTuningValue(activeTuning),
             slots,
-            slotsPerBar: Math.max(1, Math.floor(slots.length / bars)),
+            continuousOnly: false,
+            slotsPerBar: Math.max(1, slots.length / bars),
+            barSlotCounts,
             bars,
             params: {},
             effects: {},
@@ -1336,15 +2067,17 @@
             paramLines: {},
             controls: {},
             every: null,
+            kit: null,
             line: lineNumber,
           };
+        applyPendingBlockMeta(currentBlock);
         continue;
       }
         
         // ---- block directives ----
         if (BLOCK_DIRECTIVES.has(head)) {
           if (!currentBlock) {
-            errors.push({ line: lineNumber, message: `directive '${head}' has no voice above it — start a voice block first (string ... or sample ...)` });
+            errors.push({ line: lineNumber, message: `directive '${head}' has no voice above it — start a voice block first (string ..., drum ..., sample ..., or video camera ...)` });
             continue;
           }
 
@@ -1361,6 +2094,18 @@
           }
 
           if (head === 'source') {
+            if (currentBlock.voice === 'video-gen') {
+              const args = tail.trim().split(/\s+/).filter(Boolean);
+              if (args.length < 1) {
+                errors.push({ line: lineNumber, message: `source needs a value like camera, screen, file, or vgen-0001` });
+                continue;
+              }
+              if (!currentBlock.videoGen) currentBlock.videoGen = { source: 'camera', style: '', seed: '', duration: 0, cache: '' };
+              currentBlock.videoGen.source = String(args[0] || '').toLowerCase();
+              currentBlock.paramLines.source = lineNumber;
+              continue;
+            }
+
             const parsed = parseSourceLine(tail, lineNumber);
             if (!parsed.ok) {
               errors.push(parsed.error);
@@ -1405,10 +2150,16 @@
             continue;
           }
 
-          if (currentBlock.voice !== 'input') {
+          if (currentBlock.voice === 'video' || currentBlock.voice === 'video-gen') {
+            // video blocks may use monitor/listen as normal param rows
+          } else if (currentBlock.voice !== 'input') {
             errors.push({ line: lineNumber, message: `${head} is only valid inside input blocks` });
             continue;
           }
+
+          if (currentBlock.voice === 'video' || currentBlock.voice === 'video-gen') {
+            // fall through to generic param parsing below
+          } else {
 
           const valueTokens = tokenizeSlotLine(tail);
           if (valueTokens.length === 0) {
@@ -1445,12 +2196,13 @@
 
           currentBlock.paramLines[head] = lineNumber;
           continue;
+          }
         }
 
         // ---- fade line ----
         if (FADE_DIRECTIVES.has(head)) {
           if (!currentBlock) {
-            errors.push({ line: lineNumber, message: `fade has no voice above it — start a voice block first (string ... or sample ...)` });
+            errors.push({ line: lineNumber, message: `fade has no voice above it — start a voice block first (string ..., drum ..., sample ..., or video camera ...)` });
             continue;
           }
 
@@ -1468,7 +2220,7 @@
         // ---- effect surface line ----
         if (EFFECT_NAMES.has(head)) {
           if (!currentBlock) {
-            errors.push({ line: lineNumber, message: `effect '${head}' has no voice above it — start a voice block first (string ... or sample ...)` });
+            errors.push({ line: lineNumber, message: `effect '${head}' has no voice above it — start a voice block first (string ..., drum ..., sample ..., or video camera ...)` });
             continue;
           }
 
@@ -1509,10 +2261,109 @@
           continue;
         }
 
+      // ---- drum kit row ----
+      if (head === 'kit') {
+        if (!currentBlock) {
+          errors.push({ line: lineNumber, message: `kit has no voice above it — start a drum block first (drum k . s .)` });
+          continue;
+        }
+        if (currentBlock.voice !== 'drum') {
+          errors.push({ line: lineNumber, message: `kit is only valid inside drum blocks` });
+          continue;
+        }
+        const args = tail.trim().split(/\s+/).filter(Boolean);
+        if (args.length !== 1) {
+          errors.push({ line: lineNumber, message: `kit must be a single id, e.g. 'kit 909'` });
+          continue;
+        }
+        const kitId = String(args[0] || '').toLowerCase();
+        if (!/^[a-z0-9][a-z0-9_-]*$/.test(kitId)) {
+          errors.push({ line: lineNumber, message: `kit id '${args[0]}' is invalid — use letters, digits, dash, underscore` });
+          continue;
+        }
+        currentBlock.kit = { id: kitId, raw: args[0] };
+        currentBlock.paramLines.kit = lineNumber;
+        continue;
+      }
+
+      // ---- video gen rows ----
+      if (VIDEO_GEN_ROW_NAMES.has(head)) {
+        if (!currentBlock) {
+          errors.push({ line: lineNumber, message: `${head} has no block above it — start a video gen block first (video gen * . * .)` });
+          continue;
+        }
+        if (currentBlock.voice !== 'video-gen') {
+          // `source` remains available as a generic block directive elsewhere.
+          if (head === 'source') {
+            // let the normal source directive branch parse this for non-video-gen blocks
+          } else {
+            errors.push({ line: lineNumber, message: `${head} is only valid inside video gen blocks` });
+            continue;
+          }
+        } else {
+          const args = tail.trim().split(/\s+/).filter(Boolean);
+          if (!currentBlock.videoGen) currentBlock.videoGen = { source: 'camera', style: '', seed: '', duration: 0, cache: '' };
+          if (head === 'source') {
+            if (args.length < 1) {
+              errors.push({ line: lineNumber, message: `source needs a value like camera, screen, file, or vgen-0001` });
+              continue;
+            }
+            currentBlock.videoGen.source = String(args[0] || '').toLowerCase();
+            currentBlock.paramLines.source = lineNumber;
+            continue;
+          }
+          if (head === 'style') {
+            currentBlock.videoGen.style = args.join(' ');
+            currentBlock.paramLines.style = lineNumber;
+            continue;
+          }
+          if (head === 'seed') {
+            currentBlock.videoGen.seed = args.join(' ');
+            currentBlock.paramLines.seed = lineNumber;
+            continue;
+          }
+          if (head === 'cache') {
+            currentBlock.videoGen.cache = args.join(' ');
+            currentBlock.paramLines.cache = lineNumber;
+            continue;
+          }
+          if (head === 'duration') {
+            if (args.length < 1) {
+              errors.push({ line: lineNumber, message: `duration needs a value like 4s or 6` });
+              continue;
+            }
+            const rawDur = String(args[0] || '');
+            const d = parseFadeDuration(rawDur);
+            if (!Number.isFinite(d) || d <= 0) {
+              errors.push({ line: lineNumber, message: `duration '${rawDur}' is invalid — use seconds like 4s` });
+              continue;
+            }
+            currentBlock.videoGen.duration = d;
+            currentBlock.paramLines.duration = lineNumber;
+            continue;
+          }
+        }
+      }
+
       // ---- parameter line ----
       if (PARAM_NAMES.has(head)) {
         if (!currentBlock) {
-          errors.push({ line: lineNumber, message: `parameter '${head}' has no voice above it — start a voice block first (string ... or sample ...)` });
+          errors.push({ line: lineNumber, message: `parameter '${head}' has no voice above it — start a voice block first (string ..., drum ..., sample ..., or video camera ...)` });
+          continue;
+        }
+
+        if (head === 'variance' && currentBlock.voice !== 'drum') {
+          errors.push({ line: lineNumber, message: `variance is only valid inside drum blocks` });
+          continue;
+        }
+
+        if ((head === 'monitor' || head === 'listen') && currentBlock.voice !== 'input' && currentBlock.voice !== 'video' && currentBlock.voice !== 'video-gen') {
+          errors.push({ line: lineNumber, message: `${head} is only valid inside input or video blocks` });
+          continue;
+        }
+
+        if (head === 'glide' && !isPitchedVoice(currentBlock.voice)) {
+          errors.push({ line: lineNumber, message: `glide is only valid inside pitched blocks (string, sine, osc, pluck, drone)` });
           continue;
         }
 
@@ -1547,6 +2398,21 @@
         const valueTokens = tokenizeSlotLine(tail);
         if (valueTokens.length === 0) {
           errors.push({ line: lineNumber, message: `${head} needs at least one value` });
+          continue;
+        }
+
+        if (head === 'glide') {
+          if (valueTokens.length !== 1) {
+            errors.push({ line: lineNumber, message: `glide takes one positive seconds value, e.g. glide 0.06` });
+            continue;
+          }
+          const resolved = resolveParam('glide', valueTokens[0]);
+          if (!resolved || !resolved.ok) {
+            errors.push({ line: lineNumber, message: resolved && resolved.message ? resolved.message : `glide must be a positive number of seconds` });
+            continue;
+          }
+          currentBlock.params.glide = { kind: 'scalar', value: resolved.value };
+          currentBlock.paramLines.glide = lineNumber;
           continue;
         }
 
@@ -1595,7 +2461,7 @@
       // ---- unknown ----
       errors.push({
         line: lineNumber,
-          message: `don't recognize '${head}' — start a voice/input line (string ..., sample ..., input mic), set a parameter/effect/live control, or use a block directive like attractor, source, fade, or every`,
+          message: `don't recognize '${head}' — start a voice/input line (string ..., drum ..., sample ..., video camera ..., input mic), set a parameter/effect/live control, or use directives like tempo, meter, tuning, eval, attractor, source, fade, kit, or every`,
       });
     }
 
@@ -1605,18 +2471,32 @@
       return { ok: false, errors };
     }
 
-    // Pre-resolve sustain leaves (~) to the immediately-preceding note in
-    // DFS order. Loop-around is handled at runtime; the very first leaf
-    // before any note is converted to a rest.
-    for (const block of blocks) resolveSustains(block.slots);
+    // Pre-resolve pitched sustain leaves (~) to the immediately-preceding note
+    // in DFS order. Sample/noise/pulse sustains remain explicit sustain leaves so the
+    // scheduler/editor can commit and highlight them distinctly from rests.
+    for (const block of blocks) resolveSustains(block);
 
     return {
       ok: true,
-      program: { tempo, meter, blocks },
+      program: {
+        tempo,
+        meter,
+        tuning: cloneTuningValue(activeTuning),
+        transport: {
+          evaluate: {
+            mode: evaluateMode,
+            cutOnReset: evaluateCutOnReset,
+          },
+        },
+        blocks,
+      },
     };
   }
 
-  function resolveSustains(slots) {
+  function resolveSustains(block) {
+    const slots = block && Array.isArray(block.slots) ? block.slots : [];
+    if (!block || !isPitchedVoice(block.voice)) return;
+
     let lastNoteValue = null;
     function visit(node) {
       if (node.kind === 'leaf') {
@@ -1626,6 +2506,7 @@
           return;
         }
         if (tok.kind === 'sustain') {
+          if (tok.pitchSpanCarry === true) return;
           if (lastNoteValue) {
             node.token = { kind: 'note', value: { ...lastNoteValue, sustained: true }, raw: tok.raw || '~' };
           } else {

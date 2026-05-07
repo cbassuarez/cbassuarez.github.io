@@ -1,0 +1,53 @@
+// video-12 — performance scene
+// Camera + screen + local gen + audio coupling in one patch.
+
+tempo 94
+meter 4/4
+tuning kirnberger-3
+
+input mic
+gain 0
+monitor off
+listen on
+
+video camera * . ~ *
+listen on
+opacity 0.72
+edges camera.motion 0.08 0.82
+threshold mic.intensity 0.18 0.74
+trail camera.stillness 0.1 0.86
+feedback 0.24
+blend screen
+
+video screen
+opacity 0.54
+displace camera.flowx 0.04 0.42
+slitscan camera.flowy 0.08 0.52
+blend difference
+
+video gen * ~ . *
+source camera
+style municipal
+seed loop-a
+duration 7s
+cache live
+trigger camera.stillness 0.82
+feedback 0.3
+displace 0.26
+
+drum k . s h t . r c
+kit 909
+variance 0.4
+gain 0.34
+trigger camera.rupture 0.5
+pan left center right center
+
+sine A2 ~ C3 ~
+gain mic.intensity 0.08 0.32
+space camera.stillness 0.08 0.46
+
+// always-audible bed
+pulse * . * .
+gain 0.18
+decay 0.06
+tone 0.82

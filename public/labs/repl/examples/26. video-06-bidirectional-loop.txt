@@ -1,0 +1,31 @@
+// video-06 — bidirectional loop
+// Camera drives audio while mic drives video.
+
+tempo 90
+meter 4/4
+tuning kirnberger-3
+
+input mic
+gain 0
+monitor off
+listen on
+
+video camera * . ~ *
+listen on
+opacity 0.86
+edges mic.volatility 0.12 0.9
+trail mic.silence 0.1 0.84
+feedback 0.18
+
+pulse * . * .
+gain 0.32
+decay 0.08
+tone 0.82
+pan camera.centroidx -0.7 0.7
+trigger camera.rupture 0.5
+
+// always-audible bed
+osc A2 ~ C3 ~
+gain 0.16
+decay 2.2
+tone 0.28

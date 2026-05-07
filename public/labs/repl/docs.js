@@ -5,28 +5,34 @@
       title: 'start here',
       summary: 'What the instrument is, how to evaluate, and how a patch is built.',
       blocks: [
-        { type: 'p', text: 'seb’s repl is a live-coding environment for score-grid notation. A patch is made from voice blocks. Each block names a body — string, sample, input — and the rows underneath shape how that body behaves.' },
+        { type: 'p', text: 'seb’s repl is a live-coding environment for score-grid notation. A patch is made from voice blocks. Each block names a body — string, sine, osc, pluck, drone, noise, pulse, drum, sample, input, video — and the rows underneath shape how that body behaves.' },
         { type: 'callout', text: 'A patch is a score. A block is a body. A row changes how that body behaves. Attractors let outside systems — weather, archives, microphones, browser tabs — lean on the score without replacing it.' },
-        { type: 'code', code: 'tempo 88\nmeter 4/4\n\nstring A4 ~ C5\ngain 0.6\nspace 0.2' },
+        { type: 'code', code: 'tempo 92\nmeter 4/4\neval reset\ntuning kirnberger-3\n\nstring A4 ~ C5\ngain 0.6\nspace 0.2' },
         { type: 'table', headers: ['gesture', 'meaning'], rows: [
           ['Cmd-Enter', 'evaluate the current score and rebuild runtime state'],
           ['Cmd-Shift-Enter', 'replay without unlocking frozen random choices'],
           ['Esc', 'stop all active voices'],
-          ['Tab', 'indent, or accept an open completion']
+          ['Cmd/Ctrl-I', 'toggle the I/O panel'],
+          ['Shift (tap on param/effect rows)', 'open legal-value completion for that row'],
+          ['Tab', 'indent, or accept an open completion'],
+          ['ArrowUp / ArrowDown / PageUp / PageDown', 'when completion is open, navigate the suggestion menu'],
+          ['Enter', 'when completion is open, append only the missing characters for the selected token']
         ]},
-        { type: 'p', text: 'Evaluate is the execution gate. Replay is the re-arm control. Stop is the red interrupt. Input opens the live-source panel.' }
+        { type: 'p', text: 'Autocomplete suggestions may include multi-token examples as guidance, but Enter commits only the active token completion.' },
+        { type: 'p', text: 'Evaluate is the execution gate. Replay is the re-arm control. Stop is the red interrupt. I/O opens the live-source and output-routing panel. Add eval reset as a top directive line to queue evaluate at the next bar reset while transport is running. Use eval reset cut to force a hard boundary, or eval reset keep to preserve tails (default).' }
       ]
     },
     {
       id: 'language',
       title: 'the language',
-      summary: 'Global rows, voice headers, comments, patterns, and modulation values.',
+      summary: 'Top directives, voice headers, comments, patterns, and modulation values.',
       blocks: [
-        { type: 'p', text: 'The language is line-based. Global rows describe the score. Voice headers begin blocks. Rows underneath a voice shape that block until the next voice header appears.' },
-        { type: 'code', code: 'tempo 84\nmeter 4/4\n\nstring *!4 (*4 A*) ~ C*!\ngain 0.55\npan *~\nbody glass\nspace 0.25' },
+        { type: 'p', text: 'The language is line-based. Top directives describe score-level behavior. Voice headers begin blocks. Rows underneath a voice shape that block until the next voice header appears. A tuning directive applies forward from where it appears.' },
+        { type: 'code', code: 'tempo 84\nmeter 4/4\neval reset\ntuning kirnberger-3 432\n\nstring *!4 (*4 A*) ~ C*!\ngain 0.55\npan *~\nbody glass\nspace 0.25' },
         { type: 'table', headers: ['part', 'role'], rows: [
-          ['tempo / meter', 'global score timing'],
-          ['string / sample / input', 'voice headers that start blocks'],
+          ['tempo / meter', 'score timing directives'],
+          ['tuning', 'forward-scoped pitch system directive (applies to following blocks)'],
+          ['string / sine / osc / pluck / drone / noise / pulse / drum / sample / input / video', 'voice headers that start blocks'],
           ['gain / pan / space', 'surface rows that shape a voice'],
           ['// comment', 'score annotation; ignored by the parser'],
           ['mic.intensity 0.1 0.75', 'live modulation source mapped into a range']
@@ -37,11 +43,29 @@
     {
       id: 'voices',
       title: 'voices',
-      summary: 'The three body types: string, sample, and input.',
+      summary: 'The core body types: string, sine/osc, pluck, drone, noise, pulse, drum, sample, input, and video.',
       blocks: [
         { type: 'h', text: 'string' },
-        { type: 'p', text: 'A string voice is a synthetic, resonant, pitched body. It is good for pulses, tones, phrase patterns, tuned gestures, and bodies that respond to weather or live input.' },
+        { type: 'p', text: 'A string voice is a synthetic, resonant, pitched body. It is good for plucked tones, phrase patterns, tuned gestures, and bodies that respond to weather or live input.' },
         { type: 'code', code: 'string *!4 (*4 A*) ~ C*!\ngain 0.55\ndecay 4\nbody glass\nspace 0.24' },
+        { type: 'h', text: 'sine / osc' },
+        { type: 'p', text: 'Sine and osc are clear pitched oscillator bodies. They use the same note and wildcard syntax as string, but speak with a simpler tone, so gain, pan, speed, tone, harm, space, and attractor motion are easy to hear.' },
+        { type: 'code', code: 'sine A3 C4 . ~\ngain 0.42\ntone bright\nspace 0.18' },
+        { type: 'h', text: 'pluck' },
+        { type: 'p', text: 'Pluck is a short pitched synth body: clearer and more percussive than string, useful for lines, clocks with pitch, and first-order event bodies.' },
+        { type: 'code', code: 'pluck *4 (*4 A*) . ~\ngain 0.44\ndecay 0.55\ntone bright' },
+        { type: 'h', text: 'drone' },
+        { type: 'p', text: 'Drone keeps a persistent per-block oscillator body. Committed pitch leaves retune and re-envelope that body instead of spawning only one-shots, so slow modulation and attractor pressure become audible as memory.' },
+        { type: 'code', code: 'drone A2 ~ C3 ~\ngain 0.28\ndecay 4.5\nspace 0.35\nchorus drift' },
+        { type: 'h', text: 'noise' },
+        { type: 'p', text: 'A noise voice is burst, breath, grit, and texture. Use * for a committed burst and ~ for a held texture. It responds well to rupture, density, pressure, trigger, tone, crush, scar, and grain.' },
+        { type: 'code', code: 'noise * . * ~\ngain 0.38\ndecay 0.18\ntone bright\ntrigger mic.rupture 0.52' },
+        { type: 'h', text: 'pulse' },
+        { type: 'p', text: 'Pulse is a compact metronome tick/tock voice. It is low-cost, tuned for clear clocking, and its character responds strongly to force, tone, decay, and gain modulation.' },
+        { type: 'code', code: 'pulse * . * .\ngain 0.36\nforce (mf f)\ndecay (0.4 1.2)\ntone (dark bright)' },
+        { type: 'h', text: 'drum' },
+        { type: 'p', text: 'Drum is a kit-routed sample voice with deterministic lane tokens. Use k/s/h/o/t/r/c for kick, snare, hat, other, tom, ride, and crash lanes, or * for any-lane random from the kit pool. Set the kit with a per-block kit row and control sample diversity with variance.' },
+        { type: 'code', code: 'drum k . s h t . r c\nkit 909\nvariance 0.35\ngain 0.42\npan left center right center' },
         { type: 'h', text: 'sample' },
         { type: 'p', text: 'A sample voice is archival memory: playback, grain, scar, rate, start position, and triggered fragments from the sample bank.' },
         { type: 'code', code: 'sample snm-*&24 ~ tub-*&32 ~\ngain 0.48\ngrain 0.34\nscar memory\nbody paper' },
@@ -49,6 +73,10 @@
         { type: 'p', text: 'An input voice is a live source, a sensor, and an attractor field. It can be heard, analyzed, or both.' },
         { type: 'code', code: 'input mic\ngain 0\nmonitor off\nlisten on' },
         { type: 'callout', text: 'monitor controls whether you hear the input. listen controls whether the system analyzes it.' }
+      ,
+        { type: 'h', text: 'video / video gen' },
+        { type: 'p', text: 'Video blocks are hybrid: they run continuously as stage layers and may also commit leaf events with * . ~. Sources are camera, screen, or file. Video gen materializes local generated clips asynchronously and can be triggered from live features.' },
+        { type: 'code', code: 'video camera * . ~ *\nlisten on\nopacity 0.9\nedges camera.motion 0.1 0.8\nthreshold mic.intensity 0.2 0.7\ntrail camera.stillness 0.1 0.85\nblend difference\n\nvideo gen * ~ . *\nsource camera\nstyle surveillance\nseed blackbox\nduration 6s\ncache live\ntrigger camera.stillness 0.8' },
       ]
     },
     {
@@ -59,10 +87,11 @@
         { type: 'p', text: 'Rows are surfaces. Some set a fixed value. Others accept patterns or live modulation sources.' },
         { type: 'table', headers: ['family', 'rows'], rows: [
           ['level and placement', 'gain, pan'],
-          ['time and articulation', 'speed, time, beat, leaf, decay, fade'],
+          ['time and articulation', 'speed, glide, time, beat, leaf, decay, fade'],
           ['tone and body', 'tone, body, filter, color, pitch'],
-          ['pressure and dynamics', 'force, compress, crush'],
-          ['memory and sample behavior', 'sample, rate, start, grain, scar, choose, trigger'],
+          ['pressure and dynamics', 'force, compress, crush, resolution'],
+          ['memory and sample behavior', 'sample, kit, variance, rate, start, grain, scar, choose, trigger, video gen cache'],
+          ['video stage behavior', 'opacity, threshold, edges, posterize, invert, contrast, saturate, displace, feedback, delay, slitscan, trail, mask, key, color, blend'],
           ['space', 'space, blur, comb, chorus, resonance, excite'],
           ['routing and coupling', 'attractor, monitor, listen']
         ]},
@@ -70,7 +99,7 @@
         { type: 'code', code: 'gain 0.5\ngain mic.intensity 0.1 0.75\nspace mic.silence 0.15 0.85\ngrain mic.noisiness 0.05 0.55' },
         { type: 'p', text: 'A single number sets a fixed value. A live source maps an attractor feature into a range.' },
         { type: 'h', text: 'effect surfaces' },
-        { type: 'p', text: 'Effect rows are not plugin inserts; they are regulatory surfaces on the block. compress stabilizes, space remembers, resonance and comb form a body, chorus thickens motion, excite adds edge, blur softens contour, and grain/scar add residue and memory pressure.' },
+        { type: 'p', text: 'Effect rows are not plugin inserts; they are regulatory surfaces on the block. compress stabilizes, space remembers, resonance and comb form a body, chorus thickens motion, excite adds edge, blur softens contour, and grain/scar add residue and memory pressure. crush is literal bit depth; resolution is a separate filter/EQ aperture for perceived detail.' },
         { type: 'p', text: 'These rows accept the same control-stream operators as params: *, ~, _, *!, *&N, *~, and parentheses.' },
         { type: 'code', code: 'string A3 C4 E4 G4\ndecay    4\nbody     metal\nspace    0.28\ncompress 0.25\nchorus   0.14' },
         { type: 'code', code: 'string *!4 (*4 A*) ~ C*!\nattractor weather.dew\nbody     0.5\nspace    *&24\nblur     0.28\ncomb     *~\ncompress 0.3\npan      *~' },
@@ -88,11 +117,13 @@
           ['*', 'random choice or wildcard'],
           ['!', 'freeze a random choice'],
           ['( )', 'subdivide a slot or group leaves'],
+          ['< > << >>', 'pitched span starts (local/shared, up/down)'],
+          ['G% Bb% C#%', 'pitched span end (pitch-class, same octave)'],
           ['&N', 'drift or gradient over N seconds'],
           [';', 'selector separator / temporal punctuation in some sample forms'],
           ['1/2, pi/4', 'fractions and symbolic proportions where supported']
         ]},
-        { type: 'code', code: 'string A4 ~ C5 ~ E5\nstring *!4 (*4 A*) ~ C*!\nsample snm-*&24 ~ tub-*&32 ~\nrate (*&16 ~)\npan (*~ - right) (*~ - left)' },
+        { type: 'code', code: 'string A4 ~ C5 ~ E5\nstring >6* * * G%\nstring *!4 (*4 A*) ~ C*!\nstring >>6* * * C%\nglide 0.12\nsample snm-*&24 ~ tub-*&32 ~\nrate (*&16 ~)\npan (*~ - right) (*~ - left)' },
         { type: 'callout', text: 'When in doubt, read a pattern as a route map: some marks are destinations, some are repeats, some are switches, and some are frozen decisions.' }
       ]
     },
@@ -154,6 +185,10 @@
         { type: 'table', headers: ['example', 'what it teaches'], rows: [
           ['01. literal vs coupled', 'fixed values against weather/coupled behavior'],
           ['02. pitch organism', 'string patterns as living pitch bodies'],
+          ['02b. sine + noise voices', 'first-order oscillator and texture bodies'],
+          ['02c. drone + pluck + pulse', 'persistent tone, clear plucks, and scheduler clicks'],
+          ['02d. drum kits', 'lane-mapped drum kits and wildcard pool hits'],
+          ['02e. video arm v1', 'camera/screen/file analysis + stage synthesis + local gen clips'],
           ['03. sample field', 'sample-bank playback and field behavior'],
           ['04. speed warp', 'time surfaces and local movement'],
           ['05. weather dew', 'weather as a coupling source'],
@@ -171,7 +206,22 @@
           ['17. live input as silent attractor', 'THE TUB-style silent sensing'],
           ['18. live input as audible material', 'input routed as a voice'],
           ['19. tab input sample weather', 'browser tab audio as weather'],
-          ['20. interface input cybernetic score', 'performer-facing interface input']
+          ['20. interface input cybernetic score', 'performer-facing interface input'],
+          ['21. video 01 camera basics', 'continuous camera stage with core surfaces'],
+          ['22. video 02 camera pattern overlay', 'committed visual leaves over continuous video'],
+          ['23. video 03 video as input signals', 'camera analysis drives audio rows'],
+          ['24. video 04 camera drives audio', 'camera rupture and motion trigger sample behavior'],
+          ['25. video 05 audio drives video', 'mic analysis drives video synthesis surfaces'],
+          ['26. video 06 bidirectional loop', 'camera→audio and mic→video in one patch'],
+          ['27. video 07 screen capture body', 'screen capture as stage material'],
+          ['28. video 08 file material', 'file-backed video body with rhythmic overlay'],
+          ['29. video 09 multilayer composite', 'camera+screen layered blend strategy'],
+          ['30. video 10 video gen basics', 'local generative jobs create vgen-* clips'],
+          ['31. video 11 gen to stage reuse', 'feed generated clips back into stage playback'],
+          ['32. video 12 performance scene', 'full hybrid performance stack with video+audio coupling'],
+          ['33. tuning scopes + reference', 'forward-scoped tuning regions and A4 anchor override'],
+          ['34. tuning performance organism', 'real-world tuned harmony with constrained randomization, attractors, and integrated surfaces'],
+          ['35. pitch ramps', 'shared descending ramps with >> leader anchoring (lower starts join but do not replace leader)']
         ]},
         { type: 'p', text: 'The fastest way to learn the instrument is to load an example, evaluate it, change one row, evaluate again, then add one attractor.' }
       ]
@@ -203,7 +253,7 @@
         { type: 'table', headers: ['symptom', 'try'], rows: [
           ['I do not hear sound.', 'Press Evaluate from a click, raise gain, check output device, confirm the patch is not analysis-only input.'],
           ['The browser blocked audio.', 'Interact with the page and Evaluate again; browsers require user gestures to unlock audio.'],
-          ['Mic permission did not appear.', 'Use an input patch and press Evaluate or the Input button; confirm HTTPS or localhost.'],
+          ['Mic permission did not appear.', 'Use an input patch and press Evaluate or the I/O button; confirm HTTPS or localhost.'],
           ['Input is armed but silent.', 'Set monitor on and gain above 0 if you want to hear it; listen on only analyzes it.'],
           ['Tab audio does not work.', 'Use input tab, choose a tab in the share picker, and enable tab audio in the browser dialog.'],
           ['The patch runs but nothing changes.', 'Check gain, row spelling, attractor confidence, and whether the row accepts live modulation.'],
@@ -220,15 +270,19 @@
       summary: 'Compact syntax sheet for voices, rows, features, and shortcuts.',
       blocks: [
         { type: 'h', text: 'voice headers' },
-        { type: 'code', code: 'string <pattern>\nsample <pattern>\ninput mic\ninput interface\ninput tab' },
+        { type: 'code', code: 'string <pattern>\nsine <pattern>\nosc <pattern>\npluck <pattern>\ndrone <pattern>\nnoise <pattern>\npulse <pattern>\ndrum <pattern>\nsample <pattern>\ninput mic\ninput interface\ninput tab\nvideo camera [pattern]\nvideo screen [pattern]\nvideo file [pattern]\nvideo gen [pattern]' },
         { type: 'h', text: 'live source features' },
-        { type: 'code', code: 'mic.intensity\nmic.rupture\nmic.density\nmic.brightness\nmic.noisiness\nmic.periodicity\nmic.volatility\nmic.silence\nmic.confidence' },
+        { type: 'code', code: 'mic.intensity\nmic.rupture\nmic.density\nmic.brightness\nmic.noisiness\nmic.periodicity\nmic.volatility\nmic.silence\nmic.confidence\ncamera.motion\ncamera.presence\ncamera.edges\ncamera.centroidX\ncamera.centroidY\nscreen.motion\nvideo.rupture' },
         { type: 'h', text: 'keyboard' },
         { type: 'table', headers: ['shortcut', 'action'], rows: [
           ['Cmd-Enter', 'evaluate'],
           ['Cmd-Shift-Enter', 'replay'],
           ['Esc', 'stop'],
+          ['Cmd/Ctrl-I', 'toggle I/O panel'],
+          ['Shift (tap on param/effect rows)', 'open legal-value completion'],
           ['Tab', 'indent or accept completion'],
+          ['ArrowUp / ArrowDown / PageUp / PageDown', 'navigate completion menu when open'],
+          ['Enter', 'commit token suffix from selected completion'],
           ['Cmd-/', 'toggle line comments']
         ]},
         { type: 'h', text: 'browser requirements' },

@@ -25,9 +25,9 @@
     EditorView, keymap, drawSelection, highlightActiveLine, placeholder, Decoration, ViewPlugin, RangeSetBuilder, WidgetType,
     defaultKeymap, history, historyKeymap, indentLess,
     HighlightStyle, syntaxHighlighting, StreamLanguage, bracketMatching,
-    autocompletion, completionKeymap, acceptCompletion, completionStatus, startCompletion,
+    autocompletion, completionKeymap, acceptCompletion, completionStatus, startCompletion, closeCompletion, moveCompletionSelection,
     linter, lintKeymap,
-    searchKeymap, highlightSelectionMatches,
+    searchKeymap,
     toggleLineComment,
     t,
   } = CM;
@@ -37,12 +37,16 @@
   // diagnostics. Keep these in sync with the DSL parser.
   // ============================================================================
 
-  const VOICE_WORDS = ['string', 'sample', 'input'];
-  const DIRECTIVES = ['tempo', 'meter'];
+  const VOICE_WORDS = ['string', 'sample', 'input', 'sine', 'osc', 'noise', 'pluck', 'pulse', 'drone', 'drum', 'video'];
+  const DIRECTIVES = ['tempo', 'meter', 'tuning', 'eval', 'evaluate'];
   const PARAMS = [
-    'force', 'decay', 'crush', 'pan', 'gain',
-    'tone', 'harm', 'octave', 'rate', 'start', 'speed',
+    'force', 'decay', 'crush', 'resolution', 'pan', 'gain',
+    'tone', 'harm', 'octave', 'rate', 'start', 'speed', 'glide', 'kit', 'variance',
     'monitor', 'listen',
+    'opacity', 'threshold', 'edges', 'posterize', 'invert', 'contrast',
+    'saturate', 'displace', 'feedback', 'delay', 'slitscan', 'trail',
+    'mask', 'key', 'color', 'blend',
+    'style', 'seed', 'duration', 'cache',
   ];
   const EFFECTS = [
     'compress', 'space', 'resonance', 'comb', 'grain',
@@ -53,7 +57,7 @@
     'weather', 'weather.dew', 'weather.frost', 'weather.visibility',
     'quake', 'tide', 'solar', 'air', 'traffic', 'grid', 'orbit',
     'civic', 'archive', 'tub', 'room', 'audience', 'mic', 'body',
-    'interface', 'tab', 'input',
+    'interface', 'tab', 'input', 'camera', 'screen', 'file', 'video',
     'memory', 'habit', 'error', 'feedback',
   ];
   const SOURCE_KEYS = ['station', 'feed', 'body', 'region', 'city', 'coords'];
@@ -68,15 +72,20 @@
     'drift', 'swarm', 'shimmer', 'solar', 'electric', 'smoke',
     'haze', 'ghost',
   ];
-  const LIVE_SOURCES = ['mic', 'interface', 'tab', 'input'];
+  const LIVE_SOURCES = ['mic', 'interface', 'tab', 'input', 'camera', 'screen', 'file', 'video'];
+  const VIDEO_LIVE_SOURCES = new Set(['camera', 'screen', 'file', 'video']);
+  const NON_VIDEO_LIVE_SOURCES = LIVE_SOURCES.filter((src) => !VIDEO_LIVE_SOURCES.has(src));
   const LIVE_FEATURES = [
     'intensity', 'rms', 'loudness', 'volatility', 'flux', 'pressure',
     'density', 'periodicity', 'rupture', 'onset', 'age', 'silence',
     'confidence', 'brightness', 'centroid', 'noisiness', 'flatness', 'roughness',
+    'motion', 'presence', 'contrast', 'colorTemp', 'saturation', 'edges',
+    'flowX', 'flowY', 'stillness', 'flicker', 'centroidX', 'centroidY',
+    'faces', 'body', 'depth',
   ];
   const LIVE_SOURCE_SET = new Set(LIVE_SOURCES);
-  const LIVE_FEATURE_SET = new Set(LIVE_FEATURES);
-  const LIVE_REF_RE = /^(mic|interface|tab|input)\.([a-zA-Z][a-zA-Z0-9_-]*)$/i;
+  const LIVE_FEATURE_SET = new Set(LIVE_FEATURES.map((f) => String(f).toLowerCase()));
+  const LIVE_REF_RE = /^(mic|interface|tab|input|camera|screen|file|video)\.([a-zA-Z][a-zA-Z0-9_-]*)$/i;
 
   const COMMON_OPERATORS = ['*', '*!', '*~', '*&8', '*&16', '*&30', '~', '_'];
 
@@ -95,13 +104,87 @@
   // Param → legal named values for completion context.
   const PARAM_NAMED = {
     force: DYNAMICS,
+    crush: ['off'],
+    resolution: ['off'],
+    variance: ['off'],
     pan: PAN_VALUES,
     gain: GAIN_VALUES,
     tone: TONE_VALUES,
     harm: HARM_VALUES,
+    monitor: ['on', 'off'],
+    listen: ['on', 'off'],
+    blend: ['normal', 'source-over', 'screen', 'multiply', 'overlay', 'difference', 'lighter'],
+    style: ['surveillance', 'thermal', 'collage', 'ghost'],
+    cache: ['live', 'memory', 'hold'],
   };
 
   const EFFECT_NAMED = EFFECT_MODES;
+  const PARAM_NUMERIC_HINTS = {
+    force: ['0.25', '0.5', '0.85'],
+    decay: ['0.4', '2', '6'],
+    crush: ['0', '8', '12'],
+    resolution: ['0', '0.25', '0.75'],
+    variance: ['0', '0.35', '1'],
+    pan: ['-0.7', '0', '0.7'],
+    gain: ['0.35', '0.7', '1'],
+    tone: ['0.2', '0.85'],
+    harm: ['0', '1', '2', '3', '4'],
+    octave: ['-1', '0', '1'],
+    rate: ['0.5', '1', '2'],
+    start: ['0', '0.25', '0.75'],
+    speed: ['0.5', '1', '2'],
+    monitor: ['0', '1'],
+    listen: ['0', '1'],
+    opacity: ['0.25', '0.6', '1'],
+    threshold: ['0.2', '0.5', '0.8'],
+    edges: ['0.1', '0.4', '0.7'],
+    posterize: ['0.2', '0.45', '0.75'],
+    invert: ['0', '1'],
+    contrast: ['0.2', '0.5', '0.9'],
+    saturate: ['0.2', '0.6', '1'],
+    displace: ['0.1', '0.35', '0.7'],
+    feedback: ['0.2', '0.45', '0.8'],
+    delay: ['0.1', '0.3', '0.6'],
+    slitscan: ['0.15', '0.4', '0.8'],
+    trail: ['0.1', '0.4', '0.75'],
+    mask: ['0.2', '0.5', '0.8'],
+    key: ['0.2', '0.5', '0.8'],
+    color: ['0.2', '0.5', '0.85'],
+    blend: ['0', '0.5', '1'],
+  };
+  const PARAM_NUMERIC_DETAIL = {
+    force: '0..1 dynamic',
+    decay: 'seconds 0.4..8',
+    crush: 'off/0 or 4..16',
+    resolution: 'off or 0..1',
+    variance: 'off or 0..1',
+    pan: '-1..1',
+    gain: '0..1.5',
+    tone: '0..1',
+    harm: '0..4 or simple/pair/triad/rich',
+    octave: '-2..2',
+    rate: '0.25..4',
+    start: '>= 0',
+    speed: '0.0625..16',
+    monitor: 'on/off or 0..1',
+    listen: 'on/off or 0..1',
+    opacity: '0..1',
+    threshold: '0..1',
+    edges: '0..1',
+    posterize: '0..1',
+    invert: '0..1',
+    contrast: '0..1',
+    saturate: '0..1',
+    displace: '0..1',
+    feedback: '0..1',
+    delay: '0..1',
+    slitscan: '0..1',
+    trail: '0..1',
+    mask: '0..1',
+    key: '0..1',
+    color: '0..1',
+    blend: '0..1 or blend mode',
+  };
 
   // ============================================================================
   // stream language — token classification by line head + per-token shape.
@@ -192,8 +275,14 @@
     if (stream.match(/^pi\b/)) return 'number';
     if (stream.match(/^-?\d+(?![.\w])/)) return 'number';
 
-    // String voice: pitches and pitch wildcards.
-    if (state.voiceLine === 'string' || state.lineHeadKind === 'param' || state.lineHeadKind === 'effect') {
+    // Pitched voices: pitches and pitch wildcards.
+    if (state.voiceLine === 'string' || state.voiceLine === 'sine' || state.voiceLine === 'osc' || state.voiceLine === 'pluck' || state.voiceLine === 'drone' || state.lineHeadKind === 'param' || state.lineHeadKind === 'effect') {
+      // Pitch-span starts: <A4, >A*, <<*!4, >>6*
+      if (stream.match(/^(?:<<|>>|<|>)(?:[A-G][b#]?-?\d+|[A-G][b#]?\*!?|\*!\d|\*\d|\*!|\*|[0-8]\*)(?![A-Za-z0-9])/)) return 'pitch';
+      if (stream.match(/^(?:<<|>>|<|>)[^\s()|;]+/)) return 'invalid';
+      // Pitch-span ends: G%, Bb%, C#%
+      if (stream.match(/^[A-G][b#]?%(?![A-Za-z0-9])/)) return 'pitch';
+      if (stream.match(/^[A-G][b#]?(?:%%|%[A-Za-z0-9]+)/)) return 'invalid';
       // Pitch like A3, C#4, Bb-1
       if (stream.match(/^[A-G][b#]?-?\d+(?![A-Za-z0-9])/)) return 'pitch';
       // Pitch wildcard: A*!, C#*, Bb*, A*
@@ -206,8 +295,12 @@
     if (stream.match(/^[a-zA-Z][a-zA-Z0-9_]*-\*!?/)) return 'sample';
     if (stream.match(/^[a-zA-Z][a-zA-Z0-9_]*-[a-zA-Z0-9_-]+/)) return 'sample';
 
+    if (state.voiceLine === 'drum' && stream.match(/^(?:[kshortc](?:!)?)(?![A-Za-z0-9_.-])/i)) {
+      return 'sample';
+    }
+
     // Live input modulation refs: mic.intensity, tab.rupture, interface.silence.
-    if (stream.match(/^(?:mic|interface|tab|input)\.[a-zA-Z][a-zA-Z0-9_-]*/i)) {
+    if (stream.match(/^(?:mic|interface|tab|input|camera|screen|file|video)\.[a-zA-Z][a-zA-Z0-9_-]*/i)) {
       const word = stream.current().toLowerCase();
       const m = word.match(LIVE_REF_RE);
       return m && LIVE_FEATURE_SET.has(m[2]) ? 'liveRef' : 'invalid';
@@ -375,7 +468,7 @@
   function lineHeadKind(head) {
     const h = String(head || '').toLowerCase();
     if (h === '//' || h === '///' || h === '#') return 'metadata';
-    if (h === 'string' || h === 'sample' || h === 'input') return `voice-${h}`;
+    if (h === 'string' || h === 'sample' || h === 'input' || h === 'sine' || h === 'osc' || h === 'noise' || h === 'pluck' || h === 'pulse' || h === 'drone' || h === 'drum') return `voice-${h}`;
     if (HEAD_DIRECTIVE.has(h)) return 'directive';
     if (HEAD_PARAM.has(h)) return 'param';
     if (HEAD_EFFECT.has(h)) return 'effect';
@@ -394,6 +487,8 @@
       if (headKind === 'voice-string') return 'cs-token cs-head cs-voice cs-voice-string';
       if (headKind === 'voice-sample') return 'cs-token cs-head cs-voice cs-voice-sample';
       if (headKind === 'voice-input') return 'cs-token cs-head cs-voice cs-voice-input';
+      if (headKind === 'voice-sine' || headKind === 'voice-osc' || headKind === 'voice-pluck' || headKind === 'voice-drone') return 'cs-token cs-head cs-voice cs-voice-string';
+      if (headKind === 'voice-noise' || headKind === 'voice-pulse' || headKind === 'voice-drum') return 'cs-token cs-head cs-voice cs-voice-sample';
       if (headKind === 'directive') return 'cs-token cs-head cs-directive';
       if (headKind === 'param') return 'cs-token cs-head cs-param';
       if (headKind === 'effect') return 'cs-token cs-head cs-effect';
@@ -411,6 +506,8 @@
     if (LIVE_SOURCE_SET.has(lower)) return 'cs-token cs-live-source';
     if (/^\/\//.test(raw) || /^#/.test(raw)) return 'cs-token cs-comment';
     if (/^[()]/.test(raw)) return 'cs-token cs-bracket';
+    if (/^(?:<<|>>|<|>)(?:[A-G][b#]?-?\d+|[A-G][b#]?\*!?|\*!\d|\*\d|\*!|\*|[0-8]\*)$/.test(raw)) return 'cs-token cs-pitch';
+    if (/^[A-G][b#]?%$/.test(raw)) return 'cs-token cs-pitch';
     if (/^(?:\*|\*!|\*~|\*&\d+!?|\*!\d+|\*\d+|~|_|\||;|\.|-)$/.test(raw)) return 'cs-token cs-operator';
     if (/^-?\d+\/\d+$/.test(raw) || /^-?\d*\.\d+$/.test(raw) || /^-?\d+$/.test(raw) || /^\d+(?:ms|s)$/.test(raw) || /^pi(?:\/\d+)?$/.test(raw)) return 'cs-token cs-number';
     if (/^[A-G][b#]?-?\d+$/.test(raw) || /^[A-G][b#]?\*!?$/.test(raw)) return 'cs-token cs-pitch';
@@ -597,7 +694,7 @@
 
   function voiceHeadForLeafLine(lineText) {
     const head = String(lineText || '').trim().split(/\s+/, 1)[0].toLowerCase();
-    if (head === 'string' || head === 'sample' || head === 'input') return head;
+    if (head === 'string' || head === 'sample' || head === 'input' || head === 'sine' || head === 'osc' || head === 'noise' || head === 'pluck' || head === 'pulse' || head === 'drone' || head === 'drum') return head;
     return '';
   }
 
@@ -832,6 +929,178 @@
     decorations: (plugin) => plugin.decorations,
   });
 
+  const setBlockMuteLinesEffect = StateEffect.define();
+
+  function normalizeBlockMuteLines(input) {
+    const out = new Map();
+    if (!input) return out;
+
+    if (input instanceof Map) {
+      for (const [line, state] of input.entries()) {
+        const n = Number(line);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        const s = state || {};
+        out.set(Math.floor(n), {
+          muted: Boolean(s.muted),
+          pending: Boolean(s.pending),
+          pendingMuted: s.pendingMuted == null ? Boolean(s.muted) : Boolean(s.pendingMuted),
+          tags: Array.isArray(s.tags) ? s.tags.slice() : [],
+        });
+      }
+      return out;
+    }
+
+    if (Array.isArray(input)) {
+      for (const entry of input) {
+        if (!entry) continue;
+        const n = Number(entry.line != null ? entry.line : entry.lineNumber);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        out.set(Math.floor(n), {
+          muted: Boolean(entry.muted),
+          pending: Boolean(entry.pending),
+          pendingMuted: entry.pendingMuted == null ? Boolean(entry.muted) : Boolean(entry.pendingMuted),
+          tags: Array.isArray(entry.tags) ? entry.tags.slice() : [],
+        });
+      }
+      return out;
+    }
+
+    if (typeof input === 'object') {
+      for (const key of Object.keys(input)) {
+        const n = Number(key);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        const state = input[key] || {};
+        out.set(Math.floor(n), {
+          muted: Boolean(state.muted),
+          pending: Boolean(state.pending),
+          pendingMuted: state.pendingMuted == null ? Boolean(state.muted) : Boolean(state.pendingMuted),
+          tags: Array.isArray(state.tags) ? state.tags.slice() : [],
+        });
+      }
+    }
+
+    return out;
+  }
+
+  class BlockMuteWidget extends WidgetType {
+    constructor(lineNumber, state) {
+      super();
+      this.lineNumber = lineNumber;
+      this.state = state || { muted: false, pending: false, pendingMuted: false, tags: [] };
+    }
+
+    eq(other) {
+      return other
+        && this.lineNumber === other.lineNumber
+        && Boolean(this.state.muted) === Boolean(other.state.muted)
+        && Boolean(this.state.pending) === Boolean(other.state.pending)
+        && Boolean(this.state.pendingMuted) === Boolean(other.state.pendingMuted)
+        && String((this.state.tags || []).join(',')) === String((other.state.tags || []).join(','));
+    }
+
+    toDOM() {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'cs-mute-toggle';
+      if (this.state.muted) btn.classList.add('is-muted');
+      if (this.state.pending) btn.classList.add('is-pending');
+      btn.setAttribute('data-repl-mute-line', String(this.lineNumber));
+      btn.setAttribute('aria-label', this.state.muted ? `Unmute block on line ${this.lineNumber}` : `Mute block on line ${this.lineNumber}`);
+      const label = this.state.pending
+        ? (this.state.pendingMuted ? 'Q-MUTE' : 'Q-LIVE')
+        : (this.state.muted ? 'MUTE' : 'LIVE');
+      btn.textContent = label;
+      const tags = Array.isArray(this.state.tags) ? this.state.tags.filter(Boolean) : [];
+      if (tags.length > 0) {
+        btn.title = `${label.toLowerCase()} · tags: ${tags.join(', ')}`;
+      } else {
+        btn.title = label.toLowerCase();
+      }
+      return btn;
+    }
+
+    ignoreEvent() {
+      return false;
+    }
+  }
+
+  function buildBlockMuteDecorations(state, muteLines) {
+    const lines = muteLines instanceof Map ? muteLines : new Map();
+    const builder = new RangeSetBuilder();
+    for (let n = 1; n <= state.doc.lines; n++) {
+      const line = state.doc.line(n);
+      const trimmed = line.text.trim();
+      const head = trimmed ? trimmed.split(/\s+/, 1)[0].toLowerCase() : '';
+      const kind = lineHeadKind(head);
+      if (!/^voice-/.test(kind)) continue;
+
+      const muteState = lines.get(n) || { muted: false, pending: false, pendingMuted: false, tags: [] };
+      const lineClasses = [];
+      if (muteState.muted) lineClasses.push('cs-line-block-muted');
+      if (muteState.pending) lineClasses.push('cs-line-block-mute-pending');
+      if (lineClasses.length) {
+        builder.add(line.from, line.from, Decoration.line({
+          attributes: { class: lineClasses.join(' ') },
+        }));
+      }
+
+      builder.add(line.from, line.from, Decoration.widget({
+        widget: new BlockMuteWidget(n, muteState),
+        side: -1,
+      }));
+    }
+    return builder.finish();
+  }
+
+  const blockMuteDecorationsPlugin = ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.muteLines = normalizeBlockMuteLines(editorEnvRef.blockMuteLines || null);
+      this.decorations = buildBlockMuteDecorations(view.state, this.muteLines);
+    }
+    update(update) {
+      let changed = false;
+      for (const tr of update.transactions) {
+        for (const effect of tr.effects) {
+          if (effect.is(setBlockMuteLinesEffect)) {
+            this.muteLines = normalizeBlockMuteLines(effect.value);
+            changed = true;
+          }
+        }
+      }
+      if (changed || update.docChanged) {
+        this.decorations = buildBlockMuteDecorations(update.state, this.muteLines);
+      }
+    }
+  }, {
+    decorations: (plugin) => plugin.decorations,
+  });
+
+  const blockMuteMousePlugin = Prec.highest(EditorView.domEventHandlers({
+    mousedown(event) {
+      if (!event || event.button !== 0) return false;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return false;
+      const btn = target.closest('[data-repl-mute-line]');
+      if (!btn) return false;
+      const line = Number(btn.getAttribute('data-repl-mute-line'));
+      event.preventDefault();
+      event.stopPropagation();
+      if (Number.isFinite(line) && line > 0 && typeof editorEnvRef.onToggleBlockMute === 'function') {
+        try { editorEnvRef.onToggleBlockMute({ lineNumber: Math.floor(line) }); } catch (_) {}
+      }
+      return true;
+    },
+    click(event) {
+      const target = event && event.target;
+      if (!(target instanceof HTMLElement)) return false;
+      const btn = target.closest('[data-repl-mute-line]');
+      if (!btn) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    },
+  }));
+
   function findCurrentBlockLines(state) {
     const selLine = state.doc.lineAt(state.selection.main.head).number;
     let start = selLine;
@@ -842,13 +1111,13 @@
       if (!trimmed) return true;
       if (/^\/\//.test(trimmed)) return false;
       const head = trimmed.split(/\s+/, 1)[0].toLowerCase();
-      return head === 'string' || head === 'sample' || head === 'input' || head === 'tempo' || head === 'meter';
+      return head === 'string' || head === 'sample' || head === 'input' || head === 'sine' || head === 'osc' || head === 'noise' || head === 'pluck' || head === 'pulse' || head === 'drone' || head === 'drum' || head === 'tempo' || head === 'meter' || head === 'tuning' || head === 'eval' || head === 'evaluate';
     }
 
     for (let n = selLine; n >= 1; n--) {
       const text = state.doc.line(n).text;
       if (n !== selLine && isBoundary(text)) {
-        if (!text.trim() || /^(tempo|meter)\b/i.test(text.trim())) start = n + 1;
+        if (!text.trim() || /^(tempo|meter|tuning|eval|evaluate)\b/i.test(text.trim())) start = n + 1;
         else start = n;
         break;
       }
@@ -946,17 +1215,23 @@
       // identity.
       this.lineOwners = new Map();
       this.pendingLeafFrame = null;
+      this.pendingLeafRestart = false;
       this.timer = null;
       this.currentEpoch = null;
       this.seenLeafEvents = new Set();
       this.overlay = document.createElement('div');
       this.overlay.className = 'cs-leaf-highlight-layer';
       this.overlay.setAttribute('aria-hidden', 'true');
-      // Put the plate plane inside CodeMirror's scroll DOM so coordinates are
-      // measured in the same viewport as coordsAtPos(). The plane never receives
-      // input and never changes the text DOM.
-      const host = view.scrollDOM || view.dom;
+      // Keep the plate plane anchored to the editor viewport, then remeasure
+      // against CodeMirror's viewport coordinates on scroll. The plane never
+      // receives input and never changes the text DOM.
+      const host = view.dom;
+      const scrollHost = view.scrollDOM || view.dom;
+      this.overlayHost = host;
+      this.overlayScrollHost = scrollHost;
+      this.onOverlayScroll = () => this.scheduleLeafPlateFlush(false);
       host.appendChild(this.overlay);
+      scrollHost.addEventListener('scroll', this.onOverlayScroll, { passive: true });
       this.decorations = buildCyberneticScoreDecorations(view, this.pulses, this.meters, this.leafStates);
       this.unsubscribe = ensurePulseBus().on((payload) => this.receive(payload));
     }
@@ -970,17 +1245,24 @@
         cancelAnimationFrame(this.pendingLeafFrame);
         this.pendingLeafFrame = null;
       }
+      this.pendingLeafRestart = false;
       if (this.overlay) this.overlay.replaceChildren();
       this.decorations = buildCyberneticScoreDecorations(this.view, this.pulses, this.meters, this.leafStates);
       try { this.view.dispatch({ effects: csPulseNudge.of(Date.now()) }); } catch (_) {}
     }
 
+    removeLeafPlateElement(key, clearTimer = false) {
+      if (!this.overlay) return;
+      const plate = this.overlay.querySelector(`[data-leaf-plate="${key}"]`);
+      if (!plate) return;
+      if (clearTimer) window.clearTimeout(plate._csRemoveTimer);
+      if (plate.parentNode) plate.parentNode.removeChild(plate);
+    }
+
     removeLeafPlate(line) {
       const key = String(line);
       this.leafPlates.delete(key);
-      if (!this.overlay) return;
-      const plate = this.overlay.querySelector(`[data-leaf-plate="${key}"]`);
-      if (plate && plate.parentNode) plate.parentNode.removeChild(plate);
+      this.removeLeafPlateElement(key, true);
     }
 
     receive(payload) {
@@ -1047,12 +1329,13 @@
         if (!range || !range.text) return;
         const payloadToken = normalizeLeafToken(payload && payload.token);
         const rangeToken = normalizeLeafToken(range.text);
-        const isRestEvent = leafStateClass(payload && payload.state) === 'rest' || isRestLikeLeafToken(payload && payload.token);
+        const payloadState = leafStateClass(payload && payload.state);
+        const isSilentCellEvent = payloadState === 'rest' || payloadState === 'held' || isRestLikeLeafToken(payload && payload.token);
         const isRestRange = isRestLikeLeafToken(range.text);
         const canAcceptGeneric = payloadToken === 'note' || payloadToken === '*' || payloadToken === 'sample';
-        if (isRestEvent && !isRestRange) return;
-        if (!isRestEvent && isRestRange) return;
-        if (payloadToken && !isRestEvent && !canAcceptGeneric && payloadToken !== rangeToken) return;
+        if (isSilentCellEvent && !isRestRange) return;
+        if (!isSilentCellEvent && isRestRange) return;
+        if (payloadToken && !isSilentCellEvent && !canAcceptGeneric && payloadToken !== rangeToken) return;
         // Rest/sustain leaves are true rhythmic events, but their visual
         // registration must be a short punch, not a full-slot occupancy. A
         // whole-beat rest in one voice can otherwise remain visible while a
@@ -1062,13 +1345,13 @@
         const visualFromPayload = Number(payload && payload.visualDurationMs);
         const visualMs = Number.isFinite(visualFromPayload)
           ? Math.max(70, Math.min(360, visualFromPayload))
-          : (isRestEvent
+          : (isSilentCellEvent
               ? 110
               : Math.max(150, Math.min(300, Number(payload.duration) * 360 || CS_LEAF_RECENT_MS)));
         const leafState = {
           leafCount: count,
           currentIndex: index,
-          state: isRestEvent ? 'rest' : (payload.state || 'hit'),
+          state: payloadState,
           voice: payload.voice || previous.voice || '',
           token: payload.token || '',
           slotIndex: Number.isFinite(Number(payload.slotIndex)) ? Number(payload.slotIndex) : null,
@@ -1104,10 +1387,18 @@
       if (!state || !state.range || !this.view || this.view.destroyed) return;
       const key = String(line);
       this.leafPlates.set(key, { line, state });
+      this.scheduleLeafPlateFlush(true);
+    }
+
+    scheduleLeafPlateFlush(restartAnimation) {
+      if (!this.view || this.view.destroyed || !this.leafPlates.size) return;
+      if (restartAnimation) this.pendingLeafRestart = true;
       if (this.pendingLeafFrame != null) return;
       this.pendingLeafFrame = requestAnimationFrame(() => {
+        const shouldRestart = this.pendingLeafRestart;
+        this.pendingLeafRestart = false;
         this.pendingLeafFrame = null;
-        this.flushLeafPlates();
+        this.flushLeafPlates(shouldRestart);
       });
     }
 
@@ -1125,7 +1416,7 @@
       return plate;
     }
 
-    flushLeafPlates() {
+    flushLeafPlates(restartAnimation = true) {
       if (!this.view || this.view.destroyed || !this.overlay) return;
       for (const [key, item] of Array.from(this.leafPlates.entries())) {
         const line = item.line;
@@ -1136,8 +1427,11 @@
         const to = docLine.from + Math.max(Number(state.range.to) || (Number(state.range.from) || 0) + 1, (Number(state.range.from) || 0) + 1);
         const start = this.view.coordsAtPos(from, 1);
         const end = this.view.coordsAtPos(to, -1) || start;
-        const hostRect = (this.view.scrollDOM || this.view.dom).getBoundingClientRect();
-        if (!start || !end || !hostRect) continue;
+        const hostRect = (this.overlayHost || this.view.dom).getBoundingClientRect();
+        if (!start || !end || !hostRect) {
+          this.removeLeafPlateElement(key);
+          continue;
+        }
 
         const rawLeft = Math.min(start.left, end.left);
         const rawRight = Math.max(start.right || start.left, end.right || end.left, start.left + 8);
@@ -1160,15 +1454,20 @@
         plate.style.transform = `translate3d(${left}px, ${top}px, 0)`;
         plate.style.setProperty('--cs-leaf-plate-w', `${width}px`);
         plate.style.setProperty('--cs-leaf-plate-ms', `${Math.max(90, Math.min(360, Number(state.visualMs) || 220))}ms`);
-        // Restart the relay-punch animation without touching the token element.
-        plate.classList.remove('is-firing');
-        void plate.offsetWidth;
-        plate.classList.add('is-firing');
-        window.clearTimeout(plate._csRemoveTimer);
-        const removeMs = Math.max(90, Math.min(360, Number(state.visualMs) || 220));
-        plate._csRemoveTimer = window.setTimeout(() => {
-          if (plate && plate.parentNode) plate.parentNode.removeChild(plate);
-        }, removeMs);
+        if (restartAnimation) {
+          // Restart the relay-punch animation only for new committed leaves.
+          // Scroll/geometry refreshes move the plate without extending its life.
+          plate.classList.remove('is-firing');
+          void plate.offsetWidth;
+          plate.classList.add('is-firing');
+          window.clearTimeout(plate._csRemoveTimer);
+          const removeMs = Math.max(90, Math.min(360, Number(state.visualMs) || 220));
+          plate._csRemoveTimer = window.setTimeout(() => {
+            if (plate && plate.parentNode) plate.parentNode.removeChild(plate);
+            const current = this.leafPlates.get(key);
+            if (current && current.state === state) this.leafPlates.delete(key);
+          }, removeMs);
+        }
       }
     }
 
@@ -1204,14 +1503,7 @@
         return;
       }
       if (update.geometryChanged || update.viewportChanged) {
-        // Geometry changes invalidate already-measured overlay plates. Do not
-        // retain them; the next valid leaf event will measure the current doc.
-        this.leafPlates.clear();
-        if (this.pendingLeafFrame != null) {
-          cancelAnimationFrame(this.pendingLeafFrame);
-          this.pendingLeafFrame = null;
-        }
-        if (this.overlay) this.overlay.replaceChildren();
+        this.scheduleLeafPlateFlush(false);
       }
     }
 
@@ -1219,6 +1511,7 @@
       if (this.unsubscribe) this.unsubscribe();
       if (this.timer) clearTimeout(this.timer);
       if (this.pendingLeafFrame != null) cancelAnimationFrame(this.pendingLeafFrame);
+      if (this.overlayScrollHost && this.onOverlayScroll) this.overlayScrollHost.removeEventListener('scroll', this.onOverlayScroll);
       if (this.overlay && this.overlay.parentNode) this.overlay.parentNode.removeChild(this.overlay);
     }
   }, {
@@ -1231,6 +1524,7 @@
 
   const replTheme = EditorView.theme({
     '&': {
+      position: 'relative',
       backgroundColor: '#ffffff',
       color: '#070707',
       fontFamily: '"Courier New", Courier, monospace',
@@ -1301,7 +1595,7 @@
       borderLeftColor: '#ffd400',
       boxShadow: 'inset 0 -2px 0 #ffd400',
     },
-    '.cm-line.cs-line-voice-sample': {
+    '.cm-line.cs-line-voice-sample, .cm-line.cs-line-voice-drum': {
       backgroundColor: '#ffffff',
       borderLeftColor: '#e3342f',
       boxShadow: 'inset 0 -2px 0 #e3342f',
@@ -1324,16 +1618,55 @@
       borderLeftColor: '#070707',
       boxShadow: 'inset 0 -1px 0 rgba(7,7,7,0.08)',
     },
+    '.cm-line.cs-line-block-muted': {
+      opacity: '0.62',
+    },
+    '.cm-line.cs-line-block-mute-pending': {
+      boxShadow: 'inset 0 -2px 0 #070707, inset 0 0 0 1px rgba(7,7,7,0.3)',
+    },
+    '.cs-mute-toggle': {
+      position: 'absolute',
+      left: '2.56rem',
+      top: '50%',
+      transform: 'translateY(-50%)',
+      border: '1px solid #070707',
+      backgroundColor: '#ffffff',
+      color: '#070707',
+      fontFamily: '"Courier New", Courier, monospace',
+      fontSize: '0.58rem',
+      fontWeight: '800',
+      letterSpacing: '0.03em',
+      lineHeight: '1.1',
+      padding: '1px 3px',
+      cursor: 'pointer',
+      zIndex: '85',
+      textTransform: 'none',
+    },
+    '.cs-mute-toggle:hover': {
+      backgroundColor: '#f4f4f4',
+    },
+    '.cs-mute-toggle.is-muted': {
+      backgroundColor: '#070707',
+      color: '#ffffff',
+    },
+    '.cs-mute-toggle.is-pending': {
+      backgroundImage: 'repeating-linear-gradient(135deg, #ffd400 0 3px, #ffffff 3px 6px)',
+      color: '#070707',
+    },
+    '.cs-mute-toggle:focus-visible': {
+      outline: '2px solid #0057ff',
+      outlineOffset: '1px',
+    },
     '.cm-line.cs-line-metadata::after': {
       content: '""',
       position: 'absolute',
-      left: '2.72rem',
-      top: '0.56em',
-      width: '0.46rem',
-      height: '0.46rem',
+      left: '2.54rem',
+      top: '0.24em',
+      width: '0.18rem',
+      height: '1.12em',
       background: '#e3342f',
-      border: '1.5px solid #070707',
-      boxShadow: '2px 2px 0 #ffd400',
+      border: '0',
+      boxShadow: '0.28rem 0 0 #ffd400, 0.56rem 0 0 #070707',
       pointerEvents: 'none',
     },
     '.cm-line.cs-active-line': {
@@ -1344,7 +1677,7 @@
       borderLeftColor: '#ffd400',
       boxShadow: 'inset 0 -2px 0 #ffd400, 3px 3px 0 #070707',
     },
-    '.cm-line.cs-pulse-sample': {
+    '.cm-line.cs-pulse-sample, .cm-line.cs-pulse-drum': {
       borderLeftColor: '#e3342f',
       boxShadow: 'inset 0 -2px 0 #e3342f, 3px 3px 0 #070707',
     },
@@ -1493,14 +1826,14 @@
       color: '#5f5147',
       fontStyle: 'italic',
       fontWeight: '650',
-      boxShadow: 'inset 3px 0 0 #070707',
+      boxShadow: 'inset 0 -2px 0 rgba(7,7,7,0.16)',
     },
     '.cm-line.cs-line-metadata .cs-comment': {
       color: '#3f3832',
       fontStyle: 'italic',
       fontWeight: '800',
       letterSpacing: '0.025em',
-      boxShadow: 'inset 3px 0 0 #e3342f, inset 0 -2px 0 rgba(0,87,255,0.2)',
+      boxShadow: 'inset 0 -2px 0 rgba(0,87,255,0.2)',
     },
     '.cs-invalid': {
       color: '#d7263d',
@@ -1515,7 +1848,7 @@
       color: '#070707',
       outlineColor: '#070707',
     },
-    '.cm-line.cs-pulse-sample .cs-token-active': {
+    '.cm-line.cs-pulse-sample .cs-token-active, .cm-line.cs-pulse-drum .cs-token-active': {
       backgroundColor: '#e3342f',
       color: '#ffffff',
       outlineColor: '#070707',
@@ -1606,24 +1939,121 @@
       fontFamily: '"Courier New", Courier, monospace',
       fontSize: '13px',
       boxShadow: '4px 4px 0 #070707',
+      zIndex: '120',
+      overflow: 'hidden',
     },
     '.cm-tooltip.cm-tooltip-autocomplete': {
       borderRadius: '0',
+      minWidth: '13.5rem',
+      maxWidth: 'min(30rem, calc(100vw - 2.4rem))',
+    },
+    '.cm-tooltip-autocomplete > ul': {
+      margin: '0',
+      padding: '2px 0',
+      maxHeight: '15.5rem',
+      overflowY: 'auto',
     },
     '.cm-tooltip-autocomplete > ul > li': {
-      padding: '3px 9px',
+      display: 'grid',
+      gridTemplateColumns: 'minmax(0, 1fr) auto',
+      alignItems: 'baseline',
+      columnGap: '0.7rem',
+      padding: '4px 10px',
       fontFamily: '"Courier New", Courier, monospace',
+      borderBottom: '1px solid rgba(7,7,7,0.08)',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+    },
+    '.cm-tooltip-autocomplete > ul > li.cm-repl-suggest': {
+      position: 'relative',
+      paddingLeft: '4.8rem',
+    },
+    '.cm-tooltip-autocomplete > ul > li.cm-repl-suggest::before': {
+      position: 'absolute',
+      left: '0.55rem',
+      top: '50%',
+      transform: 'translateY(-50%)',
+      minWidth: '3.5rem',
+      padding: '0.12rem 0.28rem',
+      border: '2px solid #070707',
+      backgroundColor: '#ffffff',
+      color: '#070707',
+      fontSize: '0.5rem',
+      fontWeight: '900',
+      letterSpacing: '0.08em',
+      lineHeight: '1',
+      textTransform: 'uppercase',
+      textAlign: 'center',
+      boxShadow: '2px 2px 0 #070707',
+      boxSizing: 'border-box',
+      content: '""',
+      pointerEvents: 'none',
+    },
+    '.cm-tooltip-autocomplete > ul > li.cm-repl-suggest-voice::before': {
+      content: '"voice"',
+      backgroundColor: '#fff4c7',
+    },
+    '.cm-tooltip-autocomplete > ul > li.cm-repl-suggest-directive::before': {
+      content: '"directive"',
+      backgroundColor: '#dce9ff',
+    },
+    '.cm-tooltip-autocomplete > ul > li.cm-repl-suggest-param::before': {
+      content: '"param"',
+      backgroundColor: '#d9ffe8',
+    },
+    '.cm-tooltip-autocomplete > ul > li.cm-repl-suggest-effect::before': {
+      content: '"effect"',
+      backgroundColor: '#ffe1d7',
     },
     '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
       backgroundColor: '#0057ff',
       color: '#ffffff',
+      borderBottomColor: 'rgba(255,255,255,0.22)',
+      boxShadow: 'inset 0 2px 0 #070707, inset 0 -2px 0 #070707',
     },
-    '.cm-completionLabel': { color: '#070707', fontWeight: '800' },
-    '.cm-completionDetail': { color: '#5f6368', fontStyle: 'italic', marginLeft: '0.6em' },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected].cm-repl-suggest::before': {
+      backgroundColor: '#ffffff',
+      color: '#070707',
+      borderColor: '#ffffff',
+      boxShadow: '2px 2px 0 rgba(7,7,7,0.75)',
+    },
+    '.cm-tooltip-autocomplete > ul > li:last-child': {
+      borderBottom: '0',
+    },
+    '.cm-completionIcon': {
+      display: 'none',
+    },
+    '.cm-completionLabel': {
+      color: '#070707',
+      fontWeight: '900',
+      letterSpacing: '0',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+    },
+    '.cm-completionDetail': {
+      color: '#5f6368',
+      fontStyle: 'normal',
+      fontWeight: '700',
+      marginLeft: '0',
+      opacity: '0.92',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+    },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionLabel': {
+      color: '#ffffff',
+    },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail': {
+      color: '#d8e4ff',
+      opacity: '1',
+    },
     '.cm-completionMatchedText': {
       textDecoration: 'none',
       fontWeight: '900',
       color: '#0057ff',
+    },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionMatchedText': {
+      color: '#ffd400',
+      textShadow: '1px 1px 0 rgba(7,7,7,0.45)',
     },
     '.cm-diagnostic': {
       fontFamily: '"Courier New", Courier, monospace',
@@ -1732,13 +2162,260 @@
   // completion — context-aware. Never auto-applies.
   // ============================================================================
 
-  function makeOption(label, detail) {
-    return detail ? { label, detail, type: 'keyword' } : { label, type: 'keyword' };
+  const COMPLETION_SECTIONS = Object.freeze({
+    voice: { name: 'voice', rank: 10 },
+    sample: { name: 'sample', rank: 14 },
+    directive: { name: 'directive', rank: 20 },
+    tuning: { name: 'tuning', rank: 22 },
+    coupling: { name: 'coupling', rank: 30 },
+    live: { name: 'live', rank: 35 },
+    param: { name: 'param', rank: 40 },
+    effect: { name: 'effect', rank: 50 },
+    value: { name: 'value', rank: 60 },
+  });
+
+  const COMPLETION_BOOST = Object.freeze({
+    voice: 6,
+    sample: 5,
+    directive: 5,
+    tuning: 6,
+    coupling: 3,
+    live: 1,
+    param: 2,
+    effect: 2,
+    value: 0,
+  });
+
+  function completionCommitToken(label) {
+    const raw = String(label || '').trim();
+    if (!raw) return '';
+    const spaceAt = raw.search(/\s/);
+    return spaceAt === -1 ? raw : raw.slice(0, spaceAt);
+  }
+
+  function completionApplyTokenSuffix(token) {
+    const target = completionCommitToken(token);
+    if (!target) return null;
+    return (view, _completion, from, to) => {
+      const state = view && view.state;
+      if (!state || !state.doc) return false;
+      const docLen = state.doc.length;
+      const safeFrom = Math.max(0, Math.min(Number.isFinite(from) ? from : 0, docLen));
+      const safeTo = Math.max(safeFrom, Math.min(Number.isFinite(to) ? to : safeFrom, docLen));
+      const current = state.sliceDoc(safeFrom, safeTo);
+      const currentLower = String(current).toLowerCase();
+      const targetLower = target.toLowerCase();
+
+      if (current && targetLower.startsWith(currentLower)) {
+        const suffix = target.slice(current.length);
+        if (!suffix) return true;
+        view.dispatch({
+          changes: { from: safeTo, to: safeTo, insert: suffix },
+        });
+        return true;
+      }
+
+      view.dispatch({
+        changes: { from: safeFrom, to: safeTo, insert: target },
+      });
+      return true;
+    };
+  }
+
+  function withCompletionCategory(option, category) {
+    if (!option) return option;
+    const out = { ...option };
+    const label = typeof out.label === 'string' ? out.label : '';
+    const categoryKey = category || (typeof out.replCategory === 'string' ? out.replCategory : '');
+    if (categoryKey) {
+      out.replCategory = categoryKey;
+      if (!out.section && COMPLETION_SECTIONS[categoryKey]) out.section = COMPLETION_SECTIONS[categoryKey];
+      if (!Number.isFinite(out.boost) && Number.isFinite(COMPLETION_BOOST[categoryKey])) out.boost = COMPLETION_BOOST[categoryKey];
+    }
+    if (typeof out.apply !== 'string' && typeof out.apply !== 'function') {
+      const token = completionCommitToken(label);
+      if (token) out.apply = completionApplyTokenSuffix(token);
+    }
+    if (label && /\s/.test(label) && typeof out.info !== 'string') {
+      const token = completionCommitToken(label);
+      if (token) out.info = `Enter completes '${token}' only. Remaining text is guidance.`;
+    }
+    return out;
+  }
+
+  function withCompletionCategoryList(options, category) {
+    if (!Array.isArray(options)) return [];
+    return options.map((opt) => withCompletionCategory(opt, category));
+  }
+
+  function completionKeyBindingRun(keyName, view) {
+    if (!Array.isArray(completionKeymap)) return false;
+    for (const binding of completionKeymap) {
+      if (!binding) continue;
+      if (binding.key !== keyName && binding.mac !== keyName && binding.win !== keyName && binding.linux !== keyName) continue;
+      if (typeof binding.run === 'function') {
+        return binding.run(view) === true;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  function completionWordMatch(state, pos, expr) {
+    if (!state || !state.doc || !expr) return null;
+    const line = state.doc.lineAt(pos);
+    const before = line.text.slice(0, Math.max(0, pos - line.from));
+    if (!before) return null;
+    const flags = String(expr.flags || '').replace(/g/g, '');
+    const anchored = new RegExp(`(?:${expr.source})$`, flags);
+    const m = anchored.exec(before);
+    if (!m || !m[0]) return null;
+    return {
+      from: line.from + (before.length - m[0].length),
+      to: pos,
+      text: m[0],
+    };
+  }
+
+  function isLiveFeatureRefToken(raw) {
+    const tok = String(raw || '').trim().toLowerCase();
+    if (!tok) return false;
+    const m = tok.match(LIVE_REF_RE);
+    if (!m) return false;
+    return LIVE_FEATURE_SET.has(String(m[2] || '').toLowerCase());
+  }
+
+  function isLikelyNumericExpressionToken(raw) {
+    const tok = String(raw || '').trim().toLowerCase();
+    if (!tok) return false;
+    if (/^-?\d+$/.test(tok)) return true;
+    if (/^-?\d+\.\d+$/.test(tok)) return true;
+    if (/^-?\.\d+$/.test(tok)) return true;
+    if (/^-?\d+\/\d+$/.test(tok)) return true;
+    return /^-?(?:(?:\d+(?:\.\d+)?)|(?:\.\d+)|pi)(?:[*/]-?(?:(?:\d+(?:\.\d+)?)|(?:\.\d+)|pi))*$/.test(tok);
+  }
+
+  function classifyRowValuePhase(tokensSoFar, trailingSpace) {
+    const tokens = Array.isArray(tokensSoFar) ? tokensSoFar.slice() : [];
+    const committed = trailingSpace ? tokens : tokens.slice(0, -1);
+    const active = trailingSpace ? '' : String(tokens[tokens.length - 1] || '');
+    const liveRef = committed[0] || '';
+    const firstIsLiveRef = isLiveFeatureRefToken(liveRef);
+
+    if (!committed.length && isLiveFeatureRefToken(active)) {
+      return { kind: 'live-min', liveRef: active, active };
+    }
+    if (committed.length === 1 && firstIsLiveRef) {
+      return { kind: 'live-min', liveRef, active };
+    }
+    if (committed.length === 2 && firstIsLiveRef && isLikelyNumericExpressionToken(committed[1])) {
+      return { kind: 'live-max', liveRef, active };
+    }
+    return { kind: 'value', active };
+  }
+
+  function paramNumericOptions(param) {
+    const hints = PARAM_NUMERIC_HINTS[param] || ['0.25', '0.5', '0.75'];
+    const detail = PARAM_NUMERIC_DETAIL[param] || 'numeric value';
+    return hints.map((label) => ({ label, type: 'constant', detail }));
+  }
+
+  function paramValueContract(param) {
+    if (param === 'harm') return 'harm: simple|pair|triad|rich, 0-4, operators, or source.feature min max';
+    const named = PARAM_NAMED[param] || [];
+    if (named.length > 0) {
+      return `${param}: ${named.join('|')}, numeric value, operators, or source.feature min max`;
+    }
+    return `${param}: numeric value, operators, or source.feature min max`;
+  }
+
+  function buildParamBodyCompletion(param) {
+    const liveSources = liveSourcesForCompletion();
+    const named = PARAM_NAMED[param.name || ''] || [];
+    const phase = classifyRowValuePhase(param.tokensSoFar || [], param.trailingSpace === true);
+
+    if (phase.kind === 'live-min' || phase.kind === 'live-max') {
+      const numericHint = phase.kind === 'live-min' ? 'modulation min' : 'modulation max';
+      const opts = paramNumericOptions(param.name || '').map((opt) => ({
+        ...opt,
+        detail: `${numericHint} (${opt.detail})`,
+      }));
+      return {
+        from: param.from,
+        options: withCompletionCategoryList(opts, 'param'),
+        validFor: /^-?(?:\d+(?:\.\d+)?|\.\d+|pi(?:\/\d+)?)?(?:[*/]-?(?:\d+(?:\.\d+)?|\.\d+|pi))*$/,
+      };
+    }
+
+    const opts = [
+      ...named.map((v) => ({ label: v, type: 'constant', detail: param.name })),
+      ...paramNumericOptions(param.name || ''),
+      ...liveSources.flatMap((src) => LIVE_FEATURES.map((f) => ({
+        label: `${src}.${f}`,
+        type: 'variable',
+        detail: 'live modulation source',
+      }))),
+      ...COMMON_OPERATORS.map((op) => ({
+        label: op,
+        type: 'keyword',
+        detail: opDescription(op),
+      })),
+    ];
+    return {
+      from: param.from,
+      options: withCompletionCategoryList(
+        opts.map((opt) => ({
+          ...opt,
+          info: typeof opt.info === 'string' ? opt.info : paramValueContract(param.name || ''),
+        })),
+        'param'
+      ),
+    };
+  }
+
+  function buildEffectBodyCompletion(effect) {
+    const liveSources = liveSourcesForCompletion();
+    const phase = classifyRowValuePhase(effect.tokensSoFar || [], effect.trailingSpace === true);
+
+    if (phase.kind === 'live-min' || phase.kind === 'live-max') {
+      const hint = phase.kind === 'live-min' ? 'modulation min' : 'modulation max';
+      const opts = [
+        { label: '0.1', type: 'constant', detail: `${hint} (0..1)` },
+        { label: '0.4', type: 'constant', detail: `${hint} (0..1)` },
+        { label: '0.8', type: 'constant', detail: `${hint} (0..1)` },
+      ];
+      return {
+        from: effect.from,
+        options: withCompletionCategoryList(opts, 'effect'),
+        validFor: /^-?(?:\d+(?:\.\d+)?|\.\d+|pi(?:\/\d+)?)?(?:[*/]-?(?:\d+(?:\.\d+)?|\.\d+|pi))*$/,
+      };
+    }
+
+    const opts = [
+      ...EFFECT_NAMED.map((m) => ({ label: m, type: 'constant', detail: effect.name })),
+      { label: '0.25', type: 'constant', detail: '0..1' },
+      { label: '0.5', type: 'constant', detail: '0..1' },
+      { label: '0.75', type: 'constant', detail: '0..1' },
+      ...liveSources.flatMap((src) => LIVE_FEATURES.map((f) => ({
+        label: `${src}.${f}`,
+        type: 'variable',
+        detail: 'live modulation source',
+      }))),
+      ...COMMON_OPERATORS.map((op) => ({
+        label: op,
+        type: 'keyword',
+        detail: opDescription(op),
+      })),
+    ];
+    return {
+      from: effect.from,
+      options: withCompletionCategoryList(opts, 'effect'),
+    };
   }
 
   function classifyContext(state, pos, ctx) {
     const line = state.doc.lineAt(pos);
-    const beforeCursorOnLine = line.text.slice(0, pos - line.from);
+    const beforeCursorOnLine = line.text.slice(0, Math.max(0, pos - line.from));
 
     // Inside a comment? Don't complete.
     const commentIdx = beforeCursorOnLine.indexOf('//');
@@ -1754,15 +2431,16 @@
     // At line head? "trimmed" is either empty or a single bare word with no
     // trailing whitespace.
     if (trimmed.length === 0 || /^[A-Za-z][A-Za-z0-9_.-]*$/.test(trimmed)) {
-      return { kind: 'head', from: line.from + indentLen };
+      return { kind: 'head', from: line.from + indentLen, headWord: trimmed.toLowerCase() };
     }
 
     // Determine the line head (first whitespace-bounded token)
-    const headMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_.-]*)\s+(.*)$/);
+    const headMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_.-]*)(\s+)(.*)$/);
     if (!headMatch) return { kind: 'unknown', from };
 
     const head = headMatch[1].toLowerCase();
-    const rest = headMatch[2];
+    const rest = headMatch[3];
+    const trailingSpace = /\s$/.test(rest);
     const tokensSoFar = rest.trim().split(/\s+/).filter(Boolean);
 
     if (HEAD_COUPLING.has(head)) {
@@ -1770,22 +2448,37 @@
         kind: 'coupling-body',
         head,
         position: tokensSoFar.length,
+        tokensSoFar,
+        trailingSpace,
         from,
       };
     }
     if (HEAD_VOICE.has(head)) {
-      return { kind: 'voice-body', voice: head, from };
+      return { kind: 'voice-body', voice: head, from, tokensSoFar, trailingSpace };
     }
     if (HEAD_PARAM.has(head)) {
-      return { kind: 'param-body', param: head, from };
+      return { kind: 'param-body', param: head, from, tokensSoFar, trailingSpace };
     }
     if (HEAD_EFFECT.has(head)) {
-      return { kind: 'effect-body', effect: head, from };
+      return { kind: 'effect-body', effect: head, from, tokensSoFar, trailingSpace };
     }
     if (HEAD_DIRECTIVE.has(head)) {
       return { kind: 'directive-body', directive: head, from };
     }
     return { kind: 'unknown', from };
+  }
+
+  function classifyContextAt(state, pos) {
+    return classifyContext(state, pos, {
+      matchBefore: (expr) => completionWordMatch(state, pos, expr),
+    });
+  }
+
+  function shouldOpenShiftCompletionForContext(here) {
+    if (!here || typeof here.kind !== 'string') return false;
+    if (here.kind === 'param-body' || here.kind === 'effect-body') return true;
+    if (here.kind === 'head' && (HEAD_PARAM.has(here.headWord) || HEAD_EFFECT.has(here.headWord))) return true;
+    return false;
   }
 
   function getSampleNamesSafe() {
@@ -1795,6 +2488,38 @@
   function getSampleGroupsSafe() {
     if (!editorEnvRef.getSampleGroups) return [];
     try { return editorEnvRef.getSampleGroups() || []; } catch (_) { return []; }
+  }
+  function getDrumKitsSafe() {
+    if (!editorEnvRef.getDrumKits) return [];
+    try { return editorEnvRef.getDrumKits() || []; } catch (_) { return []; }
+  }
+  function getGeneratedVideoIdsSafe() {
+    if (!editorEnvRef.getVideoGeneratedIds) return [];
+    try { return editorEnvRef.getVideoGeneratedIds() || []; } catch (_) { return []; }
+  }
+  function getTuningPresetIdsSafe() {
+    if (root.ReplTunings && typeof root.ReplTunings.listPresetIds === 'function') {
+      try { return root.ReplTunings.listPresetIds(200) || []; } catch (_) { return []; }
+    }
+    return [];
+  }
+
+  function videoDebugEnabledInEditor() {
+    return editorEnvRef.enableVideoDebug === true;
+  }
+
+  function voiceWordsForCompletion() {
+    if (videoDebugEnabledInEditor()) return VOICE_WORDS;
+    return VOICE_WORDS.filter((w) => w !== 'video');
+  }
+
+  function attractorsForCompletion() {
+    if (videoDebugEnabledInEditor()) return ATTRACTORS;
+    return ATTRACTORS.filter((a) => !VIDEO_LIVE_SOURCES.has(String(a || '').toLowerCase()));
+  }
+
+  function liveSourcesForCompletion() {
+    return videoDebugEnabledInEditor() ? LIVE_SOURCES : NON_VIDEO_LIVE_SOURCES;
   }
 
   // The completion source is referenced by language config above, so it must
@@ -1808,116 +2533,224 @@
     const from = wordMatch ? wordMatch.from : ctx.pos;
 
     if (here.kind === 'head') {
+      if (here.headWord && HEAD_PARAM.has(here.headWord)) {
+        return buildParamBodyCompletion({
+          name: here.headWord,
+          from: ctx.pos,
+          tokensSoFar: [],
+          trailingSpace: true,
+        });
+      }
+      if (here.headWord && HEAD_EFFECT.has(here.headWord)) {
+        return buildEffectBodyCompletion({
+          name: here.headWord,
+          from: ctx.pos,
+          tokensSoFar: [],
+          trailingSpace: true,
+        });
+      }
       // Don't fire on every keystroke at a blank cursor; only when the user
       // is mid-word or has hit the trigger.
       if (!explicit && !wordMatch) return null;
       const opts = [
-        ...VOICE_WORDS.map((w) => ({ label: w, type: 'keyword', detail: 'voice' })),
-        ...DIRECTIVES.map((w) => ({ label: w, type: 'keyword', detail: 'directive' })),
-        ...PARAMS.map((w) => ({ label: w, type: 'property', detail: 'param' })),
-        ...EFFECTS.map((w) => ({ label: w, type: 'property', detail: 'effect' })),
-        ...COUPLING.map((w) => ({ label: w, type: 'keyword', detail: 'coupling' })),
+        ...voiceWordsForCompletion().map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'voice' }, 'voice')),
+        ...DIRECTIVES.map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'directive' }, 'directive')),
+        ...PARAMS.map((w) => withCompletionCategory({ label: w, type: 'property', detail: 'param' }, 'param')),
+        ...EFFECTS.map((w) => withCompletionCategory({ label: w, type: 'property', detail: 'effect' }, 'effect')),
+        ...COUPLING.map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'coupling' }, 'coupling')),
       ];
       return { from: here.from, options: opts, validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
     }
 
     if (here.kind === 'coupling-body') {
       if (here.head === 'attractor') {
-        const opts = ATTRACTORS.map((a) => ({ label: a, type: 'class', detail: 'attractor' }));
-        return { from, options: opts, validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
+        const opts = attractorsForCompletion().map((a) => ({ label: a, type: 'class', detail: 'attractor' }));
+        return { from, options: withCompletionCategoryList(opts, 'coupling'), validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
       }
       if (here.head === 'source') {
         if (here.position === 0) {
-          const opts = SOURCE_KEYS.map((s) => ({ label: s, type: 'property', detail: 'source key' }));
-          return { from, options: opts, validFor: /^[A-Za-z]+$/ };
+          const opts = [
+            ...SOURCE_KEYS.map((s) => ({ label: s, type: 'property', detail: 'source key' })),
+            ...(videoDebugEnabledInEditor()
+              ? [
+                  { label: 'camera', type: 'class', detail: 'video gen source' },
+                  { label: 'screen', type: 'class', detail: 'video gen source' },
+                  { label: 'file', type: 'class', detail: 'video gen source' },
+                  ...getGeneratedVideoIdsSafe().map((id) => ({ label: id, type: 'text', detail: 'generated video clip' })),
+                ]
+              : []),
+          ];
+          return { from, options: withCompletionCategoryList(opts, 'coupling'), validFor: /^[A-Za-z0-9_.-]*$/ };
         }
         return null;
       }
         if (here.head === 'every') {
           const opts = [
-            { label: '4 bars', type: 'text', detail: 'every' },
-            { label: '8 beats', type: 'text', detail: 'every' },
+            { label: '4', type: 'constant', detail: 'count for every <N> bars/beats' },
+            { label: '8', type: 'constant', detail: 'count for every <N> bars/beats' },
             { label: 'bars', type: 'text', detail: 'unit' },
             { label: 'beats', type: 'text', detail: 'unit' },
           ];
-          return { from, options: opts };
+          return { from, options: withCompletionCategoryList(opts, 'coupling') };
         }
 
         if (here.head === 'time' || here.head === 'beat' || here.head === 'leaf' || here.head === 'choose' || here.head === 'trigger') {
+          const liveSources = liveSourcesForCompletion();
           const opts = [
-            ...LIVE_SOURCES.map((src) => ({ label: src, type: 'class', detail: 'live source' })),
-            ...LIVE_SOURCES.flatMap((src) => LIVE_FEATURES.map((f) => ({ label: `${src}.${f}`, type: 'variable', detail: here.head }))),
+            ...liveSources.map((src) => ({ label: src, type: 'class', detail: 'live source' })),
+            ...liveSources.flatMap((src) => LIVE_FEATURES.map((f) => ({ label: `${src}.${f}`, type: 'variable', detail: here.head }))),
           ];
-          return { from, options: opts, validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
+          return { from, options: withCompletionCategoryList(opts, 'live'), validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
         }
 
         if (here.head === 'fade') {
           const opts = [
-            { label: 'in 30s', type: 'function', detail: 'fade block in, then latch high' },
-            { label: 'out 30s', type: 'function', detail: 'fade block out, then latch silent' },
-            { label: 'inout 30s', type: 'function', detail: 'cycle in then out' },
-            { label: 'outin 30s', type: 'function', detail: 'cycle out then in' },
-            { label: 'inout 30s hold 10s', type: 'function', detail: 'breathing fade with high/low holds' },
-            { label: 'outin 8s hold 2s', type: 'function', detail: 'negative-space pulse' },
+            { label: 'in', type: 'function', detail: 'e.g. fade in 30s' },
+            { label: 'out', type: 'function', detail: 'e.g. fade out 30s' },
+            { label: 'inout', type: 'function', detail: 'e.g. fade inout 30s hold 10s' },
+            { label: 'outin', type: 'function', detail: 'e.g. fade outin 8s hold 2s' },
             { label: 'hold', type: 'keyword', detail: 'freeze current fade level' },
             { label: 'clear', type: 'keyword', detail: 'remove fade automation' },
           ];
-          return { from, options: opts };
+          return { from, options: withCompletionCategoryList(opts, 'coupling') };
         }
 
         return null;
     }
 
     if (here.kind === 'directive-body') {
+      if (here.directive === 'eval' || here.directive === 'evaluate') {
+        const opts = withCompletionCategoryList([
+          { label: 'reset', type: 'keyword', detail: 'queue evaluate at next bar reset when running' },
+          { label: 'keep', type: 'keyword', detail: "use with 'eval reset' to keep previous tails (default)" },
+          { label: 'cut', type: 'keyword', detail: "use with 'eval reset' to cut previous audio at boundary" },
+          { label: 'now', type: 'keyword', detail: 'evaluate immediately (default)' },
+        ], 'directive');
+        return { from, options: opts };
+      }
       if (here.directive === 'meter') {
-        const opts = ['4/4', '3/4', '6/8', '5/4', '7/8'].map((m) => ({ label: m, type: 'constant' }));
+        const opts = withCompletionCategoryList([
+          { label: '4/4', type: 'constant' },
+          { label: '3/4', type: 'constant' },
+          { label: '6/8', type: 'constant' },
+          { label: '5/4', type: 'constant' },
+          { label: '7/8', type: 'constant' },
+        ], 'directive');
         return { from, options: opts };
       }
       if (here.directive === 'tempo') {
-        const opts = ['60', '88', '110', '120', '140'].map((m) => ({ label: m, type: 'constant' }));
+        const opts = withCompletionCategoryList([
+          { label: '60', type: 'constant' },
+          { label: '84', type: 'constant' },
+          { label: '92', type: 'constant' },
+          { label: '110', type: 'constant' },
+          { label: '120', type: 'constant' },
+          { label: '140', type: 'constant' },
+        ], 'directive');
         return { from, options: opts };
+      }
+      if (here.directive === 'tuning') {
+        const line = ctx.state.doc.lineAt(ctx.pos);
+        const beforeCursorOnLine = line.text.slice(0, Math.max(0, ctx.pos - line.from));
+        const directiveArgs = beforeCursorOnLine
+          .replace(/^\s*tuning\b/i, '')
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        const isSecondArg = directiveArgs.length >= 2
+          || (directiveArgs.length === 1 && /[\s]$/.test(beforeCursorOnLine));
+        const presetIds = getTuningPresetIdsSafe();
+        if (isSecondArg) {
+          const opts = withCompletionCategoryList([
+            { label: '432', type: 'constant', detail: 'A4 override (Hz)' },
+            { label: '440', type: 'constant', detail: 'A4 override (Hz, default)' },
+            { label: '500', type: 'constant', detail: 'A4 override (Hz)' },
+          ], 'tuning');
+          return { from, options: opts, validFor: /^[0-9.]*$/ };
+        }
+        const opts = withCompletionCategoryList(
+          presetIds.length
+            ? presetIds.map((id) => ({ label: id, type: 'constant', detail: 'tuning preset id' }))
+            : [{ label: 'kirnberger-3', type: 'constant', detail: 'tuning preset id' }],
+          'tuning'
+        );
+        return { from, options: opts, validFor: /^[A-Za-z0-9_.\-/]*$/ };
       }
       return null;
     }
 
     if (here.kind === 'param-body') {
-      const named = PARAM_NAMED[here.param] || [];
-      const opts = [
-        ...named.map((v) => ({ label: v, type: 'constant', detail: here.param })),
-        ...LIVE_SOURCES.map((src) => ({ label: src, type: 'class', detail: 'live source' })),
-        ...LIVE_SOURCES.flatMap((src) => LIVE_FEATURES.slice(0, 8).map((f) => ({ label: `${src}.${f}`, type: 'variable', detail: 'live modulation' }))),
-        ...COMMON_OPERATORS.map((op) => ({
-          label: op, type: 'keyword',
-          detail: opDescription(op),
-        })),
-      ];
-      // For sample-only params, surface sample-friendly hints.
-      if (here.param === 'rate') {
-        opts.unshift({ label: '1', type: 'constant', detail: 'rate' });
+      if (here.param === 'style') {
+        const opts = ['surveillance', 'thermal', 'collage', 'ghost', 'difference']
+          .map((label) => ({ label, type: 'constant', detail: 'video gen style' }));
+        return { from, options: withCompletionCategoryList(opts, 'param') };
       }
-      return { from, options: opts };
+      if (here.param === 'seed') {
+        const opts = ['blackbox', 'archive', 'weather', 'camera', 'grid']
+          .map((label) => ({ label, type: 'text', detail: 'video gen seed' }));
+        return { from, options: withCompletionCategoryList(opts, 'param') };
+      }
+      if (here.param === 'duration') {
+        const opts = [
+          { label: '4s', type: 'constant', detail: 'seconds' },
+          { label: '6s', type: 'constant', detail: 'seconds' },
+          { label: '12s', type: 'constant', detail: 'seconds' },
+        ];
+        return { from, options: withCompletionCategoryList(opts, 'param') };
+      }
+      if (here.param === 'cache') {
+        const opts = ['live', 'memory', 'hold']
+          .map((label) => ({ label, type: 'constant', detail: 'video gen cache' }));
+        return { from, options: withCompletionCategoryList(opts, 'param') };
+      }
+      if (here.param === 'glide') {
+        const opts = [
+          { label: '0.04', type: 'constant', detail: 'seconds' },
+          { label: '0.08', type: 'constant', detail: 'seconds' },
+          { label: '0.16', type: 'constant', detail: 'seconds' },
+          { label: '0.32', type: 'constant', detail: 'seconds' },
+        ];
+        return { from, options: withCompletionCategoryList(opts, 'param'), validFor: /^[0-9.]*$/ };
+      }
+      const kitIds = here.param === 'kit'
+        ? getDrumKitsSafe().map((k) => (k && k.id ? String(k.id) : '')).filter(Boolean)
+        : [];
+      if (here.param === 'kit') {
+        const opts = kitIds.length
+          ? kitIds.map((id) => ({ label: id, type: 'constant', detail: 'drum kit id' }))
+          : [{ label: '909', type: 'constant', detail: 'drum kit id' }, { label: 'tub-grid', type: 'constant', detail: 'drum kit id' }];
+        return { from, options: withCompletionCategoryList(opts, 'param'), validFor: /^[A-Za-z0-9_-]*$/ };
+      }
+      return buildParamBodyCompletion({
+        name: here.param,
+        from,
+        tokensSoFar: here.tokensSoFar,
+        trailingSpace: here.trailingSpace,
+      });
     }
 
     if (here.kind === 'effect-body') {
-      const opts = [
-        ...EFFECT_NAMED.map((m) => ({ label: m, type: 'constant', detail: here.effect })),
-        ...LIVE_SOURCES.flatMap((src) => LIVE_FEATURES.slice(0, 8).map((f) => ({ label: `${src}.${f}`, type: 'variable', detail: 'live modulation' }))),
-        { label: '0.25', type: 'constant', detail: '0..1' },
-        { label: '0.5', type: 'constant', detail: '0..1' },
-        ...COMMON_OPERATORS.map((op) => ({
-          label: op, type: 'keyword', detail: opDescription(op),
-        })),
-      ];
-      return { from, options: opts };
+      return buildEffectBodyCompletion({
+        name: here.effect,
+        from,
+        tokensSoFar: here.tokensSoFar,
+        trailingSpace: here.trailingSpace,
+      });
     }
 
     if (here.kind === 'voice-body') {
-      if (here.voice === 'string') {
+      if (here.voice === 'string' || here.voice === 'sine' || here.voice === 'osc' || here.voice === 'pluck' || here.voice === 'drone') {
         const opts = [
           { label: 'A3', type: 'variable', detail: 'pitch' },
           { label: 'C4', type: 'variable', detail: 'pitch' },
           { label: 'E4', type: 'variable', detail: 'pitch' },
           { label: 'G4', type: 'variable', detail: 'pitch' },
+          { label: '>6*', type: 'keyword', detail: 'pitch span start (down)' },
+          { label: '<6*', type: 'keyword', detail: 'pitch span start (up)' },
+          { label: '>>6*', type: 'keyword', detail: 'shared pitch span start (down)' },
+          { label: '<<6*', type: 'keyword', detail: 'shared pitch span start (up)' },
+          { label: 'G%', type: 'keyword', detail: 'pitch span end (same octave)' },
+          { label: 'Bb%', type: 'keyword', detail: 'pitch span end (same octave)' },
           ...COMMON_OPERATORS.map((op) => ({ label: op, type: 'keyword', detail: opDescription(op) })),
           { label: '*4', type: 'keyword', detail: 'random pitch in oct 4' },
           { label: '*!4', type: 'keyword', detail: 'frozen random pitch in oct 4' },
@@ -1926,7 +2759,56 @@
           { label: '.', type: 'keyword', detail: 'rest' },
           { label: '|', type: 'keyword', detail: 'bar' },
         ];
-        return { from, options: opts };
+        return { from, options: withCompletionCategoryList(opts, 'voice') };
+      }
+      if (here.voice === 'noise' || here.voice === 'pulse') {
+        const opts = [
+          { label: '*', type: 'keyword', detail: here.voice === 'pulse' ? 'pulse hit' : 'noise hit' },
+          { label: '*!', type: 'keyword', detail: here.voice === 'pulse' ? 'frozen pulse hit' : 'frozen noise hit' },
+          { label: '~', type: 'keyword', detail: here.voice === 'pulse' ? 'held pulse cell' : 'held noise texture' },
+          { label: '.', type: 'keyword', detail: 'rest' },
+          { label: '|', type: 'keyword', detail: 'bar' },
+        ];
+        return { from, options: withCompletionCategoryList(opts, 'voice') };
+      }
+      if (here.voice === 'drum') {
+        const opts = [
+          { label: 'k', type: 'keyword', detail: 'kick lane' },
+          { label: 's', type: 'keyword', detail: 'snare lane' },
+          { label: 'h', type: 'keyword', detail: 'hat lane' },
+          { label: 'o', type: 'keyword', detail: 'other/perc lane' },
+          { label: 't', type: 'keyword', detail: 'tom lane' },
+          { label: 'r', type: 'keyword', detail: 'ride lane' },
+          { label: 'c', type: 'keyword', detail: 'crash lane' },
+          { label: '*', type: 'keyword', detail: 'random hit from kit pool' },
+          { label: 'k!', type: 'keyword', detail: 'frozen kick pick for this leaf' },
+          { label: 's!', type: 'keyword', detail: 'frozen snare pick for this leaf' },
+          { label: 'h!', type: 'keyword', detail: 'frozen hat pick for this leaf' },
+          { label: 'o!', type: 'keyword', detail: 'frozen other pick for this leaf' },
+          { label: 't!', type: 'keyword', detail: 'frozen tom pick for this leaf' },
+          { label: 'r!', type: 'keyword', detail: 'frozen ride pick for this leaf' },
+          { label: 'c!', type: 'keyword', detail: 'frozen crash pick for this leaf' },
+          { label: '*!', type: 'keyword', detail: 'frozen kit-pool pick for this leaf' },
+          { label: '~', type: 'keyword', detail: 'hold cell' },
+          { label: '.', type: 'keyword', detail: 'rest' },
+          { label: '|', type: 'keyword', detail: 'bar' },
+        ];
+        return { from, options: withCompletionCategoryList(opts, 'voice') };
+      }
+      if (here.voice === 'video') {
+        if (!videoDebugEnabledInEditor()) return null;
+        const opts = [
+          { label: 'camera', type: 'class', detail: 'webcam source' },
+          { label: 'screen', type: 'class', detail: 'screen/tab capture source' },
+          { label: 'file', type: 'class', detail: 'uploaded file source' },
+          { label: 'gen', type: 'class', detail: 'local generative block mode' },
+          { label: '*', type: 'keyword', detail: 'committed visual hit' },
+          { label: '*!', type: 'keyword', detail: 'frozen visual hit token' },
+          { label: '~', type: 'keyword', detail: 'hold cell' },
+          { label: '.', type: 'keyword', detail: 'rest' },
+          { label: '|', type: 'keyword', detail: 'bar' },
+        ];
+        return { from, options: withCompletionCategoryList(opts, 'voice'), validFor: /^[A-Za-z0-9_.!*~-]*$/ };
       }
       if (here.voice === 'input') {
         const opts = [
@@ -1934,7 +2816,7 @@
           { label: 'interface', type: 'class', detail: 'audio interface input' },
           { label: 'tab', type: 'class', detail: 'shared tab audio' },
         ];
-        return { from, options: opts, validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
+        return { from, options: withCompletionCategoryList(opts, 'voice'), validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
       }
       if (here.voice === 'sample') {
         const samples = getSampleNamesSafe();
@@ -1967,7 +2849,7 @@
         for (const name of samples) {
           opts.push({ label: name, type: 'text', detail: 'sample' });
         }
-        return { from, options: opts };
+        return { from, options: withCompletionCategoryList(opts, 'sample') };
       }
     }
 
@@ -2038,6 +2920,38 @@
       view.dispatch(view.state.replaceSelection('  '));
       return true;
     };
+    const completionMoveDown = (view) => {
+      if (typeof moveCompletionSelection === 'function') {
+        const move = moveCompletionSelection(true);
+        if (typeof move === 'function' && move(view) === true) return true;
+      }
+      return completionKeyBindingRun('ArrowDown', view);
+    };
+    const completionMoveUp = (view) => {
+      if (typeof moveCompletionSelection === 'function') {
+        const move = moveCompletionSelection(false);
+        if (typeof move === 'function' && move(view) === true) return true;
+      }
+      return completionKeyBindingRun('ArrowUp', view);
+    };
+    const completionPageDown = (view) => {
+      if (typeof moveCompletionSelection === 'function') {
+        const move = moveCompletionSelection(true, 'page');
+        if (typeof move === 'function' && move(view) === true) return true;
+      }
+      return completionKeyBindingRun('PageDown', view);
+    };
+    const completionPageUp = (view) => {
+      if (typeof moveCompletionSelection === 'function') {
+        const move = moveCompletionSelection(false, 'page');
+        if (typeof move === 'function' && move(view) === true) return true;
+      }
+      return completionKeyBindingRun('PageUp', view);
+    };
+    const completionClose = (view) => {
+      if (typeof closeCompletion === 'function' && closeCompletion(view) === true) return true;
+      return completionKeyBindingRun('Escape', view);
+    };
 
     return [
       // Higher precedence than defaults so Cmd-Enter never falls through.
@@ -2064,6 +2978,10 @@
           key: 'Escape',
           preventDefault: true,
           run: (view) => {
+            if (completionStatus(view.state) === 'active') {
+              completionClose(view);
+              return true;
+            }
             if (cmd.stop) cmd.stop();
             view.focus();
             return true;
@@ -2074,6 +2992,15 @@
           preventDefault: true,
           run: (view) => {
             if (cmd.share) cmd.share();
+            view.focus();
+            return true;
+          },
+        },
+        {
+          key: 'Mod-i',
+          preventDefault: true,
+          run: (view) => {
+            if (cmd.toggleIO) cmd.toggleIO();
             view.focus();
             return true;
           },
@@ -2099,12 +3026,45 @@
           run: indentLess,
         },
         {
+          key: 'ArrowDown',
+          run: (view) => {
+            if (completionStatus(view.state) !== 'active') return false;
+            completionMoveDown(view);
+            return true;
+          },
+        },
+        {
+          key: 'ArrowUp',
+          run: (view) => {
+            if (completionStatus(view.state) !== 'active') return false;
+            completionMoveUp(view);
+            return true;
+          },
+        },
+        {
+          key: 'PageDown',
+          run: (view) => {
+            if (completionStatus(view.state) !== 'active') return false;
+            completionPageDown(view);
+            return true;
+          },
+        },
+        {
+          key: 'PageUp',
+          run: (view) => {
+            if (completionStatus(view.state) !== 'active') return false;
+            completionPageUp(view);
+            return true;
+          },
+        },
+        {
           // Enter accepts an open completion; otherwise falls through to
           // the default newline insertion via lower-precedence keymaps.
           key: 'Enter',
           run: (view) => {
             if (completionStatus(view.state) === 'active') {
-              return acceptCompletion(view);
+              acceptCompletion(view);
+              return true;
             }
             return false;
           },
@@ -2129,6 +3089,13 @@
     // Bind environment refs used by the completion source.
     editorEnvRef.getSampleNames = opts.getSampleNames;
     editorEnvRef.getSampleGroups = opts.getSampleGroups;
+    editorEnvRef.getDrumKits = opts.getDrumKits;
+    editorEnvRef.getVideoGeneratedIds = opts.getVideoGeneratedIds;
+    editorEnvRef.enableVideoDebug = opts.enableVideoDebug === true;
+    editorEnvRef.onToggleBlockMute = typeof opts.onToggleBlockMute === 'function'
+      ? opts.onToggleBlockMute
+      : null;
+    editorEnvRef.blockMuteLines = normalizeBlockMuteLines(opts.blockMuteLines || null);
 
     const onChange = typeof opts.onChange === 'function' ? opts.onChange : null;
 
@@ -2146,17 +3113,27 @@
       history(),
       drawSelection(),
       highlightActiveLine(),
-      highlightSelectionMatches(),
       bracketMatching(),
       replLanguageWithTags,
       syntaxHighlighting(replHighlight),
       cyberneticScorePlugin,
       selectionStateClassPlugin,
       selectionMaskPlugin,
+      blockMuteDecorationsPlugin,
+      blockMuteMousePlugin,
       dslSelectionMousePlugin,
       autocompletion({
         override: [completionSource],
         activateOnTyping: true,
+        interactionDelay: 0,
+        filterStrict: true,
+        optionClass: (completion) => {
+          const category = completion && typeof completion.replCategory === 'string'
+            ? completion.replCategory
+            : '';
+          if (!category) return '';
+          return `cm-repl-suggest cm-repl-suggest-${category}`;
+        },
         defaultKeymap: false,
         closeOnBlur: true,
         icons: false,
@@ -2179,7 +3156,7 @@
       // keymap built last so it can reference the eventual view via closure.
       makeKeymap(opts.onCommand || {}),
       // baseline editing keymap, lower precedence
-      keymap.of([...defaultKeymap, ...historyKeymap, ...completionKeymap, ...searchKeymap, ...lintKeymap]),
+      keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, ...lintKeymap]),
     ];
 
     if (parseFn) extensions.push(buildLinter(parseFn));
@@ -2203,6 +3180,37 @@
     cd.setAttribute('data-gramm', 'false');
     cd.setAttribute('data-gramm_editor', 'false');
     cd.setAttribute('data-enable-grammarly', 'false');
+
+    // Shift-only explicit completion trigger:
+    // if the cursor is parked on a param/effect row, tapping Shift opens
+    // the same legality-scoped completion menu without moving the caret.
+    let shiftTapSnapshot = null;
+    view.dom.addEventListener('keydown', (e) => {
+      if (!(e instanceof KeyboardEvent)) return;
+      if (e.key !== 'Shift' || e.repeat) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const sel = view.state.selection.main;
+      shiftTapSnapshot = {
+        anchor: sel.anchor,
+        head: sel.head,
+        docLen: view.state.doc.length,
+      };
+    });
+    view.dom.addEventListener('keyup', (e) => {
+      if (!(e instanceof KeyboardEvent)) return;
+      if (e.key !== 'Shift') return;
+      const snap = shiftTapSnapshot;
+      shiftTapSnapshot = null;
+      if (!snap) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (completionStatus(view.state) === 'active') return;
+      const sel = view.state.selection.main;
+      if (sel.anchor !== snap.anchor || sel.head !== snap.head) return;
+      if (view.state.doc.length !== snap.docLen) return;
+      const here = classifyContextAt(view.state, sel.head);
+      if (!shouldOpenShiftCompletionForContext(here)) return;
+      startCompletion(view);
+    });
 
     // Adapter API.
     const api = {
@@ -2252,6 +3260,14 @@
       replaceSelection(text) {
         const insert = typeof text === 'string' ? text : '';
         view.dispatch(view.state.replaceSelection(insert));
+      },
+
+      setMutedBlockLines(lines) {
+        const normalized = normalizeBlockMuteLines(lines || null);
+        editorEnvRef.blockMuteLines = normalized;
+        view.dispatch({
+          effects: setBlockMuteLinesEffect.of(normalized),
+        });
       },
 
       // Insert at the cursor, applying repl's surrounding-whitespace rule:

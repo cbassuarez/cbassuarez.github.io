@@ -1,0 +1,27 @@
+// video-05 — audio drives video
+// Mic analysis modulates threshold/edges/trails in the stage.
+
+tempo 92
+meter 4/4
+tuning 12-tet-edo 432
+
+input mic
+gain 0
+monitor off
+listen on
+
+video camera
+listen on
+opacity 0.9
+threshold mic.intensity 0.2 0.78
+edges mic.volatility 0.1 0.92
+trail mic.silence 0.08 0.82
+feedback mic.rupture 0.06 0.44
+blend difference
+
+// always-audible bed
+osc A2 ~ E2 ~
+gain 0.18
+decay 2.6
+tone dark
+pan center

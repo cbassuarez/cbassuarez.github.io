@@ -1,0 +1,46 @@
+/// video arm v1
+/// hybrid video blocks: continuous stage plus committed leaf events
+/// camera/screen/file become control fields via camera.*, screen.*, file.*, video.*
+
+tempo 92
+meter 4/4
+eval reset keep
+
+video camera * . ~ *
+listen on
+monitor on
+opacity 0.92
+edges camera.motion 0.08 0.82
+threshold camera.brightness 0.12 0.62
+trail camera.stillness 0.08 0.74
+feedback 0.22
+saturate 0.44
+contrast 0.38
+blend difference
+
+video screen . * . *
+listen on
+opacity 0.48
+slitscan 0.32
+delay 0.2
+color camera.presence 0.1 0.9
+blend screen
+every 2 bars
+
+video gen * ~ . *
+source camera
+style surveillance
+seed blackbox
+duration 6s
+cache live
+trigger camera.stillness 0.78
+feedback 0.3
+displace 0.2
+color 0.62
+
+sample snm-*&24 . tub-*&32 .
+attractor camera
+trigger camera.rupture 0.42
+grain camera.motion 0.05 0.55
+pan camera.centroidX -0.8 0.8
+gain 0.38

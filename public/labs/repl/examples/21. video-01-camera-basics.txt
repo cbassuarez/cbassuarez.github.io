@@ -1,0 +1,20 @@
+// video-01 — camera basics
+// Continuous video body with simple stage shaping.
+
+tempo 92
+meter 4/4
+
+video camera
+listen on
+opacity 0.92
+contrast 0.46
+saturate 0.34
+edges 0.16
+blend screen
+
+// always-audible bed
+pulse * . * .
+gain 0.2
+decay 0.08
+tone 0.72
+pan center

@@ -11,6 +11,7 @@
 //   sched.start();                 // begin at t = 0
 //   sched.stop();                  // halt + reset bar counter
 //   sched.update(program);         // hot-swap; clock keeps running
+//   sched.queueEvaluateAtReset(program, { stopVoices: false }); // swap at next bar reset when running
 //   sched.now()  → { bar, beat, transport, blockStates }
 //   sched.onMissingSample(fn);
 
@@ -19,6 +20,56 @@
 
   const LOOKAHEAD_MS = 100;
   const SCHEDULE_AHEAD_S = 0.12;
+
+  // Shared continuous-random gesture renderer. `*~` parses to a
+  // `param-gesture` with `mode: 'continuous-random'`; voices and the
+  // attractor bus both call this to schedule a stepwise random walk on a
+  // Web Audio AudioParam. Without this, voices fell back to a single
+  // setValueAtTime + linearRampToValueAtTime using only `from`, leaving
+  // the value frozen for the duration of the event.
+  function applyContinuousRandomGesture(param, gesture, time, duration, lo, hi, fallback) {
+    if (!param || !gesture || gesture.kind !== 'param-gesture') return false;
+    const ctx = param.context;
+    const ctxNow = ctx && Number.isFinite(Number(ctx.currentTime)) ? Number(ctx.currentTime) : 0;
+    const start = Number.isFinite(Number(time)) ? Math.max(ctxNow, Number(time)) : ctxNow;
+    const dur = Number.isFinite(Number(duration)) && Number(duration) > 0 ? Number(duration) : 0.5;
+    const end = start + dur;
+
+    const min = Number.isFinite(Number(lo)) ? Number(lo) : Number(gesture.lo);
+    const max = Number.isFinite(Number(hi)) ? Number(hi) : Number(gesture.hi);
+    const safeLo = Number.isFinite(min) ? min : 0;
+    const safeHi = Number.isFinite(max) ? max : 1;
+
+    const rateHz = Number.isFinite(Number(gesture.rateHz)) ? Number(gesture.rateHz) : 8;
+    const step = Math.max(0.025, Math.min(0.25, 1 / rateHz));
+
+    const fb = Number.isFinite(Number(fallback)) ? Number(fallback) : 0;
+    const fromRaw = gesture && gesture.from !== undefined ? Number(gesture.from) : NaN;
+    let current = Number.isFinite(fromRaw) ? fromRaw : fb;
+    if (current < safeLo) current = safeLo;
+    else if (current > safeHi) current = safeHi;
+
+    try {
+      param.cancelScheduledValues(start);
+      param.setValueAtTime(current, start);
+
+      let t = start;
+      while (t < end - 0.0001) {
+        const nextT = Math.min(end, t + step);
+        const r = safeLo + Math.random() * (safeHi - safeLo);
+        const next = r < safeLo ? safeLo : r > safeHi ? safeHi : r;
+        param.linearRampToValueAtTime(next, Math.max(start + 0.006, nextT));
+        t = nextT;
+      }
+      return true;
+    } catch (_) {
+      try { param.value = current; } catch (__) {}
+      return true;
+    }
+  }
+
+  root.ReplGestures = root.ReplGestures || {};
+  root.ReplGestures.applyContinuousRandom = applyContinuousRandomGesture;
 
   function create(opts) {
     const audioCtx = opts.audioCtx;
@@ -29,14 +80,19 @@
     let running = false;
     let timer = null;
     let originTime = 0;
+      let pendingEvaluate = null;
       const missingSampleSeen = new Set();
       let onMissingCallback = null;
       let runtimeEpoch = 0;
       let runtimeEventSeq = 0;
       const pendingEditorPulseTimers = new Set();
+      const sharedPitchSpanState = { up: null, down: null };
 
       function nextRuntimeEpoch(reason) {
         runtimeEpoch += 1;
+        if (typeof root.VideoVoice !== 'undefined' && root.VideoVoice.resetRuntime) {
+          try { root.VideoVoice.resetRuntime(reason || 'runtime'); } catch (_) {}
+        }
         for (const id of Array.from(pendingEditorPulseTimers)) {
           try { root.clearTimeout(id); } catch (_) {}
         }
@@ -79,6 +135,14 @@
         if (tok.kind === 'note' && tok.value) return tok.value.name || String(tok.value.freq || 'note');
         if (tok.kind === 'note-random' && tok.value && tok.value.raw) return String(tok.value.raw);
         if (tok.kind === 'note-random') return '*';
+        if (tok.kind === 'noise' && tok.value && tok.value.raw) return String(tok.value.raw);
+        if (tok.kind === 'noise') return '*';
+        if (tok.kind === 'pulse' && tok.value && tok.value.raw) return String(tok.value.raw);
+        if (tok.kind === 'pulse') return '*';
+        if (tok.kind === 'drum' && tok.value && tok.value.raw) return String(tok.value.raw);
+        if (tok.kind === 'drum') return '*';
+        if (tok.kind === 'video-hit' && tok.value && tok.value.raw) return String(tok.value.raw);
+        if (tok.kind === 'video-hit') return '*';
         if (tok.kind === 'sample') return tok.value || 'sample';
         if (tok.kind === 'sample-selector' && tok.value) return tok.value.raw || 'sample';
         return tok.kind || '';
@@ -168,10 +232,100 @@
         return Number.isFinite(n) && n > 0 ? n : blockLine(block);
       }
 
+      function ensureBlockMuteState(block) {
+        if (!block) return null;
+        if (!block._muteState || typeof block._muteState !== 'object') {
+          block._muteState = {
+            muted: Boolean(block.mutedDefault),
+            pending: null,
+          };
+        }
+        return block._muteState;
+      }
+
+      function emitBlockMutePulse(block, time, pendingOverride) {
+        if (!block) return;
+        const state = ensureBlockMuteState(block);
+        const pending = state && state.pending ? state.pending : null;
+        const hasPending = pendingOverride != null ? Boolean(pendingOverride) : Boolean(pending);
+        emitEditorPulseAt({
+          kind: 'block-mute',
+          line: blockLine(block),
+          blockId: block._blockId || null,
+          blockOrdinal: Number.isFinite(Number(block._blockOrdinal)) ? Number(block._blockOrdinal) : null,
+          voice: block.voice,
+          muted: Boolean(state && state.muted),
+          pending: hasPending,
+          pendingMuted: pending ? Boolean(pending.muted) : Boolean(state && state.muted),
+          pendingAt: pending && Number.isFinite(Number(pending.at)) ? Number(pending.at) : null,
+        }, time);
+      }
+
+      function applyBlockMuteNow(block, muted, atTime, quiet) {
+        if (!block) return false;
+        const state = ensureBlockMuteState(block);
+        state.muted = Boolean(muted);
+        state.pending = null;
+        if (!quiet) emitBlockMutePulse(block, Number.isFinite(Number(atTime)) ? Number(atTime) : audioCtx.currentTime, false);
+        return true;
+      }
+
+      function applyPendingMuteForBlock(block, atTime) {
+        if (!block) return;
+        const state = ensureBlockMuteState(block);
+        const pending = state && state.pending ? state.pending : null;
+        if (!pending) return;
+        const when = Number(pending.at);
+        const threshold = Number.isFinite(Number(atTime)) ? Number(atTime) : audioCtx.currentTime;
+        if (!Number.isFinite(when) || when <= threshold + 0.000001) {
+          applyBlockMuteNow(block, pending.muted, Number.isFinite(when) ? when : threshold, false);
+        }
+      }
+
+      function blockIsMutedAt(block, atTime) {
+        applyPendingMuteForBlock(block, atTime);
+        const state = ensureBlockMuteState(block);
+        return Boolean(state && state.muted);
+      }
+
+      function seedProgramMuteDefaults(prog, preserveExisting) {
+        if (!prog || !Array.isArray(prog.blocks)) return;
+        for (const block of prog.blocks) {
+          const current = block && block._muteState;
+          const keep = preserveExisting && current && typeof current === 'object';
+          block._muteState = {
+            muted: keep ? Boolean(current.muted) : Boolean(block && block.mutedDefault),
+            pending: null,
+          };
+        }
+      }
+
+      function findBlockById(blockId) {
+        const id = blockId == null ? '' : String(blockId);
+        if (!id || !program || !Array.isArray(program.blocks)) return null;
+        for (const block of program.blocks) {
+          if (block && String(block._blockId || '') === id) return block;
+        }
+        return null;
+      }
+
+      function findBlockByLine(lineNumber) {
+        const line = Number(lineNumber);
+        if (!Number.isFinite(line) || line <= 0 || !program || !Array.isArray(program.blocks)) return null;
+        for (const block of program.blocks) {
+          if (blockLine(block) === line) return block;
+        }
+        return null;
+      }
+
       const RANDOM_PITCH_CLASSES = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
       const RANDOM_PITCH_OCTAVES = [2, 3, 4, 5];
+      const PITCH_CLASS_BY_SEMITONE = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
-      function noteToFreq(name, accidental, octave) {
+      function noteToMidi(name, accidental, octave) {
+        if (root.ReplTunings && typeof root.ReplTunings.noteToMidi === 'function') {
+          return root.ReplTunings.noteToMidi(name, accidental, octave);
+        }
         const semitoneOffsets = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
         let semis = semitoneOffsets[String(name || '').toUpperCase()];
         if (semis == null) return null;
@@ -182,8 +336,54 @@
         const oct = Number(octave);
         if (!Number.isFinite(oct)) return null;
 
-        const midi = (oct + 1) * 12 + semis;
-        return 440 * Math.pow(2, (midi - 69) / 12);
+        return (oct + 1) * 12 + semis;
+      }
+
+      function blockRuntimeTuning(block) {
+        const b = block || null;
+        if (!b || !b.tuning) return null;
+        if (b._runtimeTuning) return b._runtimeTuning;
+        if (root.ReplTunings && typeof root.ReplTunings.tuningToRuntime === 'function') {
+          b._runtimeTuning = root.ReplTunings.tuningToRuntime(b.tuning);
+        } else {
+          b._runtimeTuning = b.tuning || null;
+        }
+        return b._runtimeTuning;
+      }
+
+      function midiToFreq(midi, block) {
+        const m = Number(midi);
+        if (!Number.isFinite(m)) return null;
+        if (root.ReplTunings && typeof root.ReplTunings.midiToFreq === 'function') {
+          return root.ReplTunings.midiToFreq(m, blockRuntimeTuning(block));
+        }
+        // Fallback: 12-TET A440.
+        return 440 * Math.pow(2, (m - 69) / 12);
+      }
+
+      function midiToFreqContinuous(midi, block) {
+        const m = Number(midi);
+        if (!Number.isFinite(m)) return null;
+
+        if (Math.abs(m - Math.round(m)) < 1e-9) {
+          return midiToFreq(Math.round(m), block);
+        }
+
+        const lo = Math.floor(m);
+        const hi = lo + 1;
+        const frac = m - lo;
+        const loHz = midiToFreq(lo, block);
+        const hiHz = midiToFreq(hi, block);
+        if (!Number.isFinite(loHz) || !Number.isFinite(hiHz) || loHz <= 0 || hiHz <= 0) return null;
+        return loHz * Math.pow(hiHz / loHz, frac);
+      }
+
+      function midiToNameApprox(midi) {
+        const m = Number(midi);
+        if (!Number.isFinite(m)) return '';
+        const semi = ((Math.round(m) % 12) + 12) % 12;
+        const octave = Math.floor(Math.round(m) / 12) - 1;
+        return `${PITCH_CLASS_BY_SEMITONE[semi]}${octave}`;
       }
 
       function randomArrayItem(items) {
@@ -230,13 +430,16 @@
           const accidental = spec.pitchClass ? (spec.accidental || '') : '';
           const octave = spec.octave != null ? spec.octave : chooseAttractorOctave(node._blockForAttractor || null);
 
-        const freq = noteToFreq(pitchClass, accidental, octave);
-        if (!freq) return null;
+        const midi = noteToMidi(pitchClass, accidental, octave);
+        if (!Number.isFinite(midi)) return null;
+        const block = node && node._blockForAttractor ? node._blockForAttractor : null;
 
         const resolved = {
           name: `${pitchClass}${accidental}${octave}`,
-          freq,
+          midi,
+          freq: midiToFreq(midi, block),
         };
+        if (!Number.isFinite(resolved.freq)) return null;
 
         if (spec.frozen) {
           node._frozenRandomPitch = resolved;
@@ -244,12 +447,271 @@
 
         return resolved;
       }
+
+      function isPitchSpanAdvanceToken(tok) {
+        if (!tok) return false;
+        if (tok.kind === 'pitch-span-end') return true;
+        if ((tok.kind === 'rest' || tok.kind === 'sustain') && tok.pitchSpanCarry === true) return true;
+        if (tok.kind === 'note-random' && tok.pitchSpanStep === true) return true;
+        return false;
+      }
+
+      function collectBlockLeaves(block) {
+        const out = [];
+        const visit = (node) => {
+          if (!node) return;
+          if (node.kind === 'leaf') {
+            out.push(node);
+            return;
+          }
+          if (node.kind === 'group' && Array.isArray(node.children)) {
+            for (const child of node.children) visit(child);
+          }
+        };
+        if (block && Array.isArray(block.slots)) {
+          for (const slot of block.slots) visit(slot);
+        }
+        return out;
+      }
+
+      function ensurePitchSpanPlans(block) {
+        if (!block) return null;
+        if (block._pitchSpanPlans) return block._pitchSpanPlans;
+
+        const plans = new Map();
+        const leaves = collectBlockLeaves(block);
+        let open = null;
+
+        for (const leaf of leaves) {
+          const tok = leaf && leaf.token ? leaf.token : null;
+          if (!tok) continue;
+
+          if (tok.kind === 'pitch-span-start') {
+            open = {
+              startLeaf: leaf,
+              startToken: tok,
+              direction: tok.value && tok.value.direction === 'up' ? 'up' : 'down',
+              shared: Boolean(tok.value && tok.value.shared),
+              totalAdvances: 0,
+            };
+            continue;
+          }
+
+          if (!open) continue;
+          if (isPitchSpanAdvanceToken(tok)) open.totalAdvances += 1;
+          if (tok.kind === 'pitch-span-end') {
+            plans.set(open.startLeaf, {
+              ...open,
+              endLeaf: leaf,
+              endToken: tok,
+              totalAdvances: Math.max(1, Number(open.totalAdvances) || 1),
+            });
+            open = null;
+          }
+        }
+
+        block._pitchSpanPlans = plans;
+        return plans;
+      }
+
+      function ensureBlockPitchSpanRuntime(block) {
+        if (!block) return null;
+        if (block._pitchSpanState) return block._pitchSpanState;
+        block._pitchSpanState = {
+          local: null,
+          activeRef: null,
+          lastMidi: null,
+          lastBarKey: null,
+        };
+        return block._pitchSpanState;
+      }
+
+      function blockSpanPersistentMode(block) {
+        return Boolean(block && block.params && block.params.glide != null);
+      }
+
+      function blockBarKey(block, absSlotIdx) {
+        const grid = ensureBarGrid(block);
+        const idx = Math.max(0, Math.floor(Number(absSlotIdx) || 0));
+        const cycle = Math.floor(idx / grid.totalSlots);
+        const inCycle = idx - cycle * grid.totalSlots;
+        const bar = grid.slotToBar[inCycle];
+        return `${cycle}:${bar}`;
+      }
+
+      function clearSharedPitchSpans(includePersistent) {
+        const clearSlot = (dir) => {
+          const active = sharedPitchSpanState[dir];
+          if (!active) return;
+          if (includePersistent || !active.persistent) {
+            sharedPitchSpanState[dir] = null;
+          }
+        };
+        clearSlot('up');
+        clearSlot('down');
+      }
+
+      function maybeResetPitchSpansAtBoundary(block, absSlotIdx) {
+        if (!block || !isPitchedSynthVoice(block.voice)) return;
+        const state = ensureBlockPitchSpanRuntime(block);
+        const key = blockBarKey(block, absSlotIdx);
+        if (state.lastBarKey == null) {
+          state.lastBarKey = key;
+          return;
+        }
+        if (state.lastBarKey === key) return;
+        state.lastBarKey = key;
+        if (blockSpanPersistentMode(block)) return;
+        state.local = null;
+        state.activeRef = null;
+        clearSharedPitchSpans(false);
+      }
+
+      function noteObjectFromMidi(midi, block) {
+        const m = Number(midi);
+        if (!Number.isFinite(m)) return null;
+        const freq = midiToFreqContinuous(m, block);
+        if (!Number.isFinite(freq) || freq <= 0) return null;
+        return {
+          name: midiToNameApprox(m),
+          midi: m,
+          freq,
+        };
+      }
+
+      function startSpecToNote(node, startSpec, block) {
+        if (!startSpec || !block) return null;
+
+        if (startSpec.kind === 'note') {
+          const base = startSpec.note || null;
+          if (!base) return null;
+          const midi = Number(base.midi);
+          return noteObjectFromMidi(midi, block);
+        }
+
+        if (startSpec.kind === 'wildcard') {
+          const wrapped = startSpec.token || null;
+          const randomToken = wrapped && wrapped.kind === 'note-random' ? wrapped.value : null;
+          if (!randomToken) return null;
+          node._blockForAttractor = block;
+          const resolved = resolveRandomPitch(node, randomToken);
+          if (!resolved || !Number.isFinite(resolved.midi)) return null;
+          return noteObjectFromMidi(resolved.midi, block);
+        }
+
+        if (startSpec.kind === 'octave-anchor') {
+          const oct = Number(startSpec.octave);
+          if (!Number.isFinite(oct)) return null;
+          node._blockForAttractor = block;
+          const resolved = resolveRandomPitch(node, {
+            pitchClass: null,
+            accidental: '',
+            octave: oct,
+            frozen: false,
+            raw: startSpec.raw || `${Math.round(oct)}*`,
+          });
+          if (!resolved || !Number.isFinite(resolved.midi)) return null;
+          return noteObjectFromMidi(resolved.midi, block);
+        }
+
+        return null;
+      }
+
+      function wrapDirectionTarget(startMidi, targetMidi, direction) {
+        const start = Number(startMidi);
+        let target = Number(targetMidi);
+        if (!Number.isFinite(start) || !Number.isFinite(target)) return null;
+        if (direction === 'down') {
+          let guard = 0;
+          while (target >= start && guard < 16) {
+            target -= 12;
+            guard += 1;
+          }
+        } else {
+          let guard = 0;
+          while (target <= start && guard < 16) {
+            target += 12;
+            guard += 1;
+          }
+        }
+        return target;
+      }
+
+      function endSpecToMidi(node, targetSpec, startMidi, direction, block) {
+        if (!targetSpec || !block) return null;
+        let rawMidi = null;
+
+        if (targetSpec.kind === 'pitch-class-same-octave') {
+          const startOctave = Math.floor(Number(startMidi) / 12) - 1;
+          rawMidi = noteToMidi(targetSpec.pitchClass, targetSpec.accidental || '', startOctave);
+        } else if (targetSpec.kind === 'wildcard-fixed-octave') {
+          const oct = Number(targetSpec.octave);
+          if (Number.isFinite(oct)) {
+            node._blockForAttractor = block;
+            const resolved = resolveRandomPitch(node, {
+              pitchClass: null,
+              accidental: '',
+              octave: oct,
+              frozen: false,
+              raw: targetSpec.raw || `*${Math.round(oct)}`,
+            });
+            rawMidi = resolved && Number.isFinite(resolved.midi) ? Number(resolved.midi) : null;
+          }
+        }
+
+        if (!Number.isFinite(rawMidi)) return null;
+        return wrapDirectionTarget(startMidi, rawMidi, direction);
+      }
+
+      function spanDescriptorFromStart(node, tok, block, spanState, params) {
+        if (!node || !tok || !block || !spanState) return null;
+        const plans = ensurePitchSpanPlans(block);
+        const plan = plans && plans.get(node);
+        if (!plan) return null;
+
+        const startSpec = tok.value && tok.value.startSpec ? tok.value.startSpec : null;
+        const startNote = startSpecToNote(node, startSpec, block);
+        if (!startNote || !Number.isFinite(startNote.midi)) return null;
+
+        const endTok = plan.endToken || null;
+        const targetSpec = endTok && endTok.value ? endTok.value.targetSpec : null;
+        const direction = tok.value && tok.value.direction === 'up' ? 'up' : 'down';
+        const endMidi = endSpecToMidi(node, targetSpec, startNote.midi, direction, block);
+        if (!Number.isFinite(endMidi)) return null;
+
+        const desc = {
+          shared: Boolean(tok.value && tok.value.shared),
+          direction,
+          persistent: blockSpanPersistentMode(block),
+          totalAdvances: Math.max(1, Number(plan.totalAdvances) || 1),
+          advances: 0,
+          startMidi: Number(startNote.midi),
+          endMidi: Number(endMidi),
+          currentMidi: Number(startNote.midi),
+          ownerBlockId: block._blockId || null,
+          glideSec: Math.max(0, numericParamValue(params && params.glide, 0)),
+        };
+        return { descriptor: desc, note: startNote };
+      }
+
+      function advancePitchSpanDescriptor(desc, block) {
+        if (!desc || !block) return null;
+        const total = Math.max(1, Number(desc.totalAdvances) || 1);
+        const nextAdv = Math.min(total, Math.max(0, Number(desc.advances) || 0) + 1);
+        desc.advances = nextAdv;
+        const ratio = Math.max(0, Math.min(1, nextAdv / total));
+        const midi = desc.startMidi + (desc.endMidi - desc.startMidi) * ratio;
+        desc.currentMidi = midi;
+        return noteObjectFromMidi(midi, block);
+      }
       
       function clearNodeRuntimeState(node) {
         if (!node) return;
 
         if (node.kind === 'leaf') {
           delete node._frozenRandomPitch;
+          delete node._drumFrozenPick;
+          delete node._drumVarianceAnchor;
           return;
         }
 
@@ -308,6 +770,9 @@
         if (typeof root.InputVoice !== 'undefined' && root.InputVoice.disconnectBlock) {
           root.InputVoice.disconnectBlock(block);
         }
+        if (typeof root.VideoVoice !== 'undefined' && root.VideoVoice.disconnectBlock) {
+          try { root.VideoVoice.disconnectBlock(block._blockId || null); } catch (_) {}
+        }
 
         block._paramState = {};
         block._liveModState = {};
@@ -324,6 +789,8 @@
         block._organism = null;
           block._fadeState = null;
           block._lastFadeLevel = 1;
+        block._pitchSpanPlans = null;
+        block._pitchSpanState = null;
 
         if (Array.isArray(block.slots)) {
           for (const slot of block.slots) {
@@ -340,10 +807,13 @@
 
       function start() {
         if (running) return;
+        pendingEvaluate = null;
+        clearSharedPitchSpans(true);
         running = true;
         originTime = audioCtx.currentTime + 0.05;
         nextRuntimeEpoch('start');
         if (program) {
+            seedProgramMuteDefaults(program, true);
             for (const block of program.blocks) {
               block._scheduledThrough = 0;
               clearBlockRuntimeState(block);
@@ -355,23 +825,97 @@
         timer = setInterval(tick, LOOKAHEAD_MS);
       }
       
-      function stopAllVoices() {
+      function stopAllVoices(when) {
+        const at = Number.isFinite(Number(when)) ? Number(when) : audioCtx.currentTime;
         if (typeof root.SampleVoice !== 'undefined' && root.SampleVoice.stopAll) {
-          root.SampleVoice.stopAll(audioCtx.currentTime);
+          root.SampleVoice.stopAll(at);
         }
 
         if (typeof root.StringVoice !== 'undefined' && root.StringVoice.stopAll) {
-          root.StringVoice.stopAll(audioCtx.currentTime);
+          root.StringVoice.stopAll(at);
         }
+
+        if (typeof root.SineVoice !== 'undefined' && root.SineVoice.stopAll) {
+          root.SineVoice.stopAll(at);
+        }
+
+        if (typeof root.NoiseVoice !== 'undefined' && root.NoiseVoice.stopAll) {
+          root.NoiseVoice.stopAll(at);
+        }
+
+        if (typeof root.PluckVoice !== 'undefined' && root.PluckVoice.stopAll) {
+          root.PluckVoice.stopAll(at);
+        }
+
+        if (typeof root.PulseVoice !== 'undefined' && root.PulseVoice.stopAll) {
+          root.PulseVoice.stopAll(at);
+        }
+
+        if (typeof root.DroneVoice !== 'undefined' && root.DroneVoice.stopAll) {
+          root.DroneVoice.stopAll(at);
+        }
+
+        if (typeof root.VideoVoice !== 'undefined' && root.VideoVoice.cleanup) {
+          root.VideoVoice.cleanup();
+        }
+      }
+
+      function nextBarResetTime(now) {
+        if (!program) return Math.max(audioCtx.currentTime, Number(now) || audioCtx.currentTime) + 0.05;
+        const t = Number.isFinite(Number(now)) ? Number(now) : audioCtx.currentTime;
+        const barSec = barSeconds(program);
+        const elapsed = Math.max(0, t - originTime);
+        const completedBars = Math.max(0, Math.floor(elapsed / barSec));
+        let boundary = originTime + (completedBars + 1) * barSec;
+        if (boundary <= t + 0.001) boundary += barSec;
+        return boundary;
+      }
+
+      function installProgramAtReset(newProgram, resetTime, stopVoices) {
+        const oldProgram = program;
+        if (oldProgram && Array.isArray(oldProgram.blocks)) {
+          for (const block of oldProgram.blocks) {
+            disconnectBlockAttractorBus(block);
+          }
+        }
+
+        if (stopVoices) stopAllVoices(resetTime);
+        clearSharedPitchSpans(true);
+        nextRuntimeEpoch('evaluate-reset');
+
+        program = newProgram;
+        originTime = Number.isFinite(Number(resetTime))
+          ? Number(resetTime)
+          : Math.max(audioCtx.currentTime, originTime);
+
+        for (let i = 0; i < program.blocks.length; i++) {
+          const block = program.blocks[i];
+          block._blockOrdinal = i;
+          block._blockId = blockIdentityFor(block, i);
+          block._scheduledThrough = 0;
+          clearBlockRuntimeState(block);
+          block._leafOffsets = null;
+          block._leafCounts = null;
+          block._leafTotal = null;
+          block._runtimeTuning = (root.ReplTunings && typeof root.ReplTunings.tuningToRuntime === 'function')
+            ? root.ReplTunings.tuningToRuntime(block.tuning)
+            : (block.tuning || null);
+          ensureLeafOffsets(block);
+          block._speedSlotIdx = 0;
+          block._speedNextTime = originTime;
+        }
+        seedProgramMuteDefaults(program, false);
       }
 
       function stop() {
         running = false;
+        pendingEvaluate = null;
         if (timer) {
           clearInterval(timer);
           timer = null;
         }
 
+        clearSharedPitchSpans(true);
         nextRuntimeEpoch('stop');
         stopAllVoices();
 
@@ -379,12 +923,15 @@
             for (const block of program.blocks) {
               block._scheduledThrough = 0;
               clearBlockRuntimeState(block);
+              const muteState = ensureBlockMuteState(block);
+              if (muteState) muteState.pending = null;
             }
         }
       }
       
       function safeRestart() {
         running = false;
+        pendingEvaluate = null;
 
         if (timer) {
           clearInterval(timer);
@@ -422,6 +969,7 @@
       }
 
       function update(newProgram) {
+        pendingEvaluate = null;
         const oldProgram = program;
         const oldBarSec = program ? barSeconds(program) : null;
 
@@ -431,6 +979,7 @@
           }
         }
 
+        clearSharedPitchSpans(true);
         nextRuntimeEpoch('update');
         program = newProgram;
         // Every block gets a stable identity for the lifetime of this program.
@@ -446,12 +995,16 @@
           block._leafOffsets = null;
           block._leafCounts = null;
           block._leafTotal = null;
+          block._runtimeTuning = (root.ReplTunings && typeof root.ReplTunings.tuningToRuntime === 'function')
+            ? root.ReplTunings.tuningToRuntime(block.tuning)
+            : (block.tuning || null);
           ensureLeafOffsets(block);
           block._speedSlotIdx = 0;
           block._speedNextTime = running
             ? Math.max(audioCtx.currentTime, originTime)
             : originTime;
         }
+      seedProgramMuteDefaults(program, false);
       if (running && oldBarSec) {
         const newBarSec = barSeconds(program);
         const now = audioCtx.currentTime;
@@ -465,6 +1018,97 @@
       }
     }
 
+    function queueEvaluateAtReset(newProgram, options) {
+        if (!newProgram) return null;
+        if (!running || !program) {
+          update(newProgram);
+          return null;
+        }
+
+        const stopVoices = Boolean(options && options.stopVoices);
+        const when = nextBarResetTime(audioCtx.currentTime);
+        pendingEvaluate = { program: newProgram, resetTime: when, stopVoices };
+        return when;
+    }
+
+    function setBlockMutedForBlock(block, muted, options) {
+      if (!block) return { ok: false, reason: 'missing-block' };
+      const state = ensureBlockMuteState(block);
+      const nextMuted = Boolean(muted);
+      const quantize = options && options.quantize === 'now' ? 'now' : 'bar';
+
+      if (!running || quantize === 'now' || !program) {
+        applyBlockMuteNow(block, nextMuted, audioCtx.currentTime, false);
+        return {
+          ok: true,
+          applied: 'now',
+          blockId: block._blockId || null,
+          line: blockLine(block),
+          muted: Boolean(state && state.muted),
+          pending: false,
+        };
+      }
+
+      const when = nextBarResetTime(audioCtx.currentTime);
+      state.pending = { muted: nextMuted, at: when };
+      emitBlockMutePulse(block, audioCtx.currentTime, true);
+      return {
+        ok: true,
+        applied: 'queued',
+        blockId: block._blockId || null,
+        line: blockLine(block),
+        muted: Boolean(state && state.muted),
+        pending: true,
+        pendingMuted: nextMuted,
+        pendingAt: when,
+      };
+    }
+
+    function setBlockMuted(blockId, muted, options) {
+      const block = findBlockById(blockId);
+      if (!block) {
+        return { ok: false, reason: 'missing-block', blockId: blockId == null ? null : String(blockId) };
+      }
+      return setBlockMutedForBlock(block, muted, options);
+    }
+
+    function setBlockMutedByLine(lineNumber, muted, options) {
+      const block = findBlockByLine(lineNumber);
+      if (!block) {
+        return { ok: false, reason: 'missing-block-line', line: Number(lineNumber) || null };
+      }
+      return setBlockMutedForBlock(block, muted, options);
+    }
+
+    function toggleBlockMutedByLine(lineNumber, options) {
+      const block = findBlockByLine(lineNumber);
+      if (!block) {
+        return { ok: false, reason: 'missing-block-line', line: Number(lineNumber) || null };
+      }
+      const state = ensureBlockMuteState(block);
+      const effective = state && state.pending ? Boolean(state.pending.muted) : Boolean(state && state.muted);
+      return setBlockMutedForBlock(block, !effective, options);
+    }
+
+    function getMuteStates() {
+      if (!program || !Array.isArray(program.blocks)) return [];
+      return program.blocks.map((block, index) => {
+        const state = ensureBlockMuteState(block);
+        const pending = state && state.pending ? state.pending : null;
+        return {
+          blockIndex: index,
+          blockId: block && block._blockId ? String(block._blockId) : null,
+          voice: block && block.voice ? String(block.voice) : '',
+          line: blockLine(block),
+          muted: Boolean(state && state.muted),
+          pending: Boolean(pending),
+          pendingMuted: pending ? Boolean(pending.muted) : Boolean(state && state.muted),
+          pendingAt: pending && Number.isFinite(Number(pending.at)) ? Number(pending.at) : null,
+          tags: Array.isArray(block && block.tags) ? block.tags.slice() : [],
+        };
+      });
+    }
+
     function onMissingSample(fn) { onMissingCallback = fn; }
 
     function reportMissingSample(name) {
@@ -473,14 +1117,79 @@
       if (onMissingCallback) onMissingCallback(name);
     }
 
+      // Asymmetric bars: a block's cycle has `cycleBars` bars of equal
+      // wall-clock duration, but each bar may hold a different slot count.
+      // Slot N's duration is `barSec / barSlotCounts[bar(N)]`, so we cache
+      // the prefix-sum of slot counts and a slot→bar map per block. Block
+      // identity is rebuilt on every evaluate, so the cache implicitly
+      // resets when patterns change.
+      function ensureBarGrid(block) {
+        if (block && block._barGrid) return block._barGrid;
+        const slots = block && Array.isArray(block.slots) ? block.slots : [];
+        const fallback = [Math.max(1, slots.length || 1)];
+        const raw = block && Array.isArray(block.barSlotCounts) && block.barSlotCounts.length > 0
+          ? block.barSlotCounts
+          : fallback;
+        const counts = raw.map((n) => Math.max(1, Math.floor(Number(n) || 0)));
+        const cycleBars = counts.length;
+        const slotPrefix = new Array(cycleBars + 1);
+        slotPrefix[0] = 0;
+        for (let i = 0; i < cycleBars; i++) slotPrefix[i + 1] = slotPrefix[i] + counts[i];
+        const totalSlots = Math.max(1, slotPrefix[cycleBars]);
+        const slotToBar = new Array(totalSlots);
+        for (let b = 0; b < cycleBars; b++) {
+          for (let k = 0; k < counts[b]; k++) {
+            slotToBar[slotPrefix[b] + k] = b;
+          }
+        }
+        const grid = { counts, cycleBars, slotPrefix, totalSlots, slotToBar };
+        if (block) block._barGrid = grid;
+        return grid;
+      }
+
+      // Time offset, relative to originTime, of the start of `absSlotIdx`.
+      function slotStartOffset(block, absSlotIdx, barSec) {
+        const grid = ensureBarGrid(block);
+        const idx = Math.max(0, Math.floor(Number(absSlotIdx) || 0));
+        const cycle = Math.floor(idx / grid.totalSlots);
+        const inCycle = idx - cycle * grid.totalSlots;
+        const bar = grid.slotToBar[inCycle];
+        const slotInBar = inCycle - grid.slotPrefix[bar];
+        const slotDur = barSec / grid.counts[bar];
+        return (cycle * grid.cycleBars + bar) * barSec + slotInBar * slotDur;
+      }
+
+      function slotDurationFor(block, absSlotIdx, barSec) {
+        const grid = ensureBarGrid(block);
+        const idx = Math.max(0, Math.floor(Number(absSlotIdx) || 0));
+        const inCycle = idx % grid.totalSlots;
+        const bar = grid.slotToBar[inCycle];
+        return barSec / grid.counts[bar];
+      }
+
+      function absSlotForElapsed(block, elapsed, barSec) {
+        const grid = ensureBarGrid(block);
+        if (!Number.isFinite(elapsed) || elapsed <= 0) return 0;
+        const cycleSec = barSec * grid.cycleBars;
+        if (!Number.isFinite(cycleSec) || cycleSec <= 0) return 0;
+        const cycle = Math.floor(elapsed / cycleSec);
+        const tIn = elapsed - cycle * cycleSec;
+        const bar = Math.min(grid.cycleBars - 1, Math.max(0, Math.floor(tIn / barSec)));
+        const tInBar = tIn - bar * barSec;
+        const slotDur = barSec / grid.counts[bar];
+        const slotInBar = Math.min(
+          grid.counts[bar] - 1,
+          Math.max(0, Math.floor(tInBar / slotDur)),
+        );
+        return cycle * grid.totalSlots + grid.slotPrefix[bar] + slotInBar;
+      }
+
       function alignBlockCursorToGrid(block, referenceTime, barSecValue) {
         if (!block) return;
         const secPerBar = Number(barSecValue);
-        const slotsPerBar = Math.max(1, Number(block.slotsPerBar) || 1);
-        const slotSec = secPerBar / slotsPerBar;
         const ref = Number.isFinite(Number(referenceTime)) ? Number(referenceTime) : audioCtx.currentTime;
 
-        if (!Number.isFinite(slotSec) || slotSec <= 0 || !Number.isFinite(originTime)) {
+        if (!Number.isFinite(secPerBar) || secPerBar <= 0 || !Number.isFinite(originTime)) {
           block._speedSlotIdx = Math.max(0, Math.floor(Number(block._speedSlotIdx) || 0));
           block._speedNextTime = Math.max(ref, originTime || ref);
           return;
@@ -490,8 +1199,8 @@
         // densest voice in the program: every block owns its own top-level
         // cursor, while nested groups only subdivide their own parent slot.
         const elapsed = Math.max(0, ref - originTime);
-        let slotIdx = Math.max(0, Math.floor((elapsed + 0.000001) / slotSec));
-        let slotTime = originTime + slotIdx * slotSec;
+        let slotIdx = absSlotForElapsed(block, elapsed + 0.000001, secPerBar);
+        let slotTime = originTime + slotStartOffset(block, slotIdx, secPerBar);
 
         // If the candidate slot is already behind the audio clock, skip it
         // instead of emitting catch-up leaves at the same instant as another
@@ -499,7 +1208,7 @@
         // to inherit faster nested rhythms after evaluate/hot swap.
         while (slotTime < ref - 0.002) {
           slotIdx += 1;
-          slotTime = originTime + slotIdx * slotSec;
+          slotTime = originTime + slotStartOffset(block, slotIdx, secPerBar);
         }
 
         block._speedSlotIdx = slotIdx;
@@ -954,6 +1663,7 @@
           forceMul: 1,
           decayMul: 1,
           crushAdd: 0,
+          resolutionAdd: 0,
           toneMul: 1,
           harmAdd: 0,
           octaveAdd: 0,
@@ -978,7 +1688,8 @@
           mod.panOffset += depth * (v * 0.11 * med + r * 0.15 * jitter);
           mod.decayMul *= 1 + depth * (d * 0.13 + t * 0.10 - r * 0.07);
           mod.toneMul *= 1 + depth * (p * 0.07 - d * 0.07 + r * 0.045);
-          mod.crushAdd += depth * r * 2.8;
+          mod.crushAdd -= depth * r * 2.8;
+          mod.resolutionAdd += depth * (r * 0.18 + p * 0.08);
           mod.rateMul *= 1 + depth * v * jitter * 0.03;
         mod.filterFreq = 850 + (1 - d * 0.65 + p * 0.35) * 6500;
         mod.filterQ = 0.65 + depth * (r * 5.5 + p * 1.6);
@@ -1002,7 +1713,8 @@
               mod.wetGain += depth * 0.06;
           } else if (mode === 'frost') {
             mod.toneMul *= 1 + depth * 0.18;
-            mod.crushAdd += depth * 2.5;
+            mod.crushAdd -= depth * 2.5;
+            mod.resolutionAdd += depth * 0.18;
             mod.saturation += depth * 0.12;
           } else if (mode === 'visibility') {
             mod.filterFreq = 1200 + (1 - d) * 9000;
@@ -1011,7 +1723,8 @@
         } else if (kind === 'quake') {
             mod.forceMul *= 1 + depth * r * 0.24;
             mod.gainMul *= 1 + depth * r * 0.16;
-            mod.crushAdd += depth * r * 4.2;
+            mod.crushAdd -= depth * r * 4.2;
+            mod.resolutionAdd += depth * r * 0.34;
             mod.decayMul *= 1 - depth * r * 0.18;
             mod.panOffset += depth * r * jitter * 0.24;
             mod.filterQ += depth * r * 3.8;
@@ -1029,7 +1742,8 @@
         } else if (kind === 'solar') {
             mod.toneMul *= 1 + depth * i * 0.15;
             mod.rateMul *= 1 + depth * jitter * v * 0.04;
-            mod.crushAdd += depth * r * 3.4;
+            mod.crushAdd -= depth * r * 3.4;
+            mod.resolutionAdd += depth * r * 0.22;
             mod.saturation += depth * (i * 0.12 + r * 0.28);
           mod.filterFreq = 2000 + i * 9200;
           mod.filterQ += depth * (r * 3.5 + i * 1.2);
@@ -1046,7 +1760,8 @@
             mod.wetGain += depth * 0.12;
             mod.delayFeedback += depth * 0.13;
             mod.saturation += depth * (r * 0.18 + v * 0.10);
-            mod.crushAdd += depth * r * 2.2;
+            mod.crushAdd -= depth * r * 2.2;
+            mod.resolutionAdd += depth * r * 0.18;
           mod.rateMul *= 1 + depth * jitter * 0.05;
         } else if (kind === 'air') {
           mod.toneMul *= 1 - depth * d * 0.20;
@@ -1055,7 +1770,8 @@
           mod.filterFreq = 650 + (1 - d) * 5200;
         } else if (kind === 'traffic' || kind === 'grid' || kind === 'civic') {
           mod.gainMul *= 1 + depth * (d * 0.08 - p * 0.04);
-          mod.crushAdd += depth * (r * 3 + p * 2);
+          mod.crushAdd -= depth * (r * 3 + p * 2);
+          mod.resolutionAdd += depth * (r * 0.24 + p * 0.14);
           mod.saturation += depth * (p * 0.22 + d * 0.12);
           mod.rateMul *= 1 + depth * jitter * v * 0.04;
           mod.delayFeedback += depth * d * 0.12;
@@ -1084,6 +1800,7 @@
         mod.decayMul = clamp(mod.decayMul, 0.35, 2.25);
         mod.toneMul = clamp(mod.toneMul, 0.45, 1.65);
         mod.rateMul = clamp(mod.rateMul, 0.45, 1.75);
+        mod.resolutionAdd = clamp(mod.resolutionAdd, 0, 0.85);
         mod.gateMul = clamp(mod.gateMul, 0.45, 1.85);
 
         return mod;
@@ -1438,39 +2155,7 @@
 
       function applyContinuousRandomAudioParam(param, gesture, time, duration, lo, hi, fallback) {
         if (!param || !isParamGesture(gesture)) return false;
-
-        const start = Number.isFinite(time) ? Math.max(audioCtx.currentTime, time) : audioCtx.currentTime;
-        const dur = Number.isFinite(duration) && duration > 0 ? duration : 0.5;
-        const end = start + dur;
-
-        const min = Number.isFinite(lo) ? lo : Number(gesture.lo);
-        const max = Number.isFinite(hi) ? hi : Number(gesture.hi);
-        const safeLo = Number.isFinite(min) ? min : 0;
-        const safeHi = Number.isFinite(max) ? max : 1;
-
-        const rateHz = Number.isFinite(Number(gesture.rateHz)) ? Number(gesture.rateHz) : 8;
-        const step = Math.max(0.025, Math.min(0.25, 1 / rateHz));
-
-        let current = clamp(numericParamValue(gesture.from, fallback), safeLo, safeHi);
-        let t = start;
-
-        try {
-          param.cancelScheduledValues(start);
-          param.setValueAtTime(current, start);
-
-          while (t < end - 0.0001) {
-            const nextT = Math.min(end, t + step);
-            const next = clamp(randomBetweenClamped(safeLo, safeHi), safeLo, safeHi);
-            param.linearRampToValueAtTime(next, Math.max(start + 0.006, nextT));
-            current = next;
-            t = nextT;
-          }
-
-          return true;
-        } catch (_) {
-          try { param.value = current; } catch (__) {}
-          return true;
-        }
+        return root.ReplGestures.applyContinuousRandom(param, gesture, time, duration, lo, hi, fallback);
       }
 
       function updateAttractorBus(block, mod, effects, time) {
@@ -1715,11 +2400,18 @@
         if (!mod) return params;
 
         const out = { ...params };
+        const hasCrushRow = Boolean(block && block.params && block.params.crush);
+        const hasResolutionRow = Boolean(block && block.params && block.params.resolution);
 
-        if (voice === 'string') {
+        if (voice === 'string' || voice === 'sine' || voice === 'osc' || voice === 'noise' || voice === 'pluck' || voice === 'pulse' || voice === 'drone') {
             out.force = clamp(numericParamValue(out.force, 0.7) * mod.forceMul, 0, 1.25);
             out.decay = clamp(numericParamValue(out.decay, 4.2) * mod.decayMul, 0.4, 8);
-            out.crush = clamp(Math.round(numericParamValue(out.crush, 0) + mod.crushAdd), 0, 16);
+            out.crush = hasCrushRow
+              ? clamp(Math.round(numericParamValue(out.crush, 0) + mod.crushAdd), 0, 16)
+              : numericParamValue(out.crush, 0);
+            out.resolution = hasResolutionRow
+              ? clamp(numericParamValue(out.resolution, 0) + mod.resolutionAdd, 0, 1)
+              : numericParamValue(out.resolution, 0);
             out.tone = clamp(numericParamValue(out.tone, 0.6) * mod.toneMul, 0, 1);
             out.harm = clamp(Math.round(numericParamValue(out.harm, 2) + mod.harmAdd), 0, 5);
             out.octave = clamp(Math.round(numericParamValue(out.octave, 0) + mod.octaveAdd), -2, 2);
@@ -1735,8 +2427,14 @@
             }
 
             out.gain = clamp(numericParamValue(out.gain, 1) * mod.gainMul, 0, 1.5);
-        } else if (voice === 'sample') {
+        } else if (voice === 'sample' || voice === 'drum') {
             out.gain = clamp(numericParamValue(out.gain, 1) * mod.gainMul, 0, 1.5);
+            out.crush = hasCrushRow
+              ? clamp(Math.round(numericParamValue(out.crush, 0) + mod.crushAdd), 0, 16)
+              : numericParamValue(out.crush, 0);
+            out.resolution = hasResolutionRow
+              ? clamp(numericParamValue(out.resolution, 0) + mod.resolutionAdd, 0, 1)
+              : numericParamValue(out.resolution, 0);
 
             if (isParamGesture(out.pan)) {
               out.pan = {
@@ -1760,6 +2458,25 @@
 
             out.start = Math.max(0, numericParamValue(out.start, 0) + mod.startOffset);
             out.gateMul = mod.gateMul;
+        } else if (voice === 'video' || voice === 'video-gen') {
+            out.gain = clamp(numericParamValue(out.gain, 1) * mod.gainMul, 0, 1.5);
+            out.opacity = clamp(numericParamValue(out.opacity, numericParamValue(out.gain, 1)) * mod.gainMul, 0, 1);
+            out.threshold = clamp(numericParamValue(out.threshold, 0) + mod.resolutionAdd * 0.42, 0, 1);
+            out.edges = clamp(numericParamValue(out.edges, 0) + mod.resolutionAdd * 0.48 + mod.crushAdd * 0.02, 0, 1);
+            out.posterize = clamp(numericParamValue(out.posterize, 0) + mod.crushAdd * 0.018, 0, 1);
+            out.invert = clamp(numericParamValue(out.invert, 0) + Math.max(0, mod.panOffset) * 0.22, 0, 1);
+            out.contrast = clamp(numericParamValue(out.contrast, 0) + mod.forceMul * 0.08, 0, 1);
+            out.saturate = clamp(numericParamValue(out.saturate, 0) + mod.toneMul * 0.08, 0, 1);
+            out.displace = clamp(numericParamValue(out.displace, 0) + Math.abs(mod.panOffset) * 0.35, 0, 1);
+            out.feedback = clamp(numericParamValue(out.feedback, 0) + mod.decayMul * 0.05, 0, 1);
+            out.delay = clamp(numericParamValue(out.delay, 0) + mod.gateMul * 0.1, 0, 1);
+            out.slitscan = clamp(numericParamValue(out.slitscan, 0) + mod.startOffset * 0.22, 0, 1);
+            out.trail = clamp(numericParamValue(out.trail, 0) + mod.decayMul * 0.06, 0, 1);
+            out.mask = clamp(numericParamValue(out.mask, 0) + mod.resolutionAdd * 0.2, 0, 1);
+            out.key = clamp(numericParamValue(out.key, 0) + mod.forceMul * 0.05, 0, 1);
+            out.color = clamp(numericParamValue(out.color, 0) + mod.toneMul * 0.08, 0, 1);
+            out.monitor = clamp(numericParamValue(out.monitor, 1), 0, 1);
+            out.listen = clamp(numericParamValue(out.listen, 1), 0, 1);
         }
 
         return out;
@@ -1826,6 +2543,51 @@
           case 'brightness':
           case 'centroid':
             value = signals.brightness != null ? signals.brightness : signals.pressure;
+            break;
+          case 'motion':
+            value = signals.motion != null ? signals.motion : signals.volatility;
+            break;
+          case 'presence':
+            value = signals.presence != null ? signals.presence : signals.intensity;
+            break;
+          case 'contrast':
+            value = signals.contrast != null ? signals.contrast : Math.max(signals.pressure || 0, signals.brightness || 0);
+            break;
+          case 'colortemp':
+            value = signals.colortemp != null ? signals.colortemp : 0.5;
+            break;
+          case 'saturation':
+            value = signals.saturation != null ? signals.saturation : signals.intensity;
+            break;
+          case 'edges':
+            value = signals.edges != null ? signals.edges : signals.rupture;
+            break;
+          case 'flowx':
+            value = signals.flowx != null ? signals.flowx : 0.5;
+            break;
+          case 'flowy':
+            value = signals.flowy != null ? signals.flowy : 0.5;
+            break;
+          case 'stillness':
+            value = signals.stillness != null ? signals.stillness : signals.age;
+            break;
+          case 'flicker':
+            value = signals.flicker != null ? signals.flicker : signals.volatility;
+            break;
+          case 'centroidx':
+            value = signals.centroidx != null ? signals.centroidx : 0.5;
+            break;
+          case 'centroidy':
+            value = signals.centroidy != null ? signals.centroidy : 0.5;
+            break;
+          case 'faces':
+            value = signals.faces != null ? signals.faces : signals.presence;
+            break;
+          case 'body':
+            value = signals.body != null ? signals.body : signals.density;
+            break;
+          case 'depth':
+            value = signals.depth != null ? signals.depth : signals.contrast;
             break;
           case 'noisiness':
           case 'flatness':
@@ -2051,7 +2813,7 @@
         const slot = Number.isFinite(dur) && dur > 0 ? dur : 0.25;
 
         if (paramName === 'pan') {
-          if (voice === 'string') {
+          if (voice === 'string' || voice === 'sine' || voice === 'osc') {
             const decay = numericParamValue(params && params.decay, 4.2);
             return clamp(Math.min(decay, 5.0), 0.08, 5.0);
           }
@@ -2082,6 +2844,8 @@
           case 'force': return 0.7;
           case 'decay': return 4.2;
           case 'crush': return 0;
+          case 'resolution': return 0;
+          case 'variance': return 1;
           case 'tone': return 0.6;
           case 'harm': return 2;
           case 'octave': return 0;
@@ -2090,6 +2854,22 @@
           case 'rate': return 1;
             case 'start': return 0;
             case 'speed': return 1;
+          case 'monitor': return 1;
+          case 'listen': return 1;
+          case 'opacity': return 1;
+          case 'threshold': return 0;
+          case 'edges': return 0;
+          case 'posterize': return 0;
+          case 'invert': return 0;
+          case 'contrast': return 0;
+          case 'saturate': return 0;
+          case 'displace': return 0;
+          case 'slitscan': return 0;
+          case 'trail': return 0;
+          case 'mask': return 0;
+          case 'key': return 0;
+          case 'color': return 0;
+          case 'blend': return 'source-over';
 
           // Future/optional params. These are not parsed by the uploaded REPL
           // yet unless PARAM_NAMES is expanded, but keeping defaults here makes
@@ -2109,6 +2889,30 @@
               return clamp(value, 0.0625, 16);
           case 'crush':
             return Math.round(clamp(value, 0, 16));
+
+          case 'resolution':
+            return clamp(value, 0, 1);
+          case 'variance':
+            return clamp(value, 0, 1);
+          case 'monitor':
+          case 'listen':
+          case 'opacity':
+          case 'threshold':
+          case 'edges':
+          case 'posterize':
+          case 'invert':
+          case 'contrast':
+          case 'saturate':
+          case 'displace':
+          case 'feedback':
+          case 'delay':
+          case 'slitscan':
+          case 'trail':
+          case 'mask':
+          case 'key':
+          case 'color':
+          case 'blend':
+            return clamp(value, 0, 1);
 
           case 'harm':
             return Math.round(clamp(value, 1, 5));
@@ -2146,9 +2950,35 @@
               return attractorBiasRange(block, 'decay', 0.4, 7);
 
             case 'crush':
-              return attractorChoice(block, [0, 4, 5, 6, 7, 8, 10, 12, 14, 16], (v, i, a) => {
+              return attractorChoice(block, [0, 16, 14, 12, 10, 8, 6, 5, 4], (v, i, a) => {
                 return 1 + a.rupture * i * 0.9 + a.pressure * i * 0.25;
               });
+
+            case 'resolution':
+              return attractorBiasRange(block, 'crush', 0, 1);
+            case 'variance':
+              return attractorBiasRange(block, 'density', 0, 1);
+            case 'monitor':
+            case 'listen':
+              return attractorBiasRange(block, 'confidence', 0, 1);
+            case 'opacity':
+              return attractorBiasRange(block, 'intensity', 0.2, 1);
+            case 'threshold':
+            case 'edges':
+            case 'posterize':
+            case 'invert':
+            case 'contrast':
+            case 'saturate':
+            case 'displace':
+            case 'feedback':
+            case 'delay':
+            case 'slitscan':
+            case 'trail':
+            case 'mask':
+            case 'key':
+            case 'color':
+            case 'blend':
+              return attractorBiasRange(block, 'rupture', 0, 1);
 
             case 'tone':
               return attractorBiasRange(block, 'tone', 0.15, 0.95);
@@ -2393,15 +3223,33 @@
           force: paramForIndex(block, 'force', eventIndex, 0.7, time),
           decay: paramForIndex(block, 'decay', eventIndex, 4.2, time),
           crush: paramForIndex(block, 'crush', eventIndex, 0, time),
+          resolution: paramForIndex(block, 'resolution', eventIndex, 0, time),
           tone: paramForIndex(block, 'tone', eventIndex, 0.6, time),
           harm: paramForIndex(block, 'harm', eventIndex, 2, time),
           octave: paramForIndex(block, 'octave', eventIndex, 0, time),
           pan: paramForIndex(block, 'pan', eventIndex, 0, time),
           gain: paramForIndex(block, 'gain', eventIndex, 1, time),
+          glide: paramForIndex(block, 'glide', eventIndex, 0, time),
           rate: paramForIndex(block, 'rate', eventIndex, 1, time),
           start: paramForIndex(block, 'start', eventIndex, 0, time),
           monitor: paramForIndex(block, 'monitor', eventIndex, 1, time),
           listen: paramForIndex(block, 'listen', eventIndex, 1, time),
+          opacity: paramForIndex(block, 'opacity', eventIndex, 1, time),
+          threshold: paramForIndex(block, 'threshold', eventIndex, 0, time),
+          edges: paramForIndex(block, 'edges', eventIndex, 0, time),
+          posterize: paramForIndex(block, 'posterize', eventIndex, 0, time),
+          invert: paramForIndex(block, 'invert', eventIndex, 0, time),
+          contrast: paramForIndex(block, 'contrast', eventIndex, 0, time),
+          saturate: paramForIndex(block, 'saturate', eventIndex, 0, time),
+          displace: paramForIndex(block, 'displace', eventIndex, 0, time),
+          feedback: paramForIndex(block, 'feedback', eventIndex, 0, time),
+          delay: paramForIndex(block, 'delay', eventIndex, 0, time),
+          slitscan: paramForIndex(block, 'slitscan', eventIndex, 0, time),
+          trail: paramForIndex(block, 'trail', eventIndex, 0, time),
+          mask: paramForIndex(block, 'mask', eventIndex, 0, time),
+          key: paramForIndex(block, 'key', eventIndex, 0, time),
+          color: paramForIndex(block, 'color', eventIndex, 0, time),
+          blend: paramForIndex(block, 'blend', eventIndex, 'source-over', time),
         };
       }
 
@@ -2526,43 +3374,53 @@
     //   - { slotIndex, silent: true } if 'every' has us in the silent portion
     function everyPeriodSlots(block) {
       if (!block || !block.every) return Math.max(1, block && block.slots ? block.slots.length : 1);
+      const grid = ensureBarGrid(block);
+      const avgSlotsPerBar = grid.totalSlots / grid.cycleBars;
       if (block.every.unit === 'bars') {
-        return Math.max(1, Math.round(block.every.count * block.slotsPerBar));
+        return Math.max(1, Math.round(block.every.count * avgSlotsPerBar));
       }
-      const slotsPerBeat = block.slotsPerBar / program.meter.num;
+      const slotsPerBeat = avgSlotsPerBar / program.meter.num;
       return Math.max(1, Math.round(block.every.count * slotsPerBeat));
     }
 
     // Resolve the active phrase position for a block. `patternSlotIdx` is the
-    // block-owned pattern cursor. `absoluteSlotIdx` is the unwarped musical grid
-    // position. Keeping both is the important guarantee: speed may consume this
-    // block's phrase faster/slower, but `every N bars/beats` remains an absolute
-    // musical gate and never inherits another voice's denser subdivision.
+    // block-owned pattern cursor. `absoluteSlotIdx` is the unwarped musical
+    // grid position; we still pass it so the visualizer can read it.
+    //
+    // The `every` cycle is gated on the *pattern* cursor (not absolute musical
+    // time) so that a phrase always plays through to its end before the next
+    // repetition starts. Speed may stretch or compress the phrase's wall-clock
+    // duration; previously, when speed averaged < 1 the phrase ran past the
+    // musical period and the `every` gate would clip the tail. Pattern-cursor
+    // gating keeps phrase boundaries authoritative — silent gaps when the
+    // period is longer than the phrase still work via the existing
+    // `phraseSlot >= slots.length` check below.
     //
     // When `mutateEveryState` is false, the function is a pure read — used by
     // the visualizer's `now()` call, which runs at 60fps and must NOT mutate
     // the every-cycle anchor. Only the scheduler's dispatch loop is allowed to
-    // commit a new patternBase, because the patternBase is what aligns the
-    // phrase to its absolute musical gate.
+    // commit a new patternBase, because the patternBase is what anchors the
+    // phrase to its repeat boundary.
     function resolveBlockPosition(block, patternSlotIdx, time, absoluteSlotIdx, mutateEveryState) {
       if (block.every) {
         const periodSlots = everyPeriodSlots(block);
-        const absIdx = Number.isFinite(Number(absoluteSlotIdx)) ? Math.max(0, Math.floor(Number(absoluteSlotIdx))) : Math.max(0, Math.floor(Number(patternSlotIdx) || 0));
-        const cycleId = Math.floor(absIdx / periodSlots);
+        const ptrnIdx = Math.max(0, Math.floor(Number(patternSlotIdx) || 0));
+        const absIdx = Number.isFinite(Number(absoluteSlotIdx)) ? Math.max(0, Math.floor(Number(absoluteSlotIdx))) : ptrnIdx;
+        const cycleId = Math.floor(ptrnIdx / periodSlots);
 
         if (mutateEveryState !== false && block._everyCycleId !== cycleId) {
           block._everyCycleId = cycleId;
-          block._everyPatternBase = Math.max(0, Math.floor(Number(patternSlotIdx) || 0));
+          block._everyPatternBase = cycleId * periodSlots;
         }
 
         // Use the stored patternBase if it's already aligned with this cycleId;
-        // otherwise compute a hypothetical phraseSlot from the current cursor
-        // without touching block state.
+        // otherwise derive it directly (cycleId * periodSlots), which is exact
+        // since the cycleId itself is computed from the pattern cursor.
         const storedBase = Number.isFinite(Number(block._everyPatternBase)) ? Number(block._everyPatternBase) : 0;
         const patternBase = (block._everyCycleId === cycleId)
           ? storedBase
-          : Math.max(0, Math.floor(Number(patternSlotIdx) || 0));
-        const phraseSlot = Math.max(0, Math.floor(Number(patternSlotIdx) || 0) - patternBase);
+          : cycleId * periodSlots;
+        const phraseSlot = Math.max(0, ptrnIdx - patternBase);
 
         if (phraseSlot >= block.slots.length) {
           return {
@@ -2619,6 +3477,10 @@
         return false;
       }
 
+      function isPitchedSynthVoice(voice) {
+        return voice === 'string' || voice === 'sine' || voice === 'osc' || voice === 'pluck' || voice === 'drone';
+      }
+
       function shouldFireLiveTrigger(block, time) {
         const trig = block && block.controls ? block.controls.trigger : null;
         if (!trig) return true;
@@ -2655,6 +3517,98 @@
         return fire;
       }
 
+      function resolveActiveSpanDescriptorForToken(block, spanState) {
+        if (!block || !spanState || !spanState.activeRef) return null;
+        const ref = spanState.activeRef;
+        if (!ref.shared) return spanState.local || null;
+        const dir = ref.direction === 'up' ? 'up' : 'down';
+        return sharedPitchSpanState[dir] || null;
+      }
+
+      function sharedSpanStartWins(existing, candidate) {
+        if (!candidate) return false;
+        if (!existing) return true;
+        const candMidi = Number(candidate.startMidi);
+        const existMidi = Number(existing.startMidi);
+        if (!Number.isFinite(candMidi)) return false;
+        if (!Number.isFinite(existMidi)) return true;
+        const dir = candidate.direction === 'up' ? 'up' : 'down';
+        if (dir === 'down') return candMidi >= existMidi;
+        return candMidi <= existMidi;
+      }
+
+      function resolvePitchSpanHit(node, tok, block, spanState, params) {
+        if (!node || !tok || !block || !spanState) return null;
+
+        if (tok.kind === 'pitch-span-start') {
+          const start = spanDescriptorFromStart(node, tok, block, spanState, params);
+          if (!start || !start.descriptor || !start.note) return null;
+
+          const desc = start.descriptor;
+          if (desc.shared) {
+            const dir = desc.direction;
+            const currentShared = sharedPitchSpanState[dir] || null;
+            const winsLeader = sharedSpanStartWins(currentShared, desc);
+            spanState.activeRef = { shared: true, direction: dir };
+            spanState.local = null;
+
+            if (winsLeader) {
+              sharedPitchSpanState[dir] = desc;
+              return { note: start.note, desc, spanEvent: true };
+            }
+
+            if (!currentShared) return null;
+            const note = advancePitchSpanDescriptor(currentShared, block);
+            if (!note) return null;
+            return { note, desc: currentShared, spanEvent: true, closeSpan: false };
+          } else {
+            spanState.activeRef = { shared: false, direction: desc.direction };
+            spanState.local = desc;
+            return { note: start.note, desc, spanEvent: true };
+          }
+        }
+
+        const desc = resolveActiveSpanDescriptorForToken(block, spanState);
+        if (!desc) return null;
+
+        if (tok.kind === 'note-random' && tok.pitchSpanStep === true) {
+          const note = advancePitchSpanDescriptor(desc, block);
+          if (!note) return null;
+          return { note, desc, spanEvent: true, closeSpan: false };
+        }
+
+        if (tok.kind === 'pitch-span-end') {
+          const note = advancePitchSpanDescriptor(desc, block);
+          if (!note) return null;
+          return { note, desc, spanEvent: true, closeSpan: true };
+        }
+
+        return null;
+      }
+
+      function advancePitchSpanCarry(block, spanState) {
+        if (!block || !spanState) return;
+        const desc = resolveActiveSpanDescriptorForToken(block, spanState);
+        if (!desc) return;
+        advancePitchSpanDescriptor(desc, block);
+      }
+
+      function finalizeSpanStateAfterEvent(spanState, event, note) {
+        if (!spanState || !event || !event.desc) return;
+        if (note && Number.isFinite(note.midi)) {
+          spanState.lastMidi = Number(note.midi);
+          event.desc.currentMidi = Number(note.midi);
+        }
+        if (event.closeSpan) {
+          if (spanState.activeRef && spanState.activeRef.shared) {
+            const dir = spanState.activeRef.direction === 'up' ? 'up' : 'down';
+            if (sharedPitchSpanState[dir] === event.desc) sharedPitchSpanState[dir] = null;
+          }
+          spanState.local = null;
+          spanState.activeRef = null;
+        }
+      }
+
       function dispatchSlotTree(node, time, duration, ctx) {
         if (!node) return;
 
@@ -2669,7 +3623,56 @@
           const leafPath = Array.isArray(ctx.leafPath) ? ctx.leafPath.slice() : [];
           const tokenLabel = leafTokenLabel(tok);
 
+          if (tok.kind === 'sustain' && ctx.voice === 'noise') {
+            const baseParams = resolveParamsForEvent(ctx.block, eventIndex, time);
+            const effects = resolveEffectsForEvent(ctx.block, eventIndex, time);
+            const attractorMod = attractorModForBlock(ctx.block, time);
+            const params = applyAttractorToParams(ctx.block, baseParams, ctx.voice, time, duration, attractorMod);
+            const eventBus = outputBusForBlock(ctx.block, time, attractorMod, effects);
+            const panGestureDuration = gestureDurationForEvent('pan', params.pan, ctx.voice, params, null, duration);
+            const noiseLeafIntensity = Math.max(0.10, Math.min(0.7, numericParamValue(params.gain, 1) * 0.35));
+            emitLeafPulse(ctx.block, time, {
+              leafIndex: eventIndex,
+              leafCount: ctx.leafTotal,
+              leafPath,
+              slotIndex: ctx.slotIndex,
+              sourceLeafIndex,
+              state: 'held',
+              token: tokenLabel || '~',
+              duration,
+              intensity: noiseLeafIntensity,
+            });
+            if (typeof root.NoiseVoice !== 'undefined' && root.NoiseVoice.playNoise) {
+              root.NoiseVoice.playNoise({
+                audioCtx,
+                masterBus: eventBus,
+                time,
+                force: params.force,
+                decay: params.decay,
+                crush: params.crush,
+                resolution: params.resolution,
+                tone: params.tone,
+                pan: params.pan,
+                gain: params.gain,
+                eventDuration: duration,
+                panGestureDuration,
+                held: true,
+              });
+            }
+            emitEditorPulse({
+              kind: 'voice',
+              line: blockLine(ctx.block),
+              voice: 'noise',
+              intensity: noiseLeafIntensity,
+            });
+            return;
+          }
+
           if (tok.kind === 'rest' || tok.kind === 'sustain') {
+            if (tok.pitchSpanCarry === true && isPitchedSynthVoice(ctx.voice)) {
+              const spanState = ensureBlockPitchSpanRuntime(ctx.block);
+              advancePitchSpanCarry(ctx.block, spanState);
+            }
             emitLeafPulse(ctx.block, time, {
               leafIndex: eventIndex,
               leafCount: ctx.leafTotal,
@@ -2681,6 +3684,17 @@
               duration,
               intensity: tok.kind === 'sustain' ? 0.12 : 0.08,
             });
+            if ((ctx.voice === 'video' || ctx.voice === 'video-gen') && typeof root.VideoVoice !== 'undefined' && root.VideoVoice.commitLeaf) {
+              root.VideoVoice.commitLeaf({
+                blockId: ctx.block && ctx.block._blockId,
+                voice: ctx.voice,
+                state: tok.kind === 'sustain' ? 'held' : 'rest',
+                token: tokenLabel || (tok.kind === 'sustain' ? '~' : '.'),
+                time,
+                sourceLeafIndex,
+                leafIndex: eventIndex,
+              });
+            }
             return;
           }
 
@@ -2697,13 +3711,13 @@
               time,
               duration,
             };
-            const emitPlayedLeafPulse = (intensity) => emitLeafPulse(ctx.block, time, {
+            const emitPlayedLeafPulse = (intensity, stateOverride) => emitLeafPulse(ctx.block, time, {
               leafIndex: eventIndex,
               leafCount: ctx.leafTotal,
               leafPath,
               slotIndex: ctx.slotIndex,
               sourceLeafIndex,
-              state: attractorMod ? 'mutated' : 'hit',
+              state: stateOverride || (attractorMod ? 'mutated' : 'hit'),
               token: tokenLabel,
               duration,
               intensity: intensity == null ? Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1))) : intensity,
@@ -2718,64 +3732,233 @@
             const panGestureDuration = gestureDurationForEvent('pan', params.pan, ctx.voice, params, gateDuration, duration);
             const rateGestureDuration = gestureDurationForEvent('rate', params.rate, ctx.voice, params, gateDuration, duration);
 
+            if (ctx.voice === 'video' || ctx.voice === 'video-gen') {
+              if (!shouldFireLiveTrigger(ctx.block, time)) return;
+              if (tok.kind !== 'video-hit') return;
+              const visualIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.opacity, numericParamValue(params.gain, 1))));
+              emitPlayedLeafPulse(visualIntensity);
+              emitEditorPulse({
+                kind: 'voice',
+                line: blockLine(ctx.block),
+                voice: ctx.voice,
+                intensity: visualIntensity,
+              });
+              if (typeof root.VideoVoice !== 'undefined' && root.VideoVoice.commitLeaf) {
+                root.VideoVoice.commitLeaf({
+                  blockId: ctx.block && ctx.block._blockId,
+                  voice: ctx.voice,
+                  state: 'hit',
+                  token: tokenLabel || '*',
+                  time,
+                  intensity: visualIntensity,
+                  sourceLeafIndex,
+                  leafIndex: eventIndex,
+                });
+              }
+              return;
+            }
+
             if (ctx.voice === 'input') {
               emitPlayedLeafPulse(Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1))));
               syncInputBlock(ctx.block, eventBus, params, time);
               return;
             }
 
-            if (ctx.voice === 'string') {
-              if (typeof root.StringVoice === 'undefined') return;
+            if (isPitchedSynthVoice(ctx.voice)) {
+              const isStringVoice = ctx.voice === 'string';
+              const isSineVoice = ctx.voice === 'sine' || ctx.voice === 'osc';
+              const isPluckVoice = ctx.voice === 'pluck';
+              const isDroneVoice = ctx.voice === 'drone';
+              if (isStringVoice && typeof root.StringVoice === 'undefined') return;
+              if (isSineVoice && typeof root.SineVoice === 'undefined') return;
+              if (isPluckVoice && typeof root.PluckVoice === 'undefined') return;
+              if (isDroneVoice && typeof root.DroneVoice === 'undefined') return;
 
               let note = null;
+              const spanState = ensureBlockPitchSpanRuntime(ctx.block);
+              let spanEvent = null;
 
-              if (tok.kind === 'note') {
-                note = tok.value;
+              if (
+                tok.kind === 'pitch-span-start'
+                || tok.kind === 'pitch-span-end'
+                || (tok.kind === 'note-random' && tok.pitchSpanStep === true)
+              ) {
+                spanEvent = resolvePitchSpanHit(node, tok, ctx.block, spanState, params);
+                note = spanEvent && spanEvent.note ? spanEvent.note : null;
+              } else if (tok.kind === 'note') {
+                const base = tok.value || null;
+                const midi = base && Number.isFinite(Number(base.midi)) ? Number(base.midi) : null;
+                const tunedFreq = midi != null ? midiToFreq(midi, ctx.block) : (base && Number(base.freq));
+                if (base && Number.isFinite(tunedFreq)) {
+                  note = { ...base, midi, freq: tunedFreq };
+                }
               } else if (tok.kind === 'note-random') {
                 node._blockForAttractor = ctx.block;
                 note = resolveRandomPitch(node, tok.value);
               }
 
-              if (!note || !Number.isFinite(note.freq)) return;
+              if (!note || !Number.isFinite(note.freq)) {
+                if (spanEvent && spanEvent.closeSpan) {
+                  finalizeSpanStateAfterEvent(spanState, spanEvent, null);
+                }
+                return;
+              }
 
-                const stringLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
-                emitPlayedLeafPulse(stringLeafIntensity);
+              let glideFreqStart = null;
+              let glideFreqEnd = null;
+              let glideSec = 0;
+              if (spanEvent && spanEvent.spanEvent && spanEvent.desc) {
+                const prevMidi = spanState && spanState.lastMidi != null && Number.isFinite(Number(spanState.lastMidi))
+                  ? Number(spanState.lastMidi)
+                  : null;
+                const sec = Number(spanEvent.desc.glideSec);
+                if (Number.isFinite(prevMidi) && Number.isFinite(sec) && sec > 0 && Number.isFinite(Number(note.midi))) {
+                  const fromHz = midiToFreqContinuous(prevMidi, ctx.block);
+                  if (Number.isFinite(fromHz) && fromHz > 0 && Math.abs(prevMidi - Number(note.midi)) > 1e-6) {
+                    glideFreqStart = fromHz;
+                    glideFreqEnd = Number(note.freq);
+                    glideSec = sec;
+                  }
+                }
+              }
+
+              if (spanEvent) {
+                finalizeSpanStateAfterEvent(spanState, spanEvent, note);
+              } else if (spanState && Number.isFinite(Number(note.midi))) {
+                spanState.lastMidi = Number(note.midi);
+              }
+
+                const synthLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
+                emitPlayedLeafPulse(synthLeafIntensity, note.sustained || tok.raw === '~' ? 'held' : null);
                 emitEditorPulse({
                   kind: 'voice',
                   line: blockLine(ctx.block),
-                  voice: 'string',
-                  intensity: stringLeafIntensity,
+                  voice: ctx.voice,
+                  intensity: synthLeafIntensity,
                 });
 
-                root.StringVoice.playString({
-                  audioCtx,
-                  masterBus: eventBus,
-                  time,
-                  freq: note.freq,
-                  force: params.force,
-                  decay: params.decay,
-                  crush: params.crush,
-                  tone: params.tone,
-                  harm: params.harm,
-                  octave: params.octave,
-                  pan: params.pan,
-                  gain: params.gain,
-                  gateDuration,
-                  panGestureDuration,
-                });
+                const voiceOpts = {
+                    audioCtx,
+                    masterBus: eventBus,
+                    time,
+                    freq: note.freq,
+                    force: params.force,
+                    decay: params.decay,
+                    crush: params.crush,
+                    resolution: params.resolution,
+                    tone: params.tone,
+                    harm: params.harm,
+                    octave: params.octave,
+                    pan: params.pan,
+                    gain: params.gain,
+                    gateDuration,
+                    eventDuration: duration,
+                    panGestureDuration,
+                    blockId: ctx.block && ctx.block._blockId,
+                    freqStart: Number.isFinite(glideFreqStart) ? glideFreqStart : null,
+                    freqEnd: Number.isFinite(glideFreqEnd) ? glideFreqEnd : null,
+                    glideSec: Number.isFinite(glideSec) && glideSec > 0 ? glideSec : null,
+                  };
+
+                if (isStringVoice) {
+                  root.StringVoice.playString(voiceOpts);
+                } else if (isSineVoice && root.SineVoice.playSine) {
+                  root.SineVoice.playSine(voiceOpts);
+                } else if (isPluckVoice && root.PluckVoice.playPluck) {
+                  root.PluckVoice.playPluck(voiceOpts);
+                } else if (isDroneVoice && root.DroneVoice.playDrone) {
+                  root.DroneVoice.playDrone(voiceOpts);
+                }
               return;
             }
 
-            if (ctx.voice === 'sample') {
+            if (ctx.voice === 'pulse') {
+              if (typeof root.PulseVoice === 'undefined' || !root.PulseVoice.playPulse) return;
+              if (!shouldFireLiveTrigger(ctx.block, time)) return;
+              if (tok.kind !== 'pulse') return;
+
+              const pulseLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
+              const didPlayPulse = root.PulseVoice.playPulse({
+                audioCtx,
+                masterBus: eventBus,
+                time,
+                force: params.force,
+                decay: params.decay,
+                crush: params.crush,
+                resolution: params.resolution,
+                tone: params.tone,
+                pan: params.pan,
+                gain: params.gain,
+                gateDuration,
+                eventDuration: duration,
+                panGestureDuration,
+              }) === true;
+
+              if (didPlayPulse) {
+                emitPlayedLeafPulse(pulseLeafIntensity);
+                emitEditorPulse({
+                  kind: 'voice',
+                  line: blockLine(ctx.block),
+                  voice: 'pulse',
+                  intensity: pulseLeafIntensity,
+                });
+              }
+
+              return;
+            }
+
+            if (ctx.voice === 'noise') {
+              if (typeof root.NoiseVoice === 'undefined' || !root.NoiseVoice.playNoise) return;
+              if (!shouldFireLiveTrigger(ctx.block, time)) return;
+
+              if (tok.kind !== 'noise') return;
+
+              const noiseLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
+              const didPlayNoise = root.NoiseVoice.playNoise({
+                audioCtx,
+                masterBus: eventBus,
+                time,
+                force: params.force,
+                decay: params.decay,
+                crush: params.crush,
+                resolution: params.resolution,
+                tone: params.tone,
+                pan: params.pan,
+                gain: params.gain,
+                gateDuration,
+                eventDuration: duration,
+                panGestureDuration,
+                held: false,
+              }) === true;
+
+              if (didPlayNoise) {
+                emitPlayedLeafPulse(noiseLeafIntensity);
+                emitEditorPulse({
+                  kind: 'voice',
+                  line: blockLine(ctx.block),
+                  voice: 'noise',
+                  intensity: noiseLeafIntensity,
+                });
+              }
+
+              return;
+            }
+
+            if (ctx.voice === 'sample' || ctx.voice === 'drum') {
               if (typeof root.SampleVoice === 'undefined') return;
               if (!shouldFireLiveTrigger(ctx.block, time)) return;
 
               let plan = null;
 
-              if (tok.kind === 'sample') {
-                plan = [{ name: tok.value, gainMul: 1 }];
-              } else if (tok.kind === 'sample-selector') {
-                plan = resolveSelector(node, tok.value, time, ctx.block);
+              if (ctx.voice === 'sample') {
+                if (tok.kind === 'sample') {
+                  plan = [{ name: tok.value, gainMul: 1 }];
+                } else if (tok.kind === 'sample-selector') {
+                  plan = resolveSelector(node, tok.value, time, ctx.block);
+                }
+              } else if (ctx.voice === 'drum') {
+                if (tok.kind !== 'drum') return;
+                plan = resolveDrumPlan(node, tok, time, ctx.block, params);
               }
 
               if (!plan) return;
@@ -2807,6 +3990,8 @@
                   pan: params.pan,
                   rate: params.rate,
                   start: params.start,
+                  crush: params.crush,
+                  resolution: params.resolution,
                   gateDuration,
                   panGestureDuration,
                   rateGestureDuration,
@@ -2826,7 +4011,7 @@
               emitEditorPulse({
                 kind: 'sample',
                 line: blockLine(ctx.block),
-                voice: 'sample',
+                voice: ctx.voice === 'drum' ? 'drum' : 'sample',
                 intensity: scheduledSampleAudio ? sampleLeafIntensity : Math.max(0.1, sampleLeafIntensity * 0.72),
               });
               emittedSampleLeaf = true;
@@ -3060,6 +4245,104 @@
         return equalPowerPair(node._gradLeft, node._gradRight, f);
       }
 
+      function expandWeightedPoolNames(items) {
+        const out = [];
+        if (!Array.isArray(items)) return out;
+        for (const item of items) {
+          if (!item || !item.name) continue;
+          const w = Number(item.weight);
+          const copies = Number.isFinite(w) ? Math.max(1, Math.min(16, Math.round(w * 4))) : 1;
+          for (let i = 0; i < copies; i++) out.push(item.name);
+        }
+        return out;
+      }
+
+      function uniqueNameCount(pool) {
+        if (!Array.isArray(pool) || pool.length === 0) return 0;
+        return new Set(pool).size;
+      }
+
+      function resolveDrumPlan(node, tok, time, block, params) {
+        if (!tok || tok.kind !== 'drum') return null;
+        if (typeof root.SampleVoice === 'undefined' || typeof root.SampleVoice.kitById !== 'function') return null;
+
+        const kitId = block && block.kit && block.kit.id ? String(block.kit.id) : '';
+        if (!kitId) {
+          reportMissingSample('drum-kit:(missing)');
+          return null;
+        }
+
+        const kit = root.SampleVoice.kitById(kitId);
+        if (!kit) {
+          reportMissingSample(`drum-kit:${kitId}`);
+          return null;
+        }
+
+        const lane = tok.value && tok.value.lane ? String(tok.value.lane).toLowerCase() : '*';
+        const frozen = Boolean(tok.value && tok.value.frozen);
+        const entries = lane === '*'
+          ? (Array.isArray(kit.pool) ? kit.pool : [])
+          : (kit.lanes && Array.isArray(kit.lanes[lane]) ? kit.lanes[lane] : []);
+        if (!entries.length) {
+          reportMissingSample(`drum-lane:${kit.id}:${lane}`);
+          return null;
+        }
+
+        const pool = expandWeightedPoolNames(entries);
+        if (!pool.length) {
+          reportMissingSample(`drum-lane:${kit.id}:${lane}`);
+          return null;
+        }
+
+        const freezeKey = `${kit.id}:${lane}`;
+        if (frozen && node._drumFrozenPick && node._drumFrozenPick.key === freezeKey && node._drumFrozenPick.name) {
+          return [{ name: node._drumFrozenPick.name, gainMul: 1 }];
+        }
+
+        if (frozen) {
+          const picked = pickRandom(pool, block);
+          if (!picked) {
+            reportMissingSample(`drum-lane:${kit.id}:${lane}`);
+            return null;
+          }
+          node._drumFrozenPick = { key: freezeKey, name: picked };
+          return [{ name: picked, gainMul: 1 }];
+        }
+
+        if (!node._drumVarianceAnchor) node._drumVarianceAnchor = {};
+
+        const anchorKey = `${kit.id}:${lane}`;
+        let anchor = node._drumVarianceAnchor[anchorKey];
+        if (!anchor) {
+          anchor = pickRandom(pool, block);
+          if (!anchor) {
+            reportMissingSample(`drum-lane:${kit.id}:${lane}`);
+            return null;
+          }
+          node._drumVarianceAnchor[anchorKey] = anchor;
+        }
+
+        const variance = clamp(numericParamValue(params && params.variance, 1), 0, 1);
+        if (variance <= 0) {
+          return [{ name: anchor, gainMul: 1 }];
+        }
+
+        let picked = anchor;
+        if (variance >= 1 || Math.random() < variance) {
+          picked = pickRandom(pool, block);
+          if (!picked) {
+            reportMissingSample(`drum-lane:${kit.id}:${lane}`);
+            return null;
+          }
+          if (picked === anchor && uniqueNameCount(pool) > 1) {
+            const reroll = pickRandom(pool, block);
+            if (reroll) picked = reroll;
+          }
+        }
+
+        return [{ name: picked, gainMul: 1 }];
+      }
+
       function syncInputBlock(block, eventBus, params, time) {
         if (!block || block.voice !== 'input') return false;
         if (typeof root.InputVoice === 'undefined' || !root.InputVoice.syncBlock) return false;
@@ -3102,8 +4385,38 @@
         });
       }
 
+      function syncVideoBlock(block, params, effects, time, duration) {
+        if (!block || (block.voice !== 'video' && block.voice !== 'video-gen')) return false;
+        if (typeof root.VideoVoice === 'undefined' || !root.VideoVoice.syncBlock) return false;
+
+        const sourceKind = block.voice === 'video-gen'
+          ? ((block.videoGen && block.videoGen.source) || 'camera')
+          : (block.video && block.video.kind ? block.video.kind : 'camera');
+
+        root.VideoVoice.syncBlock({
+          blockId: block._blockId || null,
+          voice: block.voice,
+          source: sourceKind,
+          sourceClipId: block && block.video && block.video.sourceClipId
+            ? block.video.sourceClipId
+            : (block && block.source && (block.source.clip || block.source.file || block.source.sample) ? (block.source.clip || block.source.file || block.source.sample) : ''),
+          genSource: block && block.videoGen && block.videoGen.source ? block.videoGen.source : '',
+          style: block && block.videoGen && block.videoGen.style ? block.videoGen.style : '',
+          seed: block && block.videoGen && block.videoGen.seed ? block.videoGen.seed : '',
+          cache: block && block.videoGen && block.videoGen.cache ? block.videoGen.cache : '',
+          duration: block && block.videoGen && Number(block.videoGen.duration) ? Number(block.videoGen.duration) : 0,
+          continuousOnly: Boolean(block && block.continuousOnly === true),
+          params: params || {},
+          effects: effects || {},
+          time: Number.isFinite(Number(time)) ? Number(time) : audioCtx.currentTime,
+          eventDuration: Number.isFinite(Number(duration)) ? Number(duration) : 0.25,
+        });
+        return true;
+      }
+
       function dispatchTopSlot(block, slotIdx, slotAbsTime, slotDuration, speed, absoluteSlotIdx) {
         ensureLeafOffsets(block);
+        maybeResetPitchSpansAtBoundary(block, absoluteSlotIdx);
 
         const absSlotIdx = Number.isFinite(Number(absoluteSlotIdx))
           ? Math.max(0, Math.floor(Number(absoluteSlotIdx)))
@@ -3120,10 +4433,14 @@
           isSilentAdvance: Boolean(pos && pos.silent),
         });
         if (pos.silent) return;
+        if (blockIsMutedAt(block, slotAbsTime)) return;
 
         const inBlockIdx = pos.inBlockIdx;
         const node = block.slots[inBlockIdx];
         if (!node) return;
+        if ((block.voice === 'video' || block.voice === 'video-gen') && block.continuousOnly === true) {
+          return;
+        }
 
         const phraseSlot = Number.isFinite(Number(pos && pos.phraseSlot)) ? Math.max(0, Math.floor(Number(pos.phraseSlot))) : inBlockIdx;
         const phraseRepeat = block.slots.length > 0 ? Math.floor(phraseSlot / block.slots.length) : 0;
@@ -3147,11 +4464,22 @@
 
         const nowAbs = audioCtx.currentTime;
         const horizonAbs = nowAbs + SCHEDULE_AHEAD_S;
+        if (
+          pendingEvaluate &&
+          Number.isFinite(Number(pendingEvaluate.resetTime)) &&
+          pendingEvaluate.resetTime <= horizonAbs + 0.000001
+        ) {
+          const queued = pendingEvaluate;
+          pendingEvaluate = null;
+          installProgramAtReset(queued.program, queued.resetTime, Boolean(queued.stopVoices));
+        }
+
         const barSec = barSeconds(program);
 
           for (const block of program.blocks) {
-            const baseSlotSec = barSec / block.slotsPerBar;
-            if (!Number.isFinite(baseSlotSec) || baseSlotSec <= 0) continue;
+            if (!Number.isFinite(barSec) || barSec <= 0) continue;
+            ensureBarGrid(block);
+            const blockMutedNow = blockIsMutedAt(block, nowAbs);
 
             ensureSpeedCursor(block);
 
@@ -3160,83 +4488,106 @@
             updateFadeGainForBlock(block, nowAbs);
 
             if (block.voice === 'input') {
+              const inputSlotSec = slotDurationFor(block, 0, barSec);
               const baseParams = resolveParamsForEvent(block, 0, nowAbs);
               const effects = resolveEffectsForEvent(block, 0, nowAbs);
               const attractorMod = numericParamValue(baseParams.listen, 1) <= 0 ? null : attractorModForBlock(block, nowAbs);
-              const params = applyAttractorToParams(block, baseParams, block.voice, nowAbs, baseSlotSec, attractorMod);
+              const params = applyAttractorToParams(block, baseParams, block.voice, nowAbs, inputSlotSec, attractorMod);
+              const routedParams = blockMutedNow
+                ? { ...params, gain: 0, monitor: 0, listen: 0 }
+                : params;
               block._lastSurfaceState = {
                 eventIndex: 0,
                 speed: 1,
+                params: { ...routedParams },
+                baseParams: { ...baseParams },
+                effects: { ...effects },
+                time: nowAbs,
+                duration: inputSlotSec,
+              };
+              const eventBus = outputBusForBlock(block, nowAbs, attractorMod, effects);
+              syncInputBlock(block, eventBus, routedParams, nowAbs);
+            }
+
+            if ((block.voice === 'video' || block.voice === 'video-gen') && !blockMutedNow) {
+              const idx = Math.max(0, Math.floor(Number(block._speedSlotIdx) || 0));
+              const videoSlotSec = slotDurationFor(block, idx, barSec);
+              const baseParams = resolveParamsForEvent(block, idx, nowAbs);
+              const effects = resolveEffectsForEvent(block, idx, nowAbs);
+              const attractorMod = numericParamValue(baseParams.listen, 1) <= 0 ? null : attractorModForBlock(block, nowAbs);
+              const params = applyAttractorToParams(block, baseParams, block.voice, nowAbs, videoSlotSec, attractorMod);
+              block._lastSurfaceState = {
+                eventIndex: idx,
+                speed: Number.isFinite(block._lastSpeed) ? block._lastSpeed : 1,
                 params: { ...params },
                 baseParams: { ...baseParams },
                 effects: { ...effects },
                 time: nowAbs,
-                duration: baseSlotSec,
+                duration: videoSlotSec,
               };
-              const eventBus = outputBusForBlock(block, nowAbs, attractorMod, effects);
-              syncInputBlock(block, eventBus, params, nowAbs);
+              syncVideoBlock(block, params, effects, nowAbs, videoSlotSec);
             }
 
           // If the cursor is somehow behind the transport origin, snap it forward.
-          if (block._speedNextTime < originTime) {
-            block._speedNextTime = originTime;
-            block._speedSlotIdx = 0;
-          }
-
-          let guard = 0;
-
-          // PER-BLOCK PHRASE CURSOR — INDEPENDENCE INVARIANT.
-          //
-          // Each block advances on its own grid of `baseSlotSec = barSec /
-          // block.slotsPerBar`. Nothing outside this loop may read or write
-          // `block._speedSlotIdx` / `block._speedNextTime` while we tick;
-          // nested groups subdivide only the duration of one slot, never the
-          // top-level cadence; `speed` only compresses the per-slot dispatch
-          // duration, never the slot rate. That guarantees a low-density
-          // sample row stays at sample's slotsPerBar even while a sibling
-          // string row has a 4x-nested group inside one of its slots:
-          //   string  (*!4 *4 *4 *4) . . .   →  16 string leaves/bar
-          //   sample   snm . . .             →  4 sample leaves/bar
-          // The sample row receives 4 commits per bar regardless of what
-          // string subdivides, because we never advance `block._speedSlotIdx`
-          // off any other block's clock.
-          while (block._speedNextTime < horizonAbs && guard < 2048) {
-            const slotIdx = Math.max(0, Math.floor(block._speedSlotIdx));
-            const slotAbsTime = originTime + slotIdx * baseSlotSec;
-            if (slotAbsTime < nowAbs - 0.002) {
-              block._speedSlotIdx = slotIdx + 1;
-              block._speedNextTime = originTime + block._speedSlotIdx * baseSlotSec;
-              block._scheduledThrough = block._speedSlotIdx;
-              guard++;
-              continue;
+            if (block._speedNextTime < originTime) {
+              block._speedNextTime = originTime;
+              block._speedSlotIdx = 0;
             }
+        }
 
-            const speed = speedForSlot(block, slotIdx, slotAbsTime);
-            const speedDuration = baseSlotSec / speed;
-            const eventDuration = Number.isFinite(speedDuration) && speedDuration > 0
-              ? Math.min(baseSlotSec, speedDuration)
-              : baseSlotSec;
+        let guard = 0;
+        while (guard < 4096) {
+          let nextBlock = null;
+          let nextTime = Infinity;
 
-            const absoluteSlotIdx = Math.max(0, Math.floor(((slotAbsTime - originTime) / baseSlotSec) + 0.000001));
-            dispatchTopSlot(block, slotIdx, slotAbsTime, eventDuration, speed, absoluteSlotIdx);
-            block._lastDispatchedSlotIdx = slotIdx;
-            block._lastDispatchedTime = slotAbsTime;
-            block._lastDispatchedDuration = eventDuration;
-
-            // Always advance by exactly one block-local grid step. Re-deriving
-            // from `originTime + slotIdx * baseSlotSec` (instead of
-            // accumulating slotAbsTime + something) keeps the cursor pinned to
-            // the musical grid even when speed/random/attractor params skew
-            // the per-slot dispatch duration.
-            block._speedSlotIdx = slotIdx + 1;
-            block._speedNextTime = originTime + block._speedSlotIdx * baseSlotSec;
-            block._scheduledThrough = block._speedSlotIdx;
-            guard++;
+          for (const candidate of program.blocks) {
+            const t = Number(candidate && candidate._speedNextTime);
+            if (!Number.isFinite(t)) continue;
+            if (t >= horizonAbs) continue;
+            if (t < nextTime) {
+              nextTime = t;
+              nextBlock = candidate;
+            }
           }
 
-          if (guard >= 2048) {
-            // Avoid locking the audio thread if a pathological speed state sneaks in.
-            block._speedNextTime = originTime + (Math.max(0, Math.floor(block._speedSlotIdx || 0)) + 1) * baseSlotSec;
+          if (!nextBlock) break;
+
+          const slotIdx = Math.max(0, Math.floor(nextBlock._speedSlotIdx));
+          const localSlotSec = slotDurationFor(nextBlock, slotIdx, barSec);
+          const slotAbsTime = Number.isFinite(Number(nextBlock._speedNextTime))
+            ? Number(nextBlock._speedNextTime)
+            : originTime + slotStartOffset(nextBlock, slotIdx, barSec);
+          const speed = speedForSlot(nextBlock, slotIdx, slotAbsTime);
+          nextBlock._lastSpeed = speed;
+          const speedDuration = localSlotSec / speed;
+          const eventDuration = Number.isFinite(speedDuration) && speedDuration > 0
+            ? speedDuration
+            : localSlotSec;
+
+          if (slotAbsTime < nowAbs - 0.002) {
+            nextBlock._speedSlotIdx = slotIdx + 1;
+            nextBlock._speedNextTime = slotAbsTime + eventDuration;
+            nextBlock._scheduledThrough = nextBlock._speedSlotIdx;
+            guard += 1;
+            continue;
+          }
+
+          const absoluteSlotIdx = absSlotForElapsed(nextBlock, (slotAbsTime - originTime) + 0.000001, barSec);
+          applyPendingMuteForBlock(nextBlock, slotAbsTime);
+          dispatchTopSlot(nextBlock, slotIdx, slotAbsTime, eventDuration, speed, absoluteSlotIdx);
+          nextBlock._lastDispatchedSlotIdx = slotIdx;
+          nextBlock._lastDispatchedTime = slotAbsTime;
+          nextBlock._lastDispatchedDuration = eventDuration;
+          nextBlock._speedSlotIdx = slotIdx + 1;
+          nextBlock._speedNextTime = slotAbsTime + eventDuration;
+          nextBlock._scheduledThrough = nextBlock._speedSlotIdx;
+          guard += 1;
+        }
+
+        if (guard >= 4096) {
+          for (const block of program.blocks) {
+            const guardSlotSec = slotDurationFor(block, Math.max(0, Math.floor(block._speedSlotIdx)), barSec);
+            block._speedNextTime = Math.max(nowAbs, Number(block._speedNextTime) || nowAbs) + guardSlotSec;
           }
         }
       }
@@ -3271,26 +4622,37 @@
             : originTime;
           const lastDur = Number.isFinite(block._lastDispatchedDuration) && block._lastDispatchedDuration > 0
             ? block._lastDispatchedDuration
-            : (barSec / block.slotsPerBar);
+            : slotDurationFor(block, slotIdx, barSec);
           const subProgress = clamp((audioCtx.currentTime - lastTime) / lastDur, 0, 1);
           // Pure read for the visualizer; never mutates the block's every-state.
           const pos = resolveBlockPosition(block, slotIdx, audioCtx.currentTime, undefined, false);
+          const muted = blockIsMutedAt(block, audioCtx.currentTime);
+          const muteState = ensureBlockMuteState(block);
+          const pendingMute = muteState && muteState.pending ? muteState.pending : null;
             const attractor = block.attractor
               ? (attractorSignalsForBlock(block, audioCtx.currentTime) || blockAttractor(block))
               : null;
           const inputState = block.voice === 'input' && typeof root.InputVoice !== 'undefined' && root.InputVoice.getState
             ? root.InputVoice.getState()[block.input && block.input.kind ? block.input.kind : 'mic']
             : null;
+          const videoState = (block.voice === 'video' || block.voice === 'video-gen') && typeof root.VideoVoice !== 'undefined' && root.VideoVoice.getState
+            ? root.VideoVoice.getState()
+            : null;
 
             return {
               blockIndex: i,
               slotsPerBar: block.slotsPerBar,
+              barSlotCounts: Array.isArray(block.barSlotCounts) ? block.barSlotCounts.slice() : null,
               slotsTotal: block.slots.length,
               bars: block.bars,
               slotIdx,
               subProgress,
               silent: pos.silent,
               inBlockIdx: pos.silent ? -1 : pos.inBlockIdx,
+              muted,
+              mutePending: Boolean(pendingMute),
+              pendingMuted: pendingMute ? Boolean(pendingMute.muted) : muted,
+              pendingMuteAt: pendingMute && Number.isFinite(Number(pendingMute.at)) ? Number(pendingMute.at) : null,
               voice: block.voice,
               every: block.every,
                 attractor: block.attractor,
@@ -3299,6 +4661,9 @@
                 fadeState: block.fade ? fadeStateForBlock(block, audioCtx.currentTime) : null,
                 input: block.input || null,
                 inputState,
+                video: block.video || null,
+                videoGen: block.videoGen || null,
+                videoState,
                 surfaceState: block._lastSurfaceState || null,
             };
       });
@@ -3310,6 +4675,11 @@
         stop,
         safeRestart,
         update,
+        queueEvaluateAtReset,
+        setBlockMuted,
+        setBlockMutedByLine,
+        toggleBlockMutedByLine,
+        getMuteStates,
         onMissingSample,
         now,
         isRunning: () => running,

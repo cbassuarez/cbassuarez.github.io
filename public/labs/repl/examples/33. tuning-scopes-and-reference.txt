@@ -1,0 +1,31 @@
+// tuning tutorial.
+// tuning is forward-scoped: it applies to all following pitched blocks
+// until another tuning line appears.
+
+tempo 84
+meter 4/4
+eval reset
+
+// region A: historical temperament
+tuning kirnberger-3
+string   A3   C4   E4   G4   |   A3   C4   E4   G4
+gain     0.32
+decay    2.6
+tone     bright
+pan      left center right center
+space    0.18
+
+// region B: equal temperament, retuned A4 anchor
+tuning 12-tet-edo 432
+sine     A3   C4   E4   G4   |   A3   C4   E4   G4
+gain     0.26
+decay    1.8
+tone     bright
+pan      right center left center
+space    0.14
+
+// stable pulse bed for comparison
+pulse    *    .    *    .
+gain     0.16
+decay    0.06
+tone     0.8

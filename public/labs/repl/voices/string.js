@@ -36,6 +36,10 @@
     
     function unregisterVoice(active) {
       if (!active) return;
+      if (active.crushNode) {
+        try { active.crushNode.disconnect(); } catch (_) {}
+        active.crushNode = null;
+      }
       _activeVoices.delete(active);
     }
 
@@ -153,28 +157,79 @@
 
   let _audioCtx = null;
   let _masterBus = null;
+  let _masterCompressor = null;
+  let _outputError = '';
 
   function ensureAudio() {
     if (_audioCtx) return _audioCtx;
     const Ctor = window.AudioContext || window.webkitAudioContext;
     if (!Ctor) return null;
     _audioCtx = new Ctor();
-    const compressor = _audioCtx.createDynamicsCompressor();
-    compressor.threshold.value = -18;
-    compressor.knee.value = 8;
-    compressor.ratio.value = 3;
-    compressor.attack.value = 0.005;
-    compressor.release.value = 0.25;
+    _masterCompressor = _audioCtx.createDynamicsCompressor();
+    _masterCompressor.threshold.value = -18;
+    _masterCompressor.knee.value = 8;
+    _masterCompressor.ratio.value = 3;
+    _masterCompressor.attack.value = 0.005;
+    _masterCompressor.release.value = 0.25;
     _masterBus = _audioCtx.createGain();
     _masterBus.gain.value = 0.45;
-    _masterBus.connect(compressor);
-    compressor.connect(_audioCtx.destination);
+    _masterBus.connect(_masterCompressor);
+    _masterCompressor.connect(_audioCtx.destination);
     return _audioCtx;
   }
 
   function getMasterBus() {
     ensureAudio();
     return _masterBus;
+  }
+
+  function outputRoutingSupported() {
+    const Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor || !Ctor.prototype) return false;
+    return typeof Ctor.prototype.setSinkId === 'function';
+  }
+
+  async function listOutputDevices() {
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.enumerateDevices !== 'function') return [];
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter((device) => device && device.kind === 'audiooutput');
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function currentSinkId() {
+    if (_audioCtx && typeof _audioCtx.sinkId === 'string') return _audioCtx.sinkId;
+    return '';
+  }
+
+  async function setOutputDevice(deviceId) {
+    const ctx = ensureAudio();
+    if (!ctx) throw new Error('audio output routing is unavailable');
+    if (typeof ctx.setSinkId !== 'function') {
+      throw new Error('audio output selection is not supported in this browser');
+    }
+
+    const target = deviceId == null ? '' : String(deviceId);
+    try {
+      await ctx.setSinkId(target);
+      _outputError = '';
+      return getOutputRoutingState();
+    } catch (err) {
+      _outputError = err && err.message ? err.message : 'could not switch audio output';
+      throw err;
+    }
+  }
+
+  function getOutputRoutingState() {
+    const sinkId = currentSinkId();
+    return {
+      supported: outputRoutingSupported(),
+      sinkId,
+      usingDefault: sinkId === '',
+      error: _outputError || '',
+    };
   }
 
   function resume() {
@@ -228,6 +283,9 @@
         const harm = resolveHarm(numericParamValue(opts.harm, 2));
         const octaveShift = clamp(Math.round(numericParamValue(opts.octave, 0)), -2, 2);
         const detuneCents = clamp(numericParamValue(opts.detune, 0), -50, 50);
+        const freqStart = Number(opts.freqStart);
+        const freqEnd = Number(opts.freqEnd);
+        const glideSecRaw = Number(opts.glideSec);
 
         const panVal = clamp(numericParamValue(opts.pan, 0), -1, 1);
         const panGestureDuration = Number.isFinite(Number(opts.panGestureDuration)) && Number(opts.panGestureDuration) > 0
@@ -241,7 +299,19 @@
           : null;
 
         const x01 = freqToX01(freq);
-    const playFreq = freq * Math.pow(2, octaveShift) * Math.pow(2, detuneCents / 1200);
+    const octaveMul = Math.pow(2, octaveShift);
+    const detuneMul = Math.pow(2, detuneCents / 1200);
+    const playFreq = freq * octaveMul * detuneMul;
+    const glideSec = Number.isFinite(glideSecRaw) && glideSecRaw > 0
+      ? Math.min(glideSecRaw, gateDuration != null ? gateDuration : decaySec)
+      : 0;
+    const glideStartFreq = Number.isFinite(freqStart) && freqStart > 0
+      ? freqStart * octaveMul * detuneMul
+      : playFreq;
+    const glideEndFreq = Number.isFinite(freqEnd) && freqEnd > 0
+      ? freqEnd * octaveMul * detuneMul
+      : playFreq;
+    const useGlide = glideSec > 0 && Math.abs(glideEndFreq - glideStartFreq) > 0.0001;
 
     const edgeGain = edgeExcitationGain(x01);
     const pickBrightness = clamp(0.45 + Math.abs(x01 - 0.5) * 1.2 + force * 0.35, 0.2, 1.55);
@@ -276,10 +346,13 @@
           : naturalStopTime;
         const sourceStopTime = Math.max(time + 0.02, Math.min(naturalStopTime, gatedStopTime));
 
-        function addPartial(f, partialGain, harmonicN) {
+        function addPartial(startHz, endHz, partialGain, harmonicN) {
           const osc = audioCtx.createOscillator();
           osc.type = 'sine';
-          osc.frequency.setValueAtTime(f, time);
+          osc.frequency.setValueAtTime(startHz, time);
+          if (useGlide) {
+            osc.frequency.exponentialRampToValueAtTime(endHz, Math.max(time + 0.006, time + glideSec));
+          }
 
           const pg = audioCtx.createGain();
           const pickMode = 0.20 + 0.80 * Math.abs(Math.sin(Math.PI * harmonicN * x01));
@@ -305,26 +378,27 @@
             unregisterVoice(activeVoice);
           }
         }
-    addPartial(playFreq, 1, 1);
-    if (harm >= 1) addPartial(playFreq * 2, 0.12 + pickBrightness * 0.22, 2);
-    if (harm >= 2) addPartial(playFreq * 3, 0.04 + pickBrightness * 0.18, 3);
-    if (harm >= 3) addPartial(playFreq * 4, 0.02 + pickBrightness * 0.14, 4);
-    if (harm >= 4) addPartial(playFreq * 5, 0.01 + pickBrightness * 0.10, 5);
-
-    let signal = env;
-    if (crushBits > 0) {
-      const shaper = audioCtx.createWaveShaper();
-      shaper.curve = getBitcrushCurve(crushBits);
-      env.connect(shaper);
-      signal = shaper;
-    }
+    addPartial(Math.max(20, glideStartFreq), Math.max(20, (useGlide ? glideEndFreq : playFreq)), 1, 1);
+    if (harm >= 1) addPartial(Math.max(20, glideStartFreq * 2), Math.max(20, (useGlide ? glideEndFreq : playFreq) * 2), 0.12 + pickBrightness * 0.22, 2);
+    if (harm >= 2) addPartial(Math.max(20, glideStartFreq * 3), Math.max(20, (useGlide ? glideEndFreq : playFreq) * 3), 0.04 + pickBrightness * 0.18, 3);
+    if (harm >= 3) addPartial(Math.max(20, glideStartFreq * 4), Math.max(20, (useGlide ? glideEndFreq : playFreq) * 4), 0.02 + pickBrightness * 0.14, 4);
+    if (harm >= 4) addPartial(Math.max(20, glideStartFreq * 5), Math.max(20, (useGlide ? glideEndFreq : playFreq) * 5), 0.01 + pickBrightness * 0.10, 5);
 
     const filter = audioCtx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.frequency.setValueAtTime(900 + (toneBright * 6200 + pickBrightness * 2500), time);
     filter.Q.setValueAtTime(0.65 + toneBright * 1.8 + force * 0.8, time);
+    let signal = env;
     signal.connect(filter);
     signal = filter;
+
+        if (root.ReplCrush && root.ReplCrush.connect) {
+          signal = root.ReplCrush.connect(audioCtx, signal, {
+            crush: crushBits,
+            resolution: opts.resolution,
+          });
+          if (signal && signal._replCrushActive) activeVoice.crushNode = signal;
+        }
 
         if (audioCtx.createStereoPanner) {
           const pan = audioCtx.createStereoPanner();
@@ -369,6 +443,10 @@
     root.StringVoice = {
       ensureAudio,
       getMasterBus,
+      outputRoutingSupported,
+      listOutputDevices,
+      setOutputDevice,
+      getOutputRoutingState,
       resume,
       playString,
       stopAll,

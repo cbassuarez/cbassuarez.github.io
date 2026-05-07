@@ -3,6 +3,7 @@
 
 tempo 96
 meter 4/4
+tuning kirnberger-3
 
 // notes, groups, rests, sustains
 string   A3   (C4 E4)   .   ~

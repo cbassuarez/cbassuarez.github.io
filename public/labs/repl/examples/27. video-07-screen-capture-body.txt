@@ -1,0 +1,21 @@
+// video-07 — screen capture body
+// Use desktop/tab capture as material for stage synthesis.
+
+tempo 92
+meter 4/4
+
+video screen
+listen on
+opacity 0.9
+threshold 0.34
+edges 0.52
+displace 0.26
+slitscan 0.38
+trail 0.46
+blend screen
+
+// always-audible bed
+pulse * . * .
+gain 0.2
+decay 0.07
+tone 0.78

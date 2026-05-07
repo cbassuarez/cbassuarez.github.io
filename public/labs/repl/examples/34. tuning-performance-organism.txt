@@ -1,0 +1,58 @@
+// real-world tuning performance organism
+// practical use case: tuned harmony + constrained randomness + evolving timbre.
+// tuning is forward-scoped. evaluate once, let it run, then replay to keep frozen picks.
+
+tempo 84
+meter 4/4
+eval reset keep
+tuning kirnberger-3 432
+
+// pitched harmonic field (retuned)
+string   *!3   (A* C* E*)   *4   ~    |   D*   (F* A* C*!)   G*   ~
+attractor weather.dew
+source   station KLAX
+speed    (1 1 1/2 1)
+force    (mp (* ~) mf _)
+decay    (2.4 3.2 *&24 2.8)
+tone     (dark *~ bright ~)
+pan      (*~ ~ _ right) (*~ ~ _ left)
+body     glass
+space    *&32
+comb     *~
+chorus   0.12
+compress 0.28
+gain     0.62
+every    4 bars
+fade     inout 24s hold 6s
+
+// articulated counterline (retuned)
+pluck    (*!4 E* A*)   .   (*4 *4)   .    |   *3   .   *4   .
+attractor weather.visibility
+source   station KLAX
+speed    (1/2 1 1 2)
+force    (p mf f mf)
+decay    (0.35 0.6 *&16 0.45)
+tone     (bright dark bright dark)
+pan      (left center right center)
+gain     0.34
+every    8 beats
+
+// texture memory (not pitch-dependent, but integrated with the same ecology)
+sample   tub-*&24;   ~   snm-*&28;   ~    |   amp-*&20;   ~   lux-*&24;   ~
+attractor archive
+speed    (1 1/2 1 1/2)
+rate     (*&16 ~)
+start    (*&20 ~)
+grain    0.2
+scar     memory
+pan      *~
+gain     0.42
+
+// metronome bed with audible modulation
+pulse    *   .   *   .    |   *   .   *   .
+force    (mf f mp f)
+decay    (0.4 1.1 0.5 0.95)
+tone     (dark bright dark bright)
+pan      (left right center right)
+gain     0.18
+

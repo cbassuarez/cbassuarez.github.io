@@ -1,0 +1,172 @@
+diff --git a/public/labs/repl/dsl.js b/public/labs/repl/dsl.js
+index 42d2870..4b7b3c3 100644
+--- a/public/labs/repl/dsl.js
++++ b/public/labs/repl/dsl.js
+@@ -1605,10 +1605,10 @@
+       return { ok: false, errors };
+     }
+ 
+-    // Pre-resolve sustain leaves (~) to the immediately-preceding note in
+-    // DFS order. Loop-around is handled at runtime; the very first leaf
+-    // before any note is converted to a rest.
+-    for (const block of blocks) resolveSustains(block.slots);
++    // Pre-resolve string sustain leaves (~) to the immediately-preceding note
++    // in DFS order. Sample sustains remain explicit sustain leaves so the
++    // scheduler/editor can commit and highlight them distinctly from rests.
++    for (const block of blocks) resolveSustains(block);
+ 
+     return {
+       ok: true,
+@@ -1616,7 +1616,10 @@
+     };
+   }
+ 
+-  function resolveSustains(slots) {
++  function resolveSustains(block) {
++    const slots = block && Array.isArray(block.slots) ? block.slots : [];
++    if (block && block.voice !== 'string') return;
++
+     let lastNoteValue = null;
+     function visit(node) {
+       if (node.kind === 'leaf') {
+diff --git a/public/labs/repl/repl-editor.js b/public/labs/repl/repl-editor.js
+index c68879b..8accefc 100644
+--- a/public/labs/repl/repl-editor.js
++++ b/public/labs/repl/repl-editor.js
+@@ -1047,12 +1047,13 @@
+         if (!range || !range.text) return;
+         const payloadToken = normalizeLeafToken(payload && payload.token);
+         const rangeToken = normalizeLeafToken(range.text);
+-        const isRestEvent = leafStateClass(payload && payload.state) === 'rest' || isRestLikeLeafToken(payload && payload.token);
++        const payloadState = leafStateClass(payload && payload.state);
++        const isSilentCellEvent = payloadState === 'rest' || payloadState === 'held' || isRestLikeLeafToken(payload && payload.token);
+         const isRestRange = isRestLikeLeafToken(range.text);
+         const canAcceptGeneric = payloadToken === 'note' || payloadToken === '*' || payloadToken === 'sample';
+-        if (isRestEvent && !isRestRange) return;
+-        if (!isRestEvent && isRestRange) return;
+-        if (payloadToken && !isRestEvent && !canAcceptGeneric && payloadToken !== rangeToken) return;
++        if (isSilentCellEvent && !isRestRange) return;
++        if (!isSilentCellEvent && isRestRange) return;
++        if (payloadToken && !isSilentCellEvent && !canAcceptGeneric && payloadToken !== rangeToken) return;
+         // Rest/sustain leaves are true rhythmic events, but their visual
+         // registration must be a short punch, not a full-slot occupancy. A
+         // whole-beat rest in one voice can otherwise remain visible while a
+@@ -1068,7 +1069,7 @@
+         const leafState = {
+           leafCount: count,
+           currentIndex: index,
+-          state: isRestEvent ? 'rest' : (payload.state || 'hit'),
++          state: payloadState,
+           voice: payload.voice || previous.voice || '',
+           token: payload.token || '',
+           slotIndex: Number.isFinite(Number(payload.slotIndex)) ? Number(payload.slotIndex) : null,
+diff --git a/public/labs/repl/scheduler.js b/public/labs/repl/scheduler.js
+index f3dbd06..f9963e5 100644
+--- a/public/labs/repl/scheduler.js
++++ b/public/labs/repl/scheduler.js
+@@ -2697,13 +2697,13 @@
+               time,
+               duration,
+             };
+-            const emitPlayedLeafPulse = (intensity) => emitLeafPulse(ctx.block, time, {
++            const emitPlayedLeafPulse = (intensity, stateOverride) => emitLeafPulse(ctx.block, time, {
+               leafIndex: eventIndex,
+               leafCount: ctx.leafTotal,
+               leafPath,
+               slotIndex: ctx.slotIndex,
+               sourceLeafIndex,
+-              state: attractorMod ? 'mutated' : 'hit',
++              state: stateOverride || (attractorMod ? 'mutated' : 'hit'),
+               token: tokenLabel,
+               duration,
+               intensity: intensity == null ? Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1))) : intensity,
+@@ -2739,7 +2739,7 @@
+               if (!note || !Number.isFinite(note.freq)) return;
+ 
+                 const stringLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
+-                emitPlayedLeafPulse(stringLeafIntensity);
++                emitPlayedLeafPulse(stringLeafIntensity, note.sustained || tok.raw === '~' ? 'held' : null);
+                 emitEditorPulse({
+                   kind: 'voice',
+                   line: blockLine(ctx.block),
+@@ -3187,14 +3187,13 @@
+ 
+           // PER-BLOCK PHRASE CURSOR — INDEPENDENCE INVARIANT.
+           //
+-          // Each block advances on its own grid of `baseSlotSec = barSec /
+-          // block.slotsPerBar`. Nothing outside this loop may read or write
+-          // `block._speedSlotIdx` / `block._speedNextTime` while we tick;
+-          // nested groups subdivide only the duration of one slot, never the
+-          // top-level cadence; `speed` only compresses the per-slot dispatch
+-          // duration, never the slot rate. That guarantees a low-density
+-          // sample row stays at sample's slotsPerBar even while a sibling
+-          // string row has a 4x-nested group inside one of its slots:
++          // Each block owns `block._speedSlotIdx` / `block._speedNextTime`.
++          // Nothing outside this loop may read or write that cursor while we
++          // tick; nested groups subdivide only the duration of one owning
++          // slot, never a sibling's cadence. `speed` changes this block's
++          // pattern-time cursor only. That guarantees a low-density sample row
++          // stays on its own cursor even while a sibling string row has a
++          // 4x-nested group inside one of its slots:
+           //   string  (*!4 *4 *4 *4) . . .   →  16 string leaves/bar
+           //   sample   snm . . .             →  4 sample leaves/bar
+           // The sample row receives 4 commits per bar regardless of what
+@@ -3202,41 +3201,43 @@
+           // off any other block's clock.
+           while (block._speedNextTime < horizonAbs && guard < 2048) {
+             const slotIdx = Math.max(0, Math.floor(block._speedSlotIdx));
+-            const slotAbsTime = originTime + slotIdx * baseSlotSec;
++            const slotAbsTime = Number.isFinite(Number(block._speedNextTime))
++              ? Number(block._speedNextTime)
++              : originTime + slotIdx * baseSlotSec;
++            const speed = speedForSlot(block, slotIdx, slotAbsTime);
++            const speedDuration = baseSlotSec / speed;
++            const eventDuration = Number.isFinite(speedDuration) && speedDuration > 0
++              ? speedDuration
++              : baseSlotSec;
+             if (slotAbsTime < nowAbs - 0.002) {
+               block._speedSlotIdx = slotIdx + 1;
+-              block._speedNextTime = originTime + block._speedSlotIdx * baseSlotSec;
++              block._speedNextTime = slotAbsTime + eventDuration;
+               block._scheduledThrough = block._speedSlotIdx;
+               guard++;
+               continue;
+             }
+ 
+-            const speed = speedForSlot(block, slotIdx, slotAbsTime);
+-            const speedDuration = baseSlotSec / speed;
+-            const eventDuration = Number.isFinite(speedDuration) && speedDuration > 0
+-              ? Math.min(baseSlotSec, speedDuration)
+-              : baseSlotSec;
+-
+             const absoluteSlotIdx = Math.max(0, Math.floor(((slotAbsTime - originTime) / baseSlotSec) + 0.000001));
+             dispatchTopSlot(block, slotIdx, slotAbsTime, eventDuration, speed, absoluteSlotIdx);
+             block._lastDispatchedSlotIdx = slotIdx;
+             block._lastDispatchedTime = slotAbsTime;
+             block._lastDispatchedDuration = eventDuration;
+ 
+-            // Always advance by exactly one block-local grid step. Re-deriving
+-            // from `originTime + slotIdx * baseSlotSec` (instead of
+-            // accumulating slotAbsTime + something) keeps the cursor pinned to
+-            // the musical grid even when speed/random/attractor params skew
+-            // the per-slot dispatch duration.
++            // Always advance exactly one block-local phrase slot, but advance
++            // its next commit time by this block's own resolved speed. This is
++            // the pattern-time cursor: a fast string block can place several
++            // string leaves inside a beat without donating that subdivision to
++            // any sibling sample block, and a slow sample block consumes only
++            // its own phrase more slowly.
+             block._speedSlotIdx = slotIdx + 1;
+-            block._speedNextTime = originTime + block._speedSlotIdx * baseSlotSec;
++            block._speedNextTime = slotAbsTime + eventDuration;
+             block._scheduledThrough = block._speedSlotIdx;
+             guard++;
+           }
+ 
+           if (guard >= 2048) {
+             // Avoid locking the audio thread if a pathological speed state sneaks in.
+-            block._speedNextTime = originTime + (Math.max(0, Math.floor(block._speedSlotIdx || 0)) + 1) * baseSlotSec;
++            block._speedNextTime = Math.max(nowAbs, Number(block._speedNextTime) || nowAbs) + baseSlotSec;
+           }
+         }
+       }

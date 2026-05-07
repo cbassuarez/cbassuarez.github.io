@@ -1,0 +1,18 @@
+// video-08 — file material
+// Load a video file, then shape it with rhythmic overlay.
+
+tempo 86
+meter 4/4
+
+video file * . * .
+opacity 0.88
+posterize 0.44
+contrast 0.5
+trail 0.3
+blend difference
+
+pulse * . * .
+gain 0.26
+decay 0.06
+pan left center right center
+

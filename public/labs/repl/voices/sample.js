@@ -4,6 +4,8 @@
 //
 // Exposes:
 //   SampleVoice.loadManifest(url)        // returns Promise<manifest>
+//   SampleVoice.setOverlayBank({ samples, groups })
+//   SampleVoice.clearOverlayBank()
 //   SampleVoice.playSample({ audioCtx, masterBus, time, name, params, gateDuration })
 //   SampleVoice.has(name)                // true if name is in manifest
 //   SampleVoice.list()                   // array of known names
@@ -17,9 +19,11 @@
     const _buffers = new Map();       // name → AudioBuffer
     const _pending = new Map();       // name → Promise<AudioBuffer>
     const _activeSources = new Set(); // currently playing AudioBufferSourceNodes
-    let _manifest = null;             // { version, samples: [{ name, file, ... }] }
+    let _manifest = null;             // shipped manifest { version, samples, kits, groups }
     let _manifestUrl = '';
     let _manifestPromise = null;
+    let _overlay = { samples: [], groups: [] }; // runtime-only local sample overlay
+    let _overlayByName = new Map();
 
   function clamp(v, lo, hi) {
     const n = Number(v);
@@ -111,6 +115,51 @@
       }
     }
 
+  function normalizeManifestData(data) {
+    if (!data || !Array.isArray(data.samples)) {
+      return { version: 1, samples: [], kits: [], groups: [] };
+    }
+    return {
+      version: Number.isFinite(Number(data.version)) ? Number(data.version) : 1,
+      samples: data.samples.slice(),
+      kits: Array.isArray(data.kits) ? data.kits.slice() : [],
+      groups: Array.isArray(data.groups) ? data.groups.slice() : [],
+    };
+  }
+
+  function normalizeOverlayData(data) {
+    if (!data || typeof data !== 'object') return { samples: [], groups: [] };
+    return {
+      samples: Array.isArray(data.samples) ? data.samples.filter(Boolean).slice() : [],
+      groups: Array.isArray(data.groups) ? data.groups.filter(Boolean).slice() : [],
+    };
+  }
+
+  function clearCachedBuffers(names) {
+    for (const name of names) {
+      if (!name) continue;
+      _buffers.delete(name);
+      _pending.delete(name);
+    }
+  }
+
+  function setOverlayBank(data) {
+    const prevNames = Array.from(_overlayByName.keys());
+    _overlay = normalizeOverlayData(data);
+    _overlayByName = new Map();
+    for (const entry of _overlay.samples) {
+      if (!entry || typeof entry.name !== 'string' || !entry.name) continue;
+      _overlayByName.set(entry.name, entry);
+    }
+
+    const nextNames = Array.from(_overlayByName.keys());
+    clearCachedBuffers(new Set(prevNames.concat(nextNames)));
+  }
+
+  function clearOverlayBank() {
+    setOverlayBank({ samples: [], groups: [] });
+  }
+
   function loadManifest(url) {
     if (_manifestPromise) return _manifestPromise;
     _manifestUrl = url;
@@ -120,19 +169,24 @@
         return r.json();
       })
       .then((data) => {
-        _manifest = data && Array.isArray(data.samples) ? data : { version: 1, samples: [] };
+        _manifest = normalizeManifestData(data);
         return _manifest;
       })
       .catch(() => {
-        _manifest = { version: 1, samples: [] };
+        _manifest = normalizeManifestData(null);
         return _manifest;
       });
     return _manifestPromise;
   }
 
-  function manifestEntry(name) {
-    if (!_manifest) return null;
+  function baseManifestEntry(name) {
+    if (!_manifest || !Array.isArray(_manifest.samples)) return null;
     return _manifest.samples.find((s) => s && s.name === name) || null;
+  }
+
+  function manifestEntry(name) {
+    if (_overlayByName.has(name)) return _overlayByName.get(name);
+    return baseManifestEntry(name);
   }
 
   function has(name) {
@@ -140,21 +194,155 @@
   }
 
   function list() {
-    if (!_manifest) return [];
-    return _manifest.samples.map((s) => s && s.name).filter(Boolean);
+    const out = [];
+    const seen = new Set();
+
+    if (_manifest && Array.isArray(_manifest.samples)) {
+      for (const s of _manifest.samples) {
+        const name = s && s.name;
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        out.push(name);
+      }
+    }
+    for (const s of _overlay.samples) {
+      const name = s && s.name;
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      out.push(name);
+    }
+    return out;
+  }
+
+  function baseHas(name) {
+    return Boolean(baseManifestEntry(name));
+  }
+
+  function mapGroups(rawGroups, allowedNames) {
+    if (!Array.isArray(rawGroups)) return [];
+    return rawGroups
+      .filter((g) => g && Array.isArray(g.samples) && g.samples.length > 0)
+      .map((g) => {
+        const src = g.samples.slice();
+        const samples = src.filter((n) => typeof n === 'string' && (!allowedNames || allowedNames.has(n)));
+        const first = samples[0] || '';
+        const prefix = typeof first === 'string' && first.includes('-')
+          ? first.split('-')[0]
+          : '';
+        return {
+          id: String(g.id || ''),
+          label: String(g.label || g.id || ''),
+          prefix,
+          samples,
+        };
+      })
+      .filter((g) => g.samples.length > 0);
   }
 
   // Returns the group structure from the manifest (or [] if absent / not yet
   // loaded). Each group: { id, label, samples: [name, name, ...] }.
   function groups() {
-    if (!_manifest || !Array.isArray(_manifest.groups)) return [];
-    return _manifest.groups
-      .filter((g) => g && Array.isArray(g.samples) && g.samples.length > 0)
-      .map((g) => ({
-        id: String(g.id || ''),
-        label: String(g.label || g.id || ''),
-        samples: g.samples.slice(),
-      }));
+    const allowed = new Set(list());
+    return mapGroups((_manifest && _manifest.groups) || [], allowed)
+      .concat(mapGroups(_overlay.groups, allowed));
+  }
+
+  function normalizeKitLaneEntries(entries) {
+    if (!_manifest || !Array.isArray(entries)) return [];
+    const byName = new Map();
+
+    const add = (name, weight) => {
+      if (!name || !baseHas(name)) return;
+      const w = Number.isFinite(Number(weight)) && Number(weight) > 0 ? Number(weight) : 1;
+      const current = byName.get(name);
+      byName.set(name, (current || 0) + w);
+    };
+
+    for (const entry of entries) {
+      if (typeof entry === 'string') {
+        const raw = entry.trim();
+        if (!raw) continue;
+        if (raw.endsWith('*')) {
+          const prefix = raw.slice(0, -1);
+          for (const expanded of expandBasePrefix(prefix)) add(expanded, 1);
+          continue;
+        }
+        add(raw, 1);
+        continue;
+      }
+
+      if (entry && typeof entry === 'object') {
+        const rawName = typeof entry.name === 'string' ? entry.name.trim() : '';
+        if (!rawName) continue;
+        const weight = Number(entry.weight);
+        if (rawName.endsWith('*')) {
+          const prefix = rawName.slice(0, -1);
+          for (const expanded of expandBasePrefix(prefix)) add(expanded, weight);
+          continue;
+        }
+        add(rawName, weight);
+      }
+    }
+
+    return Array.from(byName.entries()).map(([name, weight]) => ({ name, weight }));
+  }
+
+  function normalizeKit(rawKit) {
+    if (!rawKit || typeof rawKit !== 'object') return null;
+    const id = String(rawKit.id || '').trim().toLowerCase();
+    if (!id) return null;
+    const label = String(rawKit.label || rawKit.id || id);
+    const lanesRaw = rawKit.lanes && typeof rawKit.lanes === 'object' ? rawKit.lanes : {};
+
+    const lanes = {
+      k: normalizeKitLaneEntries(lanesRaw.k),
+      s: normalizeKitLaneEntries(lanesRaw.s),
+      h: normalizeKitLaneEntries(lanesRaw.h),
+      o: normalizeKitLaneEntries(lanesRaw.o),
+      t: normalizeKitLaneEntries(lanesRaw.t),
+      r: normalizeKitLaneEntries(lanesRaw.r),
+      c: normalizeKitLaneEntries(lanesRaw.c),
+    };
+
+    const poolByName = new Map();
+    for (const laneName of ['k', 's', 'h', 'o', 't', 'r', 'c']) {
+      const lane = lanes[laneName] || [];
+      for (const item of lane) {
+        if (!item || !item.name) continue;
+        const prev = poolByName.get(item.name) || 0;
+        poolByName.set(item.name, prev + (Number(item.weight) || 1));
+      }
+    }
+
+    const pool = Array.from(poolByName.entries()).map(([name, weight]) => ({ name, weight }));
+    return { id, label, lanes, pool };
+  }
+
+  function kits() {
+    if (!_manifest || !Array.isArray(_manifest.kits)) return [];
+    const out = [];
+    for (const raw of _manifest.kits) {
+      const kit = normalizeKit(raw);
+      if (!kit) continue;
+      out.push({
+        id: kit.id,
+        label: kit.label,
+      });
+    }
+    return out;
+  }
+
+  function kitById(id) {
+    if (!_manifest || !Array.isArray(_manifest.kits)) return null;
+    const target = String(id || '').trim().toLowerCase();
+    if (!target) return null;
+    for (const raw of _manifest.kits) {
+      if (!raw) continue;
+      const rawId = String(raw.id || '').trim().toLowerCase();
+      if (rawId !== target) continue;
+      return normalizeKit(raw);
+    }
+    return null;
   }
 
   // Resolves once the manifest has been fetched (success or empty fallback).
@@ -166,7 +354,29 @@
   // Returns the names of every sample whose id starts with `prefix`. Empty
   // prefix matches all. Used by the DSL's wildcard selectors.
   function expandPrefix(prefix) {
-    if (!_manifest) return [];
+    const p = String(prefix || '');
+    const out = [];
+    const seen = new Set();
+
+    for (const s of (_manifest && Array.isArray(_manifest.samples) ? _manifest.samples : [])) {
+      if (!s || typeof s.name !== 'string') continue;
+      if (p !== '' && !s.name.startsWith(p)) continue;
+      if (seen.has(s.name)) continue;
+      seen.add(s.name);
+      out.push(s.name);
+    }
+    for (const s of _overlay.samples) {
+      if (!s || typeof s.name !== 'string') continue;
+      if (p !== '' && !s.name.startsWith(p)) continue;
+      if (seen.has(s.name)) continue;
+      seen.add(s.name);
+      out.push(s.name);
+    }
+    return out;
+  }
+
+  function expandBasePrefix(prefix) {
+    if (!_manifest || !Array.isArray(_manifest.samples)) return [];
     const p = String(prefix || '');
     const out = [];
     for (const s of _manifest.samples) {
@@ -252,6 +462,15 @@
       let signal = src;
       signal.connect(gainNode);
       signal = gainNode;
+      let crushNode = null;
+
+      if (root.ReplCrush && root.ReplCrush.connect) {
+        signal = root.ReplCrush.connect(audioCtx, signal, {
+          crush: opts.crush,
+          resolution: opts.resolution,
+        });
+        if (signal && signal._replCrushActive) crushNode = signal;
+      }
 
       if (audioCtx.createStereoPanner) {
         const pan = audioCtx.createStereoPanner();
@@ -295,7 +514,12 @@
       }
 
       _activeSources.add(src);
+      src._replCrushNode = crushNode;
       src.onended = () => {
+        if (crushNode) {
+          try { crushNode.disconnect(); } catch (_) {}
+          crushNode = null;
+        }
         _activeSources.delete(src);
       };
 
@@ -318,6 +542,10 @@
       const t = Number.isFinite(when) ? when : 0;
 
       for (const src of Array.from(_activeSources)) {
+        if (src && src._replCrushNode) {
+          try { src._replCrushNode.disconnect(); } catch (_) {}
+          src._replCrushNode = null;
+        }
         try {
           src.stop(t + 0.025);
         } catch {
@@ -340,8 +568,12 @@
       has,
       list,
       groups,
+      kits,
+      kitById,
       ready,
       preload,
       expandPrefix,
+      setOverlayBank,
+      clearOverlayBank,
     };
 })(window);

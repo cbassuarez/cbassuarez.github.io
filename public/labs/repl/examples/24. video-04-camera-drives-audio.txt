@@ -1,0 +1,23 @@
+// video-04 — camera drives audio
+// Motion and rupture in the frame fire and shape sample events.
+
+tempo 96
+meter 4/4
+
+video camera
+listen on
+opacity 0.82
+edges camera.motion 0.08 0.62
+threshold camera.brightness 0.2 0.6
+
+sample snm-*&20; . tub-*&20; .
+gain 0.42
+trigger camera.rupture 0.52
+grain camera.motion 0.06 0.62
+pan camera.centroidx -0.7 0.7
+
+// always-audible bed (camera trigger still demonstrated above)
+pulse * . * .
+gain 0.18
+decay 0.06
+tone 0.8

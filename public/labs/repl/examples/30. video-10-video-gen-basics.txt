@@ -1,0 +1,28 @@
+// video-10 — video gen basics
+// Local generative jobs materialize vgen-* clips asynchronously.
+
+tempo 92
+meter 4/4
+tuning kirnberger-3
+
+video camera
+listen on
+opacity 0.66
+edges 0.28
+
+video gen * ~ . *
+source camera
+style surveillance
+seed blackbox
+duration 6s
+cache live
+trigger camera.stillness 0.78
+feedback 0.24
+displace 0.28
+color 0.64
+
+// always-audible bed
+pluck A3 . C4 .
+gain 0.22
+decay 0.42
+tone bright
