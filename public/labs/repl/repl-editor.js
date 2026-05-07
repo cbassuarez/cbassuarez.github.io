@@ -999,22 +999,34 @@
     }
 
     toDOM() {
+      const isMuted = Boolean(this.state.muted);
+      const isPending = Boolean(this.state.pending);
+      const pendingMuted = this.state.pendingMuted == null ? isMuted : Boolean(this.state.pendingMuted);
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'cs-mute-toggle';
-      if (this.state.muted) btn.classList.add('is-muted');
-      if (this.state.pending) btn.classList.add('is-pending');
+      if (isMuted) btn.classList.add('is-muted');
+      if (isPending) btn.classList.add('is-pending');
       btn.setAttribute('data-repl-mute-line', String(this.lineNumber));
-      btn.setAttribute('aria-label', this.state.muted ? `Unmute block on line ${this.lineNumber}` : `Mute block on line ${this.lineNumber}`);
-      const label = this.state.pending
-        ? (this.state.pendingMuted ? 'Q-MUTE' : 'Q-LIVE')
-        : (this.state.muted ? 'MUTE' : 'LIVE');
-      btn.textContent = label;
+      btn.setAttribute('aria-label', isMuted ? `Unmute block on line ${this.lineNumber}` : `Mute block on line ${this.lineNumber}`);
+      btn.setAttribute('aria-pressed', isMuted ? 'true' : 'false');
+      btn.appendChild(createMuteGlyph(isMuted));
+
+      if (isPending) {
+        const pendingDot = document.createElement('span');
+        pendingDot.className = 'cs-mute-pending-dot';
+        pendingDot.setAttribute('aria-hidden', 'true');
+        btn.appendChild(pendingDot);
+      }
+
       const tags = Array.isArray(this.state.tags) ? this.state.tags.filter(Boolean) : [];
+      const titleState = isPending
+        ? (pendingMuted ? 'queued mute (next bar)' : 'queued unmute (next bar)')
+        : (isMuted ? 'muted' : 'live');
       if (tags.length > 0) {
-        btn.title = `${label.toLowerCase()} · tags: ${tags.join(', ')}`;
+        btn.title = `${titleState} · tags: ${tags.join(', ')}`;
       } else {
-        btn.title = label.toLowerCase();
+        btn.title = titleState;
       }
       return btn;
     }
@@ -1100,6 +1112,30 @@
       return true;
     },
   }));
+
+  function createMuteGlyph(muted) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    svg.setAttribute('class', 'cs-mute-icon');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.8');
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    if (muted) {
+      // Heroicons "speaker-x-mark" (outline).
+      path.setAttribute('d', 'M17.25 9.75 19.5 12m0 0 2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25m-10.5-6 4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z');
+    } else {
+      // Heroicons "speaker-wave" (outline).
+      path.setAttribute('d', 'M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z');
+    }
+    svg.appendChild(path);
+    return svg;
+  }
 
   function findCurrentBlockLines(state) {
     const selLine = state.doc.lineAt(state.selection.main.head).number;
@@ -1566,6 +1602,7 @@
     },
     '.cm-line': {
       position: 'relative',
+      overflow: 'visible',
       padding: '0 7.5rem 0 3.25rem',
       borderLeft: '4px solid transparent',
       borderRadius: '0',
@@ -1625,33 +1662,70 @@
       boxShadow: 'inset 0 -2px 0 #070707, inset 0 0 0 1px rgba(7,7,7,0.3)',
     },
     '.cs-mute-toggle': {
-      position: 'absolute',
-      left: '2.56rem',
-      top: '50%',
-      transform: 'translateY(-50%)',
-      border: '1px solid #070707',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      position: 'relative',
+      verticalAlign: 'baseline',
+      marginLeft: '0.08rem',
+      marginRight: '0.46rem',
+      width: '1.34rem',
+      height: '1.2rem',
+      border: '2px solid #070707',
       backgroundColor: '#ffffff',
       color: '#070707',
       fontFamily: '"Courier New", Courier, monospace',
-      fontSize: '0.58rem',
-      fontWeight: '800',
-      letterSpacing: '0.03em',
-      lineHeight: '1.1',
-      padding: '1px 3px',
+      fontSize: '0.57rem',
+      fontWeight: '900',
+      letterSpacing: '0.045em',
+      lineHeight: '1',
+      padding: '0',
       cursor: 'pointer',
-      zIndex: '85',
+      zIndex: '5',
       textTransform: 'none',
+      boxShadow: '2px 2px 0 #070707',
+      transform: 'translateY(-0.04rem)',
+      transition: 'transform 60ms ease, box-shadow 60ms ease, background-color 80ms ease, color 80ms ease',
     },
     '.cs-mute-toggle:hover': {
-      backgroundColor: '#f4f4f4',
+      backgroundColor: '#f6f6f6',
+      transform: 'translate(-1px, calc(-0.04rem - 1px))',
+      boxShadow: '3px 3px 0 #070707',
+    },
+    '.cs-mute-toggle:active': {
+      transform: 'translate(0, -0.04rem)',
+      boxShadow: '1px 1px 0 #070707',
     },
     '.cs-mute-toggle.is-muted': {
-      backgroundColor: '#070707',
+      backgroundColor: '#e3342f',
       color: '#ffffff',
     },
     '.cs-mute-toggle.is-pending': {
-      backgroundImage: 'repeating-linear-gradient(135deg, #ffd400 0 3px, #ffffff 3px 6px)',
+      backgroundImage: 'repeating-linear-gradient(135deg, #ffd400 0 4px, #ffffff 4px 8px)',
       color: '#070707',
+    },
+    '.cs-mute-toggle.is-pending.is-muted': {
+      backgroundImage: 'repeating-linear-gradient(135deg, #ffd400 0 4px, #e3342f 4px 8px)',
+      color: '#070707',
+    },
+    '.cs-mute-icon': {
+      width: '0.86rem',
+      height: '0.86rem',
+      display: 'block',
+      stroke: 'currentColor',
+      fill: 'none',
+      pointerEvents: 'none',
+    },
+    '.cs-mute-pending-dot': {
+      position: 'absolute',
+      right: '-0.22rem',
+      top: '-0.22rem',
+      width: '0.38rem',
+      height: '0.38rem',
+      border: '2px solid #070707',
+      backgroundColor: '#ffd400',
+      boxShadow: '1px 1px 0 #070707',
+      pointerEvents: 'none',
     },
     '.cs-mute-toggle:focus-visible': {
       outline: '2px solid #0057ff',
