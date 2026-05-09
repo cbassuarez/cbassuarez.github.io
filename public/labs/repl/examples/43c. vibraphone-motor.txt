@@ -1,0 +1,23 @@
+tempo 78
+meter 4/4
+
+vibes C3+G3 E3+B3 G3+D4 C4+E4
+articulation sustain
+pedal .88
+motor .18 .36 .58 .82
+depth .18 .28 .42 .62
+spread .035
+body .52
+sympathetic .3
+human .06
+pan -.12
+
+vibes C5 ~ ~ . | G4 ~ ~ .
+articulation sustain
+pedal 1
+motor .68
+depth .55
+body .45
+release .8
+human .08
+pan .2

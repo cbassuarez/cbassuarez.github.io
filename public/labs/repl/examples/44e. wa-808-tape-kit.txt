@@ -1,0 +1,17 @@
+// title: 808 tape kit
+// Requires importing the Wave Alchemy 808 Tape folder first:
+//   node scripts/import-wa-808-tape.mjs
+
+tempo 110
+meter 4/4
+
+drum k h s h | k o s c
+kit 808
+variance .35
+gain .58
+
+drum k . k h | s h k o
+kit 808
+pick wa808-k-0001
+variance off
+gain .5

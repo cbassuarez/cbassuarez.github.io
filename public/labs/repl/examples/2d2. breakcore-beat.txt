@@ -1,0 +1,72 @@
+// title: breakcore beat — drum kit tutorial
+//
+// The breakcore kit ships pre-mangled — every sample is a 192 BPM source
+// recording, already chopped, stuttered, glitched, and reversed at the
+// source. The kit declares its source bpm in the manifest, so playback
+// auto-stretches to whatever `tempo` you set. Just write rhythm; the kit
+// brings the chaos.
+//
+// Four stacked drum blocks build the beat one layer at a time, each block
+// teaching one technique. Eval, then bend single parameters to feel them.
+// `enter` directives stage the build-up: kick first, snare 4 bars later,
+// hats at 8, fill at 16. The whole arrangement is 32 bars and then loops.
+//
+// KIT LANES   k=kick  s=snare  h=hat  o=other (grunt/synth/glitch)  c=crash
+//             t=tom (Kick_Roll samples)  r=ride (mirrors hats here)
+// WILDCARDS   *  random pick from the full kit pool
+//             *! random pick, frozen for the slot run
+// SUBDIVIDE   parens split one slot into N children: (h h h h) = 4× faster
+// VARIANCE    0 locks the lane to one sample; 1 re-rolls every hit
+// AUTO-STRETCH  the kit's source is 192 BPM; samples slow to fit lower
+//               tempos and stay in pocket. set tempo 96 vs 192 vs 240 to hear.
+
+tempo  168
+meter  4/4
+eval   reset
+
+// 1) KICK FOUNDATION (bars 0+) — opens the piece alone, syncopated.
+drum   k    .    k    .   |   k    k    .    k
+kit    breakcore
+variance 0.25
+gain   0.58
+pan    center
+
+// 2) SNARE BACKBONE + STUTTER (bars 4+) — (s s s) is a triplet stutter in
+//    one slot. *! freezes a wildcard pick on the last hit. variance high.
+drum   .    s    .    (s s s)   |   .    s    .    *!
+kit    breakcore
+variance 0.85
+gain   0.5
+pan    left right center left
+enter  4 bars
+
+// 3) HAT RATCHET (bars 8+) — bar 1 is 16ths throughout; bar 2 punches in
+//    32nd-note bursts. the kit's 11 hat samples carry their own metallic
+//    flicker, so variance near 1 just lets it breathe.
+drum   (h h h h) (h h h h) (h h h h) (h h h h)   |   (h h h h) (h h h h h h h h) (h h h h) (h h h h h h h h)
+kit    breakcore
+variance 0.95
+gain   0.32
+pan    left center right center
+enter  8 bars
+
+// 4) ACCENT FILL (bars 16-32) — fires only in the second half of the loop,
+//    every 4 bars. t lane = Kick_Roll samples; o lane = grunt/synth/glitch;
+//    c hits the crash on the downbeat. window + every cooperate: enter/exit
+//    define the section, every shapes the rhythm inside it.
+drum   c    o    .    t   |   t    *    *!   o
+kit    breakcore
+variance 1
+gain   0.5
+pan    right center left center
+enter  16 bars
+exit   32 bars
+every  4 bars
+
+// TWEAK IDEAS
+//   - try tempo 96, 144, 192, 240 — same patch, different stretch
+//   - delete the enter rows — everything starts at once again
+//   - shorten the build: enter 2 bars / 4 bars / 6 bars instead of 0/4/8
+//   - drop variance to 0 on block 3 — the hat ratchet locks to one sample
+//   - swap `kit breakcore` for `kit bk` — same kit, shorter alias
+//   - add `rate 0.75` to a block — half-step pitch on top of auto-stretch

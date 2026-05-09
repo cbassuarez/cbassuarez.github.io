@@ -1,0 +1,83 @@
+// piano pitch-span glide — slides between roots on a sampled instrument.
+//
+// the `>>` operator opens a shared descending pitch span. the leader block
+// picks the anchor (`>>6*` = somewhere in octave 6); follower blocks with
+// just `>>` track the same descent. `glide` sets the ramp duration in
+// seconds, regardless of tempo.
+//
+// on piano this is interesting because each layer is a discrete sample
+// pitched by playback rate. sliding between roots means the playback
+// rate ramps continuously — a kind of mechanical-piano-being-tuned feel.
+// pedal locked open keeps the glide ringing into itself.
+
+tempo 132
+meter 4/4
+tuning kirnberger-3
+
+// 1. leader — descending span from octave 6 over 24 seconds.
+//    pedal full so each step rings into the next.
+piano   >>6*  *    *    *
+speed   1
+glide   24
+force   mp
+layer   xfade
+pedal   0.95
+release 0.85
+sympathetic 0.7
+lid     0.85
+una     0.45
+human   0.04
+pan     -0.5
+
+// 2. follower at 0.99x — drifts behind, polyrhythmic shadow.
+piano   >>*   *    *    *
+speed   0.99
+glide   24
+force   p
+layer   xfade
+pedal   0.95
+release 0.85
+sympathetic 0.7
+lid     0.85
+una     0.5
+human   0.04
+pan     0.5
+
+// 3. follower at 0.98x — even further behind. all three end at the same
+//    target pitch but at different times, so the chord they form en route
+//    is constantly changing.
+piano   >>*   *    *    *
+speed   0.98
+glide   24
+force   pp
+layer   xfade
+pedal   0.95
+release 0.85
+sympathetic 0.7
+lid     0.85
+una     0.55
+human   0.04
+
+// 4. low pedal point — a held bass note that anchors the descent.
+//    sympathetic full so the upper glides excite this body.
+piano   A1   ~    ~    ~    |   ~    ~    ~    ~
+force   pp
+layer   xfade
+pedal   1
+sympathetic 0.95
+lid     0.95
+una     0.7
+release 1
+stretch 0.55
+human   0.06
+enter   4 bars
+
+// TWEAK IDEAS
+//   - use `<<` instead of `>>` for ascending spans — the slides go up
+//     instead of down, and the chord at the meeting points is brighter.
+//   - shorten `glide` to 6 — the slides become urgent, like a tape
+//     machine slowed and released.
+//   - drop pedal to 0.2 on all glide blocks — each step now articulates
+//     instead of bleeding into the next; the glide turns into staircase.
+//   - replace `*` slots with literal targets, e.g. `>>C4 G3 E3 C3` —
+//     the descent becomes a recognizable melody.

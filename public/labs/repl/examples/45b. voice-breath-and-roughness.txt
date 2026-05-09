@@ -1,0 +1,26 @@
+tempo 66
+meter 4/4
+
+voice C2 ~ ~ . | G2 ~ . .
+vowel oo
+syllable null
+carrier square
+robot .78
+formant -.35
+mouth .32
+breath .16
+roughness .42
+release .55
+gain .5
+
+voice C4 E4 G4 Bb4
+vowel ee
+syllable error
+carrier pulse
+robot .62
+formant .22
+mouth .72
+breath .08
+roughness .65
+pan .22
+gain .36

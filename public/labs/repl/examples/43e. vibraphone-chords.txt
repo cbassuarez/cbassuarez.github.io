@@ -1,0 +1,24 @@
+tempo 72
+meter 4/4
+
+vibes C3+G3+E4+B4 | D3+A3+F4+C5 | E3+B3+G4+D5 | G3+D4+B4+E5
+articulation sustain
+pedal .92
+motor .42
+depth .32
+spread .04
+body .55
+sympathetic .34
+human .07
+pan -.08
+
+vibes C5+G5 ~ ~ . | B4+F5 ~ ~ .
+articulation bow
+bowpressure .5
+pedal 1
+motor .18
+depth .12
+body .75
+release .8
+spread .025
+pan .18

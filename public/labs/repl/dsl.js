@@ -10,13 +10,18 @@
 (function (root) {
   'use strict';
 
-    const VOICE_NAMES = new Set(['string', 'sample', 'sine', 'osc', 'noise', 'pluck', 'pulse', 'drone', 'drum', 'video']);
+    const VOICE_NAMES = new Set(['string', 'sample', 'piano', 'violin', 'cello', 'marimba', 'vibraphone', 'vibes', 'voice', 'vox', 'sine', 'osc', 'noise', 'pluck', 'pulse', 'drone', 'drum', 'video']);
     const VIDEO_SOURCE_NAMES = new Set(['camera', 'screen', 'file', 'gen']);
     const INPUT_SOURCE_NAMES = new Set(['mic', 'interface', 'tab']);
     const INPUT_ROW_NAMES = new Set(['monitor', 'listen']);
     const PARAM_NAMES = new Set([
       'force', 'decay', 'crush', 'resolution', 'pan', 'gain', 'tone', 'harm', 'octave',
-      'every', 'rate', 'start', 'speed', 'glide', 'variance', 'monitor', 'listen',
+      'pedal', 'una', 'lid', 'sympathetic', 'release', 'human', 'stretch', 'layer', 'poly',
+      'articulation', 'sul', 'vibrato', 'vibratorate', 'vibratoonset', 'tremolo', 'tremolorate', 'bow', 'wood',
+      'mallet', 'deadstroke', 'roll', 'spread',
+      'motor', 'depth', 'damp', 'bowpressure',
+      'vowel', 'syllable', 'carrier', 'robot', 'breath', 'mouth', 'formant', 'roughness', 'vocoder', 'ensemble',
+      'every', 'enter', 'exit', 'rate', 'start', 'speed', 'glide', 'variance', 'monitor', 'listen',
       'opacity', 'threshold', 'edges', 'posterize', 'invert', 'contrast', 'saturate',
       'displace', 'feedback', 'delay', 'slitscan', 'trail', 'mask', 'key', 'color', 'blend',
     ]);
@@ -66,7 +71,7 @@
     const NOTE_RE = /^([A-Ga-g])([#b])?(-?\d{1,2})$/;
     const RANDOM_PITCH_CLASSES = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
     const RANDOM_PITCH_OCTAVES = [2, 3, 4, 5];
-    const PITCHED_VOICES = new Set(['string', 'sine', 'osc', 'pluck', 'drone']);
+    const PITCHED_VOICES = new Set(['string', 'sine', 'osc', 'pluck', 'drone', 'piano', 'violin', 'cello', 'marimba', 'vibraphone', 'vibes', 'voice', 'vox']);
 
   function isPitchedVoice(voice) {
     return PITCHED_VOICES.has(String(voice || '').toLowerCase());
@@ -136,6 +141,29 @@
   }
 
     function isNoteToken(tok) { return NOTE_RE.test(tok); }
+    function isChordToken(tok) {
+      const raw = String(tok || '').trim();
+      if (!raw || !raw.includes('+')) return false;
+
+      const parts = raw.split('+').map((part) => part.trim()).filter(Boolean);
+      if (parts.length < 2) return false;
+
+      return parts.every((part) => isNoteToken(part));
+    }
+
+    function chordTokenValue(tok) {
+      const raw = String(tok || '').trim();
+      if (!isChordToken(raw)) return null;
+
+      const notes = raw
+        .split('+')
+        .map((part) => noteTokenValue(part.trim()))
+        .filter(Boolean);
+
+      if (notes.length < 2) return null;
+
+      return notes;
+    }
     function isPitchWildcardToken(tok) { return parsePitchWildcard(tok) !== null; }
 
     
@@ -590,16 +618,28 @@
             return spanEnd;
           }
 
-          if (isNoteToken(body)) {
-            const note = noteTokenValue(body);
-            if (note) {
-              return {
-                kind: 'note',
-                value: note,
-                gated: gate.gated === true,
-              };
+            if (isChordToken(body)) {
+              const chord = chordTokenValue(body);
+              if (chord && chord.length >= 2) {
+                return {
+                  kind: 'chord',
+                  value: chord,
+                  gated: gate.gated === true,
+                  raw: body,
+                };
+              }
             }
-          }
+
+            if (isNoteToken(body)) {
+              const note = noteTokenValue(body);
+              if (note) {
+                return {
+                  kind: 'note',
+                  value: note,
+                  gated: gate.gated === true,
+                };
+              }
+            }
 
           const randomNote = parsePitchWildcard(body);
           if (randomNote) {
@@ -722,9 +762,10 @@
         if (leaf && leaf.token) {
           leaf.token = {
             kind: 'pitch-span-end',
-            raw: implicitRaw,
+            raw: leaf.token.raw || (leaf.token.value && leaf.token.value.raw) || '*',
             value: {
               implicit: true,
+              implicitRaw,
               reason: reason || 'end-of-run',
               targetSpec: {
                 kind: 'wildcard-fixed-octave',
@@ -772,16 +813,40 @@
           continue;
         }
 
-        if (tok.kind === 'note-random' && tok.value && tok.value.raw === '*') {
-          tok.pitchSpanStep = true;
-          open.lastStarLeafIndex = i;
-          continue;
-        }
+	        if (tok.kind === 'note-random' && tok.value && tok.value.raw === '*') {
+	          tok.pitchSpanStep = true;
+	          open.lastStarLeafIndex = i;
+	          continue;
+	        }
 
-        errors.push({
-          line: lineNumber,
-          message: `inside an active pitch-span, only '*', '.', '~', and an end token like G% are allowed`,
-        });
+	        if (
+	          tok.kind === 'note-random'
+	          && tok.value
+	          && tok.value.pitchClass == null
+	          && Number.isFinite(Number(tok.value.octave))
+	        ) {
+	          const octave = Number(tok.value.octave);
+	          leaf.token = {
+	            kind: 'pitch-span-end',
+	            raw: tok.value.raw || `*${octave}`,
+	            value: {
+	              implicit: false,
+	              targetSpec: {
+	                kind: 'wildcard-fixed-octave',
+	                octave,
+	                frozen: tok.value.frozen === true,
+	                raw: tok.value.raw || `*${octave}`,
+	              },
+	            },
+	          };
+	          open = null;
+	          continue;
+	        }
+
+	        errors.push({
+	          line: lineNumber,
+	          message: `inside an active pitch-span, only '*', '.', '~', and end tokens like G% or *4 are allowed`,
+	        });
       }
 
       if (open) closeImplicit('end-of-block');
@@ -1031,8 +1096,9 @@
     switch (name) {
       case 'force':
         if (lower in FORCE_NAMED) return { ok: true, value: FORCE_NAMED[lower] };
+        if (lower === 'random') return { ok: true, value: 'random' };
         if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
-        return { ok: false, message: `force '${raw}' isn't a dynamic — use pp p mp mf f ff fff or 0–1` };
+        return { ok: false, message: `force '${raw}' isn't a dynamic — use pp p mp mf f ff fff random or 0–1` };
 
       case 'decay':
         if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0.4, 8) };
@@ -1126,11 +1192,237 @@
           if (Number.isFinite(num) && num > 0) return { ok: true, value: num };
           return { ok: false, message: `glide must be a positive number of seconds` };
 
+        case 'pedal':
+        case 'una':
+        case 'lid':
+        case 'sympathetic':
+        case 'release':
+        case 'human':
+        case 'stretch':
+          if (lower === 'off') return { ok: true, value: 0 };
+          if (lower === 'on') return { ok: true, value: 1 };
+          if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
+          return { ok: false, message: `${name} must be off/on or 0–1` };
+
+        case 'layer':
+          if (lower === 'hard' || lower === 'xfade' || lower === 'random') return { ok: true, value: lower };
+          return { ok: false, message: `layer must be hard, xfade, or random` };
+
+        case 'poly':
+          if (Number.isFinite(num)) return { ok: true, value: clamp(Math.round(num), 8, 128) };
+          return { ok: false, message: `poly must be a voice count from 8–128` };
+
+        case 'mallet':
+          if (lower === 'yarn' || lower === 'soft') return { ok: true, value: 'yarn' };
+          if (lower === 'cord' || lower === 'medium') return { ok: true, value: 'cord' };
+          if (lower === 'rubber' || lower === 'hard') return { ok: true, value: 'rubber' };
+          return { ok: false, message: `mallet must be yarn, cord, or rubber` };
+
+        case 'deadstroke':
+        case 'roll':
+        case 'spread':
+        case 'motor':
+        case 'depth':
+        case 'damp':
+        case 'bowpressure':
+        case 'breath':
+        case 'mouth':
+        case 'roughness':
+        case 'ensemble':
+        case 'density':
+          if (lower === 'off') return { ok: true, value: 0 };
+          if (lower === 'on') return { ok: true, value: 1 };
+          if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
+          return { ok: false, message: `${name} must be off/on or 0–1` };
+
+        case 'formant':
+          if (Number.isFinite(num)) return { ok: true, value: clamp(num, -1, 1) };
+          return { ok: false, message: `formant must be a number from -1 to 1` };
+
+        case 'vowel':
+          if (['a', 'ah', 'aa'].includes(lower)) return { ok: true, value: 'ah' };
+          if (['e', 'eh'].includes(lower)) return { ok: true, value: 'eh' };
+          if (['i', 'ee', 'ii'].includes(lower)) return { ok: true, value: 'ee' };
+          if (['o', 'oh'].includes(lower)) return { ok: true, value: 'oh' };
+          if (['u', 'oo', 'ou'].includes(lower)) return { ok: true, value: 'oo' };
+          if (lower === 'uh' || lower === 'neutral') return { ok: true, value: 'uh' };
+          if (lower === 'mm' || lower === 'm') return { ok: true, value: 'mm' };
+          if (lower === 'nn' || lower === 'n') return { ok: true, value: 'nn' };
+          return { ok: false, message: `vowel must be ah, eh, ee, oh, oo, uh, mm, or nn` };
+
+        case 'syllable':
+          if (/^[a-z0-9_-]+$/i.test(String(raw || '').trim())) return { ok: true, value: String(raw || '').trim().toLowerCase() };
+          return { ok: false, message: `syllable must be a controlled robotvoice token such as ah, ma, null, input, or error` };
+
+        case 'carrier':
+          if (['sample', 'sine', 'saw', 'sawtooth', 'square', 'pulse', 'noise'].includes(lower)) {
+            return { ok: true, value: lower === 'sawtooth' ? 'saw' : lower };
+          }
+          return { ok: false, message: `carrier must be sample, sine, saw, square, pulse, or noise` };
+
+        case 'robot':
+        case 'vocoder':
+          if (lower === 'off') return { ok: true, value: 0 };
+          if (lower === 'on') return { ok: true, value: 1 };
+          if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
+          return { ok: false, message: `${name} must be off/on or 0–1` };
+
+        case 'articulation':
+          if (lower === 'arco' || lower === 'bowed') {
+            return { ok: true, value: 'arco' };
+          }
+          if (lower === 'pizz' || lower === 'pizzicato' || lower === 'pluck') {
+            return { ok: true, value: 'pizz' };
+          }
+          if (lower === 'sustain' || lower === 'sus' || lower === 'open' || lower === 'pedal') {
+            return { ok: true, value: 'sustain' };
+          }
+          if (lower === 'short' || lower === 'shortsustain' || lower === 'short-sustain') {
+            return { ok: true, value: 'shortsustain' };
+          }
+          if (lower === 'damp' || lower === 'dampen' || lower === 'muted' || lower === 'stop') {
+            return { ok: true, value: 'dampen' };
+          }
+          if (lower === 'bow') {
+            return { ok: true, value: 'bow' };
+          }
+          return { ok: false, message: `articulation must be arco, pizz, sustain, short, dampen, or bow` };
+            
+        case 'sul':
+          if (lower === 'c' || lower === 'sulc' || lower === 'sul-c' || lower === 'v') return { ok: true, value: 'C' };
+          if (lower === 'g' || lower === 'sulg' || lower === 'sul-g' || lower === 'iv') return { ok: true, value: 'G' };
+          if (lower === 'd' || lower === 'suld' || lower === 'sul-d' || lower === 'iii') return { ok: true, value: 'D' };
+          if (lower === 'a' || lower === 'sula' || lower === 'sul-a' || lower === 'ii') return { ok: true, value: 'A' };
+          if (lower === 'e' || lower === 'sule' || lower === 'sul-e' || lower === 'i') return { ok: true, value: 'E' };
+          if (lower === 'auto' || lower === 'any' || lower === 'off') return { ok: true, value: null };
+          return { ok: false, message: `sul must be c, g, d, a, e, or auto` };
+
+        case 'vibrato':
+        case 'tremolo':
+        case 'bow':
+        case 'wood':
+          if (lower === 'off') return { ok: true, value: 0 };
+          if (lower === 'on') return { ok: true, value: 1 };
+          if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
+          return { ok: false, message: `${name} must be off/on or 0–1` };
+
+        case 'vibratorate':
+        case 'tremolorate':
+          if (Number.isFinite(num)) return { ok: true, value: clamp(num, 1, 24) };
+          return { ok: false, message: `${name} must be a frequency in Hz (1–24)` };
+
+        case 'vibratoonset':
+          if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
+          return { ok: false, message: `vibratoOnset must be 0–1 (fraction of gate)` };
+
         default:
           return { ok: false, message: `unknown parameter '${name}'` };
       }
     }
-    
+
+    // Parse a glide duration: either bare seconds (`60`) or with an explicit
+    // unit (`4 bars`, `8 beats`). Returns { count, unit, consumed } or null
+    // when the leading token isn't a positive number.
+    function parseGlideDuration(tokens, idx) {
+      if (idx >= tokens.length) return null;
+      const num = parseNumericExpression(tokens[idx]);
+      if (!Number.isFinite(num) || num <= 0) return null;
+      const next = String(tokens[idx + 1] || '').toLowerCase();
+      if (next === 'bars') return { count: num, unit: 'bars', consumed: 2 };
+      if (next === 'beats') return { count: num, unit: 'beats', consumed: 2 };
+      if (next === 'sec' || next === 'secs' || next === 'seconds' || next === 's') {
+        return { count: num, unit: 'seconds', consumed: 2 };
+      }
+      return { count: num, unit: 'seconds', consumed: 1 };
+    }
+
+    function buildGlideSpan(first, mode, ret, raw) {
+      const span = {
+        kind: 'glide-span',
+        count: first.count,
+        unit: first.unit,
+        mode,
+        raw,
+      };
+      // Backward-compat field: voices and visualizers that still read .seconds
+      // see a numeric value when the unit is plain seconds.
+      if (first.unit === 'seconds') span.seconds = first.count;
+      if (mode === 'return') {
+        const r = ret || first;
+        span.returnCount = r.count;
+        span.returnUnit = r.unit;
+        if (r.unit === 'seconds') span.returnSec = r.count;
+      }
+      return span;
+    }
+
+    // Glide forms (each may use seconds, bars, or beats for any duration):
+    //   glide 60
+    //   glide 4 bars
+    //   glide 60 restart
+    //   glide 4 bars restart
+    //   glide 60 return
+    //   glide 4 bars return
+    //   glide 60 return 30
+    //   glide 4 bars return 2 bars
+    //   glide 60 30                    (legacy alias for `60 return 30`)
+    function resolveGlideLine(valueTokens) {
+      const usage = `glide reads like 'glide 60', 'glide 4 bars', 'glide 60 restart', 'glide 4 bars return', or 'glide 4 bars return 2 bars'`;
+      if (!Array.isArray(valueTokens) || valueTokens.length < 1 || valueTokens.length > 5) {
+        return { ok: false, message: usage };
+      }
+
+      const first = parseGlideDuration(valueTokens, 0);
+      if (!first) {
+        return { ok: false, message: `glide must start with a positive number, optionally followed by 'bars' or 'beats'` };
+      }
+
+      const raw = valueTokens.join(' ');
+      let idx = first.consumed;
+
+      if (idx === valueTokens.length) {
+        // Bare duration. Plain seconds stays a number for backward compat;
+        // bars/beats becomes a glide-span so the runtime can resolve via tempo.
+        if (first.unit === 'seconds') return { ok: true, value: first.count };
+        return { ok: true, value: buildGlideSpan(first, 'hold', null, raw) };
+      }
+
+      const modeTok = String(valueTokens[idx] || '').toLowerCase();
+
+      if (modeTok === 'restart' || modeTok === 'reset') {
+        if (idx + 1 !== valueTokens.length) {
+          return { ok: false, message: `'restart' takes no return duration` };
+        }
+        return { ok: true, value: buildGlideSpan(first, 'restart', null, raw) };
+      }
+
+      if (modeTok === 'return' || modeTok === 'back') {
+        idx += 1;
+        if (idx === valueTokens.length) {
+          return { ok: true, value: buildGlideSpan(first, 'return', null, raw) };
+        }
+        const ret = parseGlideDuration(valueTokens, idx);
+        if (!ret) {
+          return { ok: false, message: `glide return time must be a positive number, optionally with 'bars' or 'beats'` };
+        }
+        if (idx + ret.consumed !== valueTokens.length) {
+          return { ok: false, message: `unexpected extra tokens after glide return duration` };
+        }
+        return { ok: true, value: buildGlideSpan(first, 'return', ret, raw) };
+      }
+
+      // Legacy alias: `glide 60 30` == `glide 60 return 30`. Only valid when
+      // the leading duration was plain seconds (matches the old behavior).
+      if (first.unit === 'seconds') {
+        const aliasReturn = parseGlideDuration(valueTokens, idx);
+        if (aliasReturn && idx + aliasReturn.consumed === valueTokens.length) {
+          return { ok: true, value: buildGlideSpan(first, 'return', aliasReturn, raw) };
+        }
+      }
+
+      return { ok: false, message: usage };
+    }
+	    
     function resolveEffect(name, raw) {
       const paramOperator = parseParamOperator(raw);
       if (paramOperator) return paramOperator;
@@ -1192,6 +1484,28 @@
         case 'start': return [0, 0.85];
         case 'speed': return [0.5, 2];
         case 'glide': return [0.04, 0.4];
+        case 'pedal': return [0, 1];
+        case 'una': return [0, 1];
+        case 'lid': return [0, 1];
+        case 'sympathetic': return [0, 1];
+        case 'release': return [0, 1];
+        case 'human': return [0, 1];
+        case 'stretch': return [0, 1];
+        case 'poly': return [8, 128];
+          case 'deadstroke': return [0, 1];
+          case 'roll': return [0, 1];
+          case 'spread': return [0, 1];
+        case 'motor': return [0, 1];
+        case 'depth': return [0, 1];
+        case 'damp': return [0, 1];
+        case 'bowpressure': return [0, 1];
+        case 'breath': return [0, 1];
+        case 'mouth': return [0, 1];
+        case 'roughness': return [0, 1];
+        case 'ensemble': return [0, 1];
+        case 'robot': return [0, 1];
+        case 'vocoder': return [0, 1];
+        case 'formant': return [-1, 1];
         case 'monitor': return [0, 1];
         case 'listen': return [0, 1];
         case 'opacity':
@@ -1660,6 +1974,8 @@
     const blocks = [];
     let tempo = 110;
     let meter = { num: 4, den: 4 };
+    let tempoExplicit = false;
+    let meterExplicit = false;
     // Default to bar-aligned evaluate so cmd+enter swaps at the next bar
     // boundary. Use `eval now` (or `eval immediate`) for instant swaps.
     let evaluateMode = 'reset';
@@ -1895,6 +2211,7 @@
             errors.push({ line: lineNumber, message: `tempo needs a positive bpm number` });
           } else {
             tempo = t;
+            tempoExplicit = true;
           }
         } else if (head === 'meter') {
           const m = String(args[0] || '').match(/^(\d+)\/(\d+)$/);
@@ -1902,6 +2219,7 @@
             errors.push({ line: lineNumber, message: `meter must be like 4/4 or 6/8` });
           } else {
             meter = { num: parseInt(m[1], 10), den: parseInt(m[2], 10) };
+            meterExplicit = true;
           }
         } else if (head === 'tuning') {
           const tuningDirective = parseTuningDirective(args, lineNumber);
@@ -1960,6 +2278,8 @@
           paramLines: {},
           controls: {},
           every: null,
+          enter: null,
+          exit: null,
           kit: null,
           line: lineNumber,
         };
@@ -2015,6 +2335,8 @@
           paramLines: {},
           controls: {},
           every: null,
+          enter: null,
+          exit: null,
           kit: null,
           input: null,
           video: {
@@ -2031,15 +2353,43 @@
         continue;
       }
 
+      // ---- exact drum sample row ----
+      // Within a drum block, `pick name` pins the scheduled lane hit to an
+      // exact SampleVoice asset. This keeps `sample ...` visually reserved for
+      // the top-level sample voice while still accepting old drum-local
+      // `sample name` rows as a compatibility alias.
+      if ((head === 'pick' || head === 'sample') && currentBlock && currentBlock.voice === 'drum') {
+        const args = tail.trim().split(/\s+/).filter(Boolean);
+        if (args.length !== 1) {
+          errors.push({ line: lineNumber, message: `drum ${head} must be a single sample id, e.g. 'pick wa808-k-0001'` });
+          continue;
+        }
+        const sampleName = String(args[0] || '').trim();
+        if (!/^\S+$/.test(sampleName)) {
+          errors.push({ line: lineNumber, message: `drum ${head} id '${args[0]}' is invalid` });
+          continue;
+        }
+        currentBlock.drumSample = { name: sampleName, raw: args[0], row: head };
+        currentBlock.paramLines[head] = lineNumber;
+        if (head === 'sample') currentBlock.paramLines.pick = lineNumber;
+        continue;
+      }
+
+      if (head === 'pick') {
+        errors.push({ line: lineNumber, message: `pick is only valid inside drum blocks — use 'drum ...' then 'pick <sample-id>'` });
+        continue;
+      }
+
       // ---- voice line ----
       if (VOICE_NAMES.has(head)) {
         endBlock();
+        const voiceName = head === 'vibes' ? 'vibraphone' : (head === 'vox' ? 'voice' : head);
         const slotTokens = tokenizeSlotLine(tail);
         if (slotTokens.length === 0) {
           errors.push({ line: lineNumber, message: `voice '${head}' has no slots — add some notes or rests after it` });
           continue;
         }
-        const result = parseSlotStream(slotTokens, head, lineNumber);
+        const result = parseSlotStream(slotTokens, voiceName, lineNumber);
         if (result.errors.length) {
           for (const e of result.errors) errors.push(e);
         }
@@ -2051,7 +2401,8 @@
           continue;
         }
           currentBlock = {
-            voice: head,
+            voice: voiceName,
+            sourceVoice: head,
             tuning: cloneTuningValue(activeTuning),
             slots,
             continuousOnly: false,
@@ -2067,6 +2418,8 @@
             paramLines: {},
             controls: {},
             every: null,
+            enter: null,
+            exit: null,
             kit: null,
             line: lineNumber,
           };
@@ -2273,7 +2626,7 @@
         }
         const args = tail.trim().split(/\s+/).filter(Boolean);
         if (args.length !== 1) {
-          errors.push({ line: lineNumber, message: `kit must be a single id, e.g. 'kit 909'` });
+          errors.push({ line: lineNumber, message: `kit must be a single id, e.g. 'kit breakcore'` });
           continue;
         }
         const kitId = String(args[0] || '').toLowerCase();
@@ -2362,10 +2715,94 @@
           continue;
         }
 
-        if (head === 'glide' && !isPitchedVoice(currentBlock.voice)) {
-          errors.push({ line: lineNumber, message: `glide is only valid inside pitched blocks (string, sine, osc, pluck, drone)` });
-          continue;
-        }
+          if (head === 'glide' && !isPitchedVoice(currentBlock.voice)) {
+            errors.push({ line: lineNumber, message: `glide is only valid inside pitched blocks (string, sine, osc, pluck, drone, piano, violin, cello, marimba, vibraphone, voice)` });
+            continue;
+          }
+
+          if (
+            ['sul', 'vibrato', 'vibratorate', 'vibratoonset', 'tremolo', 'tremolorate', 'bow', 'wood'].includes(head)
+            && currentBlock.voice !== 'violin'
+            && currentBlock.voice !== 'cello'
+          ) {
+            errors.push({ line: lineNumber, message: `${head} is only valid inside violin or cello blocks` });
+            continue;
+          }
+
+          if (
+            head === 'articulation'
+            && currentBlock.voice !== 'violin'
+            && currentBlock.voice !== 'cello'
+            && currentBlock.voice !== 'vibraphone'
+          ) {
+            errors.push({ line: lineNumber, message: `articulation is only valid inside violin, cello, or vibraphone blocks` });
+            continue;
+          }
+
+          if (
+            head === 'pedal'
+            && currentBlock.voice !== 'piano'
+            && currentBlock.voice !== 'vibraphone'
+          ) {
+            errors.push({ line: lineNumber, message: `pedal is only valid inside piano or vibraphone blocks` });
+            continue;
+          }
+
+          if (
+            ['una', 'lid', 'stretch', 'layer'].includes(head)
+            && currentBlock.voice !== 'piano'
+          ) {
+            errors.push({ line: lineNumber, message: `${head} is only valid inside piano blocks` });
+            continue;
+          }
+
+          if (
+            ['sympathetic', 'release', 'human', 'poly'].includes(head)
+            && currentBlock.voice !== 'piano'
+            && currentBlock.voice !== 'violin'
+            && currentBlock.voice !== 'cello'
+            && currentBlock.voice !== 'marimba'
+            && currentBlock.voice !== 'vibraphone'
+            && currentBlock.voice !== 'voice'
+          ) {
+            errors.push({ line: lineNumber, message: `${head} is only valid inside piano, violin, cello, marimba, vibraphone, or voice blocks` });
+            continue;
+          }
+
+          if (
+            ['mallet', 'deadstroke', 'roll'].includes(head)
+            && currentBlock.voice !== 'marimba'
+          ) {
+            errors.push({ line: lineNumber, message: `${head} is only valid inside marimba blocks` });
+            continue;
+          }
+
+          if (
+            head === 'spread'
+            && currentBlock.voice !== 'marimba'
+            && currentBlock.voice !== 'vibraphone'
+            && currentBlock.voice !== 'voice'
+            
+          ) {
+            errors.push({ line: lineNumber, message: `spread is only valid inside marimba, vibraphone, or voice blocks` });
+            continue;
+          }
+
+          if (
+            ['motor', 'depth', 'damp', 'bowpressure'].includes(head)
+            && currentBlock.voice !== 'vibraphone'
+          ) {
+            errors.push({ line: lineNumber, message: `${head} is only valid inside vibraphone blocks` });
+            continue;
+          }
+
+          if (
+              ['vowel', 'syllable', 'carrier', 'robot', 'breath', 'mouth', 'formant', 'roughness', 'vocoder', 'ensemble'].includes(head)
+            && currentBlock.voice !== 'voice'
+          ) {
+            errors.push({ line: lineNumber, message: `${head} is only valid inside voice/vox blocks` });
+            continue;
+          }
 
         if (head === 'every') {
           const args = tail.trim().split(/\s+/).filter(Boolean);
@@ -2377,6 +2814,19 @@
           }
           currentBlock.every = { count: Math.round(count), unit };
           currentBlock.paramLines.every = lineNumber;
+          continue;
+        }
+
+        if (head === 'enter' || head === 'exit') {
+          const args = tail.trim().split(/\s+/).filter(Boolean);
+          const count = Number(args[0]);
+          const unit = String(args[1] || '').toLowerCase();
+          if (!Number.isFinite(count) || count < 0 || (unit !== 'bars' && unit !== 'beats')) {
+            errors.push({ line: lineNumber, message: `${head} must read like '${head} 4 bars' or '${head} 8 beats'` });
+            continue;
+          }
+          currentBlock[head] = { count, unit };
+          currentBlock.paramLines[head] = lineNumber;
           continue;
         }
 
@@ -2402,11 +2852,7 @@
         }
 
         if (head === 'glide') {
-          if (valueTokens.length !== 1) {
-            errors.push({ line: lineNumber, message: `glide takes one positive seconds value, e.g. glide 0.06` });
-            continue;
-          }
-          const resolved = resolveParam('glide', valueTokens[0]);
+          const resolved = resolveGlideLine(valueTokens);
           if (!resolved || !resolved.ok) {
             errors.push({ line: lineNumber, message: resolved && resolved.message ? resolved.message : `glide must be a positive number of seconds` });
             continue;
@@ -2481,6 +2927,10 @@
       program: {
         tempo,
         meter,
+        // freeTime: when the user wrote no `tempo` and no `meter`, the patch
+        // is interpreted as continuous — patterns play through once and the
+        // last sustained note holds, no looping, no beat indicator.
+        freeTime: !tempoExplicit && !meterExplicit,
         tuning: cloneTuningValue(activeTuning),
         transport: {
           evaluate: {
@@ -2493,35 +2943,111 @@
     };
   }
 
-  function resolveSustains(block) {
-    const slots = block && Array.isArray(block.slots) ? block.slots : [];
-    if (!block || !isPitchedVoice(block.voice)) return;
+    function resolveSustains(block) {
+      const slots = block && Array.isArray(block.slots) ? block.slots : [];
+      if (!block || !isPitchedVoice(block.voice)) return;
 
-    let lastNoteValue = null;
-    function visit(node) {
-      if (node.kind === 'leaf') {
-        const tok = node.token;
-        if (tok.kind === 'note') {
-          lastNoteValue = tok.value;
-          return;
-        }
-        if (tok.kind === 'sustain') {
-          if (tok.pitchSpanCarry === true) return;
-          if (lastNoteValue) {
-            node.token = { kind: 'note', value: { ...lastNoteValue, sustained: true }, raw: tok.raw || '~' };
-          } else {
-            node.token = { kind: 'rest', value: null, raw: tok.raw || '~' };
+      // Violin is a bowed state machine:
+      //   note/chord = start bow state
+      //   ~          = continue previous bow state
+      //   .          = release/rest
+      //
+      // Critical: violin "~" must remain a raw sustain token. It must not be
+      // rewritten into the previous named note. Instead, annotate the previous
+      // note/chord with tieSpanLeafCount so the scheduler can give the initial
+      // bow event its full tied duration immediately.
+        if (block.voice === 'violin' || block.voice === 'cello' || block.voice === 'marimba' || block.voice === 'vibraphone' || block.voice === 'voice') {
+          const leaves = [];
+
+          function collect(node) {
+            if (!node) return;
+
+            if (node.kind === 'leaf') {
+              leaves.push(node);
+              return;
+            }
+
+            if (node.kind === 'group' && Array.isArray(node.children)) {
+              for (const child of node.children) collect(child);
+            }
           }
+
+          for (const slot of slots) collect(slot);
+
+          for (let i = 0; i < leaves.length; i += 1) {
+            const node = leaves[i];
+            const tok = node && node.token;
+
+            if (!tok || (tok.kind !== 'note' && tok.kind !== 'chord')) continue;
+
+            let span = 1;
+
+            for (let j = i + 1; j < leaves.length; j += 1) {
+              const nextTok = leaves[j] && leaves[j].token;
+              if (!nextTok || nextTok.kind !== 'sustain') break;
+              if (nextTok.pitchSpanCarry === true) break;
+              span += 1;
+            }
+
+            tok.tieSpanLeafCount = span;
+          }
+
           return;
         }
-        return;
+
+      let lastPitchedToken = null;
+
+      function cloneSustainToken(tok, raw) {
+        if (!tok) return { kind: 'rest', value: null, raw: raw || '~' };
+
+        if (tok.kind === 'note' && tok.value) {
+          return {
+            kind: 'note',
+            value: { ...tok.value, sustained: true },
+            gated: tok.gated === true,
+            raw: raw || '~',
+          };
+        }
+
+        if (tok.kind === 'chord' && Array.isArray(tok.value)) {
+          return {
+            kind: 'chord',
+            value: tok.value.map((note) => ({ ...note, sustained: true })),
+            gated: tok.gated === true,
+            sustained: true,
+            raw: raw || '~',
+            chordRaw: tok.raw || null,
+          };
+        }
+
+        return { kind: 'rest', value: null, raw: raw || '~' };
       }
-      if (node.kind === 'group') {
-        for (const child of node.children) visit(child);
+
+      function visit(node) {
+        if (node.kind === 'leaf') {
+          const tok = node.token;
+
+          if (tok.kind === 'note' || tok.kind === 'chord') {
+            lastPitchedToken = tok;
+            return;
+          }
+
+          if (tok.kind === 'sustain') {
+            if (tok.pitchSpanCarry === true) return;
+            node.token = cloneSustainToken(lastPitchedToken, tok.raw || '~');
+            return;
+          }
+
+          return;
+        }
+
+        if (node.kind === 'group') {
+          for (const child of node.children) visit(child);
+        }
       }
+
+      for (const s of slots) visit(s);
     }
-    for (const s of slots) visit(s);
-  }
 
   root.ReplDSL = { parse };
 })(window);

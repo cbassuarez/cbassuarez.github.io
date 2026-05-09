@@ -37,11 +37,16 @@
   // diagnostics. Keep these in sync with the DSL parser.
   // ============================================================================
 
-  const VOICE_WORDS = ['string', 'sample', 'input', 'sine', 'osc', 'noise', 'pluck', 'pulse', 'drone', 'drum', 'video'];
+    const VOICE_WORDS = ['string', 'sample', 'piano', 'violin', 'cello', 'marimba', 'vibraphone', 'vibes', 'voice', 'vox', 'input', 'sine', 'osc', 'noise', 'pluck', 'pulse', 'drone', 'drum', 'video'];
   const DIRECTIVES = ['tempo', 'meter', 'tuning', 'eval', 'evaluate'];
   const PARAMS = [
     'force', 'decay', 'crush', 'resolution', 'pan', 'gain',
-    'tone', 'harm', 'octave', 'rate', 'start', 'speed', 'glide', 'kit', 'variance',
+    'tone', 'harm', 'octave', 'rate', 'start', 'speed', 'glide', 'kit', 'pick', 'variance',
+    'pedal', 'una', 'lid', 'sympathetic', 'release', 'human', 'stretch', 'layer', 'poly',
+    'articulation', 'sul', 'vibrato', 'vibratorate', 'vibratoonset', 'tremolo', 'tremolorate', 'bow', 'wood',
+    'mallet', 'deadstroke', 'roll', 'spread',
+    'motor', 'depth', 'damp', 'bowpressure',
+    'vowel', 'syllable', 'carrier', 'robot', 'breath', 'mouth', 'formant', 'roughness', 'vocoder', 'ensemble',
     'monitor', 'listen',
     'opacity', 'threshold', 'edges', 'posterize', 'invert', 'contrast',
     'saturate', 'displace', 'feedback', 'delay', 'slitscan', 'trail',
@@ -52,7 +57,7 @@
     'compress', 'space', 'resonance', 'comb', 'grain',
     'chorus', 'excite', 'blur', 'scar', 'body',
   ];
-    const COUPLING = ['attractor', 'source', 'every', 'fade', 'time', 'beat', 'leaf', 'choose', 'trigger'];
+    const COUPLING = ['attractor', 'source', 'every', 'enter', 'exit', 'fade', 'time', 'beat', 'leaf', 'choose', 'trigger'];
   const ATTRACTORS = [
     'weather', 'weather.dew', 'weather.frost', 'weather.visibility',
     'quake', 'tide', 'solar', 'air', 'traffic', 'grid', 'orbit',
@@ -62,6 +67,17 @@
   ];
   const SOURCE_KEYS = ['station', 'feed', 'body', 'region', 'city', 'coords'];
   const DYNAMICS = ['pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff'];
+  const MALLET_VALUES = ['yarn', 'cord', 'rubber', 'soft', 'medium', 'hard'];
+    const VOCAL_VALUES = [
+      'ah', 'eh', 'ee', 'oh', 'oo', 'uh', 'mm', 'nn',
+      'ba', 'da', 'ga', 'ka', 'la', 'ma', 'na', 'ra', 'sa', 'ta', 'va', 'za',
+      'sha', 'tha', 'kha', 'zha',
+      'zero', 'one', 'two', 'three', 'four', 'five',
+      'input', 'output', 'signal', 'error', 'null', 'void',
+      'memory', 'body', 'breath', 'mouth', 'open', 'close', 'start', 'stop', 'again',
+      'sample', 'sine', 'saw', 'square', 'pulse', 'noise',
+    ];
+  const VIBES_ARTICULATION_VALUES = ['sustain', 'sus', 'open', 'pedal', 'short', 'shortsustain', 'short-sustain', 'damp', 'dampen', 'muted', 'stop', 'bow', 'bowed'];
   const PAN_VALUES = ['left', 'center', 'right'];
   const GAIN_VALUES = ['quiet', 'half', 'full', 'loud'];
   const TONE_VALUES = ['dark', 'bright'];
@@ -97,8 +113,8 @@
   const ATTRACTOR_SET = new Set(ATTRACTORS.map((a) => a.toLowerCase()));
 
   const NAMED_VALUE_SET = new Set([
-    ...DYNAMICS, ...PAN_VALUES, ...GAIN_VALUES,
-    ...TONE_VALUES, ...HARM_VALUES, ...EFFECT_MODES,
+    ...DYNAMICS, ...MALLET_VALUES, ...PAN_VALUES, ...GAIN_VALUES,
+    ...TONE_VALUES, ...HARM_VALUES, ...VIBES_ARTICULATION_VALUES, ...VOCAL_VALUES, ...EFFECT_MODES,
   ]);
 
   // Param → legal named values for completion context.
@@ -111,6 +127,38 @@
     gain: GAIN_VALUES,
     tone: TONE_VALUES,
     harm: HARM_VALUES,
+    pedal: ['off', 'on'],
+    una: ['off', 'on'],
+    lid: ['off', 'on'],
+    sympathetic: ['off', 'on'],
+    release: ['off', 'on'],
+    human: ['off', 'on'],
+    stretch: ['off', 'on'],
+    layer: ['hard', 'xfade', 'random'],
+    articulation: ['arco', 'pizz', 'sustain', 'shortsustain', 'dampen', 'bow'],
+    sul: ['sulC', 'sulG', 'sulD', 'sulA', 'sulE', 'auto'],
+    mallet: MALLET_VALUES,
+    deadstroke: ['off', 'on'],
+    roll: ['off', 'on'],
+    motor: ['off', 'on'],
+    depth: ['off', 'on'],
+    damp: ['off', 'on'],
+    bowpressure: ['off', 'on'],
+    vowel: ['ah', 'eh', 'ee', 'oh', 'oo', 'uh', 'mm', 'nn'],
+      syllable: [
+        'ah', 'ba', 'da', 'ga', 'ka', 'la', 'ma', 'na', 'ra', 'sa', 'ta', 'va', 'za',
+        'sha', 'tha', 'kha', 'zha',
+        'zero', 'one', 'two', 'three', 'four', 'five',
+        'input', 'output', 'signal', 'error', 'null', 'void',
+        'memory', 'body', 'breath', 'mouth', 'open', 'close', 'start', 'stop', 'again',
+      ],
+    carrier: ['sample', 'sine', 'saw', 'square', 'pulse', 'noise'],
+    robot: ['off', 'on'],
+    vocoder: ['off', 'on'],
+    breath: ['off', 'on'],
+    mouth: ['off', 'on'],
+    roughness: ['off', 'on'],
+    ensemble: ['off', 'on'],
     monitor: ['on', 'off'],
     listen: ['on', 'off'],
     blend: ['normal', 'source-over', 'screen', 'multiply', 'overlay', 'difference', 'lighter'],
@@ -133,6 +181,26 @@
     rate: ['0.5', '1', '2'],
     start: ['0', '0.25', '0.75'],
     speed: ['0.5', '1', '2'],
+    pedal: ['0', '0.45', '0.85'],
+    una: ['0', '0.4', '0.7'],
+    lid: ['0.28', '0.55', '0.85'],
+    sympathetic: ['0', '0.35', '0.75'],
+    release: ['0.2', '0.5', '0.85'],
+    human: ['0', '0.08', '0.2'],
+    stretch: ['0', '0.4', '0.8'],
+    poly: ['16', '32', '64'],
+    deadstroke: ['0', '0.25', '0.8'],
+    roll: ['0', '0.35', '0.75'],
+    motor: ['0', '0.35', '0.7'],
+    depth: ['0', '0.35', '0.8'],
+    damp: ['0', '0.35', '0.85'],
+    bowpressure: ['0.2', '0.45', '0.8'],
+      breath: ['0', '0.05', '0.25'],
+    mouth: ['0.2', '0.55', '0.85'],
+    formant: ['-0.35', '0', '0.35'],
+      roughness: ['0', '0.12', '0.45'],
+    ensemble: ['0', '0.4', '0.8'],
+    spread: ['0', '0.012', '0.05'],
     monitor: ['0', '1'],
     listen: ['0', '1'],
     opacity: ['0.25', '0.6', '1'],
@@ -166,6 +234,29 @@
     rate: '0.25..4',
     start: '>= 0',
     speed: '0.0625..16',
+    pedal: 'off/on or 0..1 (sustain depth)',
+    una: 'off/on or 0..1 (soft pedal)',
+    lid: 'off/on or 0..1 (lid openness)',
+    sympathetic: 'off/on or 0..1 (body resonance)',
+    release: 'off/on or 0..1 (release tail)',
+    human: 'off/on or 0..1 (timing + dynamic jitter)',
+    stretch: 'off/on or 0..1 (octave stretch)',
+    layer: 'hard | xfade | random',
+    poly: '8..128 (max voices)',
+    mallet: 'yarn | cord | rubber',
+    deadstroke: 'off/on or 0..1 (bar damping)',
+    roll: 'off/on or 0..1 (roll density)',
+    spread: '0..1 (chord timing spread)',
+    motor: 'off/on or 0..1 (vibraphone motor speed)',
+    depth: 'off/on or 0..1 (vibraphone motor depth)',
+    damp: 'off/on or 0..1 (manual damping)',
+    bowpressure: 'off/on or 0..1 (bowed bar pressure)',
+      breath: 'off/on or 0..1 (explicit filtered air; default is silent)',
+    mouth: 'off/on or 0..1 (vowel openness / brightness)',
+    formant: '-1..1 approximate voice tract shift',
+      roughness: 'off/on or 0..1 (circuit grit / unstable modulation)',
+      ensemble: 'off/on or 0..1 (stacked robot mouths)',
+      vocoder: 'off/on or 0..1 (banded synthetic speech color)',
     monitor: 'on/off or 0..1',
     listen: 'on/off or 0..1',
     opacity: '0..1',
@@ -261,7 +352,7 @@
           return 'string';
         }
       }
-      if (state.lineHead === 'every') {
+      if (state.lineHead === 'every' || state.lineHead === 'enter' || state.lineHead === 'exit') {
         if (stream.match(/^\d+/)) return 'number';
         if (stream.match(/^[a-zA-Z]+/)) return 'atom';
       }
@@ -468,13 +559,13 @@
   function lineHeadKind(head) {
     const h = String(head || '').toLowerCase();
     if (h === '//' || h === '///' || h === '#') return 'metadata';
-    if (h === 'string' || h === 'sample' || h === 'input' || h === 'sine' || h === 'osc' || h === 'noise' || h === 'pluck' || h === 'pulse' || h === 'drone' || h === 'drum') return `voice-${h}`;
+    if (h === 'string' || h === 'sample' || h === 'piano' || h === 'violin' || h === 'cello' || h === 'marimba' || h === 'vibraphone' || h === 'vibes' || h === 'voice' || h === 'vox' || h === 'input' || h === 'sine' || h === 'osc' || h === 'noise' || h === 'pluck' || h === 'pulse' || h === 'drone' || h === 'drum') return `voice-${h}`;
     if (HEAD_DIRECTIVE.has(h)) return 'directive';
     if (HEAD_PARAM.has(h)) return 'param';
     if (HEAD_EFFECT.has(h)) return 'effect';
     if (h === 'attractor' || h === 'monitor' || h === 'listen') return 'routing';
     if (h === 'time' || h === 'beat' || h === 'leaf' || h === 'choose' || h === 'trigger') return 'live-control';
-    if (h === 'source' || h === 'every' || h === 'fade') return 'routing';
+    if (h === 'source' || h === 'every' || h === 'enter' || h === 'exit' || h === 'fade') return 'routing';
     return 'unknown';
   }
 
@@ -486,6 +577,12 @@
     if (isHead) {
       if (headKind === 'voice-string') return 'cs-token cs-head cs-voice cs-voice-string';
       if (headKind === 'voice-sample') return 'cs-token cs-head cs-voice cs-voice-sample';
+      if (headKind === 'voice-piano') return 'cs-token cs-head cs-voice cs-voice-piano';
+      if (headKind === 'voice-violin') return 'cs-token cs-head cs-voice cs-voice-violin';
+      if (headKind === 'voice-cello') return 'cs-token cs-head cs-voice cs-voice-cello';
+      if (headKind === 'voice-marimba') return 'cs-token cs-head cs-voice cs-voice-marimba';
+      if (headKind === 'voice-vibraphone' || headKind === 'voice-vibes') return 'cs-token cs-head cs-voice cs-voice-vibraphone';
+      if (headKind === 'voice-voice' || headKind === 'voice-vox') return 'cs-token cs-head cs-voice cs-voice-voice';
       if (headKind === 'voice-input') return 'cs-token cs-head cs-voice cs-voice-input';
       if (headKind === 'voice-sine' || headKind === 'voice-osc' || headKind === 'voice-pluck' || headKind === 'voice-drone') return 'cs-token cs-head cs-voice cs-voice-string';
       if (headKind === 'voice-noise' || headKind === 'voice-pulse' || headKind === 'voice-drum') return 'cs-token cs-head cs-voice cs-voice-sample';
@@ -692,21 +789,31 @@
   }
 
 
+  function canonicalLeafVoiceName(voice) {
+    const v = String(voice || '').trim().toLowerCase();
+    if (v === 'vibes') return 'vibraphone';
+    if (v === 'vox') return 'voice';
+    if (v === 'osc') return 'sine';
+    return v;
+  }
+
   function voiceHeadForLeafLine(lineText) {
     const head = String(lineText || '').trim().split(/\s+/, 1)[0].toLowerCase();
-    if (head === 'string' || head === 'sample' || head === 'input' || head === 'sine' || head === 'osc' || head === 'noise' || head === 'pluck' || head === 'pulse' || head === 'drone' || head === 'drum') return head;
+    if (head === 'string' || head === 'sample' || head === 'piano' || head === 'violin' || head === 'cello' || head === 'marimba' || head === 'vibraphone' || head === 'vibes' || head === 'voice' || head === 'vox' || head === 'input' || head === 'sine' || head === 'osc' || head === 'noise' || head === 'pluck' || head === 'pulse' || head === 'drone' || head === 'drum') return canonicalLeafVoiceName(head);
     return '';
   }
 
   function payloadVoiceMatchesLine(lineText, payload) {
     const lineVoice = voiceHeadForLeafLine(lineText);
-    const eventVoice = String((payload && payload.voice) || '').toLowerCase();
+    const eventVoice = canonicalLeafVoiceName((payload && payload.voice) || '');
     // Strict: a leaf/block-position pulse only paints lines that own a voice
     // declaration matching the event's voice. The previous permissive
     // "either side empty → accept" rule could let a sample-block event land
     // on a non-voice row (or vice versa) when an event's voice tag was
     // missing, which is a cross-block contamination vector. Voice events
-    // must arrive on a real voice line.
+    // must arrive on a real voice line. Aliases are canonicalized here so
+    // source-facing names like `vibes` still accept scheduler events emitted
+    // from the normalized runtime voice `vibraphone`.
     if (!eventVoice) return false;
     if (!lineVoice) return false;
     return lineVoice === eventVoice;
@@ -1087,8 +1194,41 @@
     decorations: (plugin) => plugin.decorations,
   });
 
+  // Build a list of block-header line numbers covered by the editor selection,
+  // so a mute click on one block can toggle every selected block at once.
+  // Returns null when the selection is empty / single-line / doesn't cover the
+  // clicked line, signaling "single-block mute" (the legacy behavior).
+  function collectMuteLinesInSelection(view, clickedLine) {
+    if (!view || !view.state) return null;
+    const selection = view.state.selection;
+    if (!selection || !Array.isArray(selection.ranges)) return null;
+
+    const lineSet = new Set();
+    for (const range of selection.ranges) {
+      if (!range || range.empty) continue;
+      const startLine = view.state.doc.lineAt(range.from).number;
+      const endLine = view.state.doc.lineAt(range.to).number;
+      for (let n = startLine; n <= endLine; n++) lineSet.add(n);
+    }
+    if (lineSet.size === 0 || !lineSet.has(clickedLine)) return null;
+
+    const decorPlugin = view.plugin(blockMuteDecorationsPlugin);
+    const muteLines = decorPlugin && Array.isArray(decorPlugin.muteLines)
+      ? decorPlugin.muteLines
+      : [];
+    const blockLineNumbers = muteLines
+      .map((m) => (m ? Number(m.line) : NaN))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const inSelection = blockLineNumbers
+      .filter((n) => lineSet.has(n))
+      .sort((a, b) => a - b);
+
+    if (inSelection.length <= 1) return null;
+    return { lineNumbers: inSelection, muteLines };
+  }
+
   const blockMuteMousePlugin = Prec.highest(EditorView.domEventHandlers({
-    mousedown(event) {
+    mousedown(event, view) {
       if (!event || event.button !== 0) return false;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return false;
@@ -1097,9 +1237,35 @@
       const line = Number(btn.getAttribute('data-repl-mute-line'));
       event.preventDefault();
       event.stopPropagation();
-      if (Number.isFinite(line) && line > 0 && typeof editorEnvRef.onToggleBlockMute === 'function') {
-        try { editorEnvRef.onToggleBlockMute({ lineNumber: Math.floor(line) }); } catch (_) {}
+      if (!Number.isFinite(line) || line <= 0) return true;
+      if (typeof editorEnvRef.onToggleBlockMute !== 'function') return true;
+
+      const clickedLine = Math.floor(line);
+      const multi = collectMuteLinesInSelection(view, clickedLine);
+
+      if (multi && multi.lineNumbers.length > 1) {
+        // Collective toggle: if any block in the selection is currently
+        // unmuted, mute all; if every selected block is already muted, unmute
+        // all. Mirrors how DAWs handle multi-track mute.
+        const stateByLine = new Map();
+        for (const m of multi.muteLines) {
+          if (m && Number.isFinite(Number(m.line))) {
+            stateByLine.set(Number(m.line), Boolean(m.muted));
+          }
+        }
+        const anyUnmuted = multi.lineNumbers.some((n) => !stateByLine.get(n));
+        const desiredMuted = anyUnmuted;
+        try {
+          editorEnvRef.onToggleBlockMute({
+            lineNumber: clickedLine,
+            lineNumbers: multi.lineNumbers,
+            desiredMuted,
+          });
+        } catch (_) {}
+        return true;
       }
+
+      try { editorEnvRef.onToggleBlockMute({ lineNumber: clickedLine }); } catch (_) {}
       return true;
     },
     click(event) {
@@ -1147,7 +1313,7 @@
       if (!trimmed) return true;
       if (/^\/\//.test(trimmed)) return false;
       const head = trimmed.split(/\s+/, 1)[0].toLowerCase();
-      return head === 'string' || head === 'sample' || head === 'input' || head === 'sine' || head === 'osc' || head === 'noise' || head === 'pluck' || head === 'pulse' || head === 'drone' || head === 'drum' || head === 'tempo' || head === 'meter' || head === 'tuning' || head === 'eval' || head === 'evaluate';
+      return head === 'string' || head === 'sample' || head === 'piano' || head === 'violin' || head === 'cello' || head === 'marimba' || head === 'vibraphone' || head === 'vibes' || head === 'voice' || head === 'vox' || head === 'input' || head === 'sine' || head === 'osc' || head === 'noise' || head === 'pluck' || head === 'pulse' || head === 'drone' || head === 'drum' || head === 'tempo' || head === 'meter' || head === 'tuning' || head === 'eval' || head === 'evaluate';
     }
 
     for (let n = selLine; n >= 1; n--) {
@@ -1642,6 +1808,36 @@
       borderLeftColor: '#0057ff',
       boxShadow: 'inset 0 -2px 0 #0057ff',
     },
+    '.cm-line.cs-line-voice-piano': {
+      backgroundColor: '#ffffff',
+      borderLeftColor: '#0a9396',
+      boxShadow: 'inset 0 -2px 0 #0a9396',
+    },
+    '.cm-line.cs-line-voice-violin': {
+      backgroundColor: '#ffffff',
+      borderLeftColor: '#a04a2a',
+      boxShadow: 'inset 0 -2px 0 #a04a2a',
+    },
+    '.cm-line.cs-line-voice-cello': {
+      backgroundColor: '#ffffff',
+      borderLeftColor: '#5b3bb8',
+      boxShadow: 'inset 0 -2px 0 #5b3bb8',
+    },
+    '.cm-line.cs-line-voice-marimba': {
+      backgroundColor: '#ffffff',
+      borderLeftColor: '#008f5a',
+      boxShadow: 'inset 0 -2px 0 #008f5a',
+    },
+    '.cm-line.cs-line-voice-vibraphone, .cm-line.cs-line-voice-vibes': {
+      backgroundColor: '#ffffff',
+      borderLeftColor: '#00a8d8',
+      boxShadow: 'inset 0 -2px 0 #00a8d8',
+    },
+    '.cm-line.cs-line-voice-voice, .cm-line.cs-line-voice-voice, .cm-line.cs-line-voice-voice': {
+      backgroundColor: '#ffffff',
+      borderLeftColor: '#ba55d3',
+      boxShadow: 'inset 0 -2px 0 #ba55d3',
+    },
     '.cm-line.cs-line-live-control': {
       backgroundColor: '#ffffff',
       borderLeftColor: '#6c2cff',
@@ -1759,6 +1955,13 @@
       borderLeftColor: '#0057ff',
       boxShadow: 'inset 0 -2px 0 #0057ff, 3px 3px 0 #070707',
     },
+    '.cm-line.cs-pulse-violin': {
+      borderLeftColor: '#a04a2a',
+    },
+    '.cm-line.cs-pulse-piano': {
+      borderLeftColor: '#0a9396',
+      boxShadow: 'inset 0 -2px 0 #0a9396, 3px 3px 0 #070707',
+    },
     '.cm-line.cs-metered-line::after': {
       content: '""',
       position: 'absolute',
@@ -1848,6 +2051,36 @@
       textDecoration: 'underline solid #0057ff',
       textDecorationThickness: '3px',
     },
+    '.cs-voice-piano': {
+      color: '#070707',
+      textDecoration: 'underline solid #0a9396',
+      textDecorationThickness: '3px',
+    },
+    '.cs-voice-violin': {
+      color: '#070707',
+      textDecoration: 'underline solid #a04a2a',
+      textDecorationThickness: '3px',
+    },
+    '.cs-voice-cello': {
+      color: '#070707',
+      textDecoration: 'underline solid #5b3bb8',
+      textDecorationThickness: '3px',
+    },
+    '.cs-voice-marimba': {
+      color: '#070707',
+      textDecoration: 'underline solid #008f5a',
+      textDecorationThickness: '3px',
+    },
+    '.cs-voice-vibraphone': {
+      color: '#070707',
+      textDecoration: 'underline solid #00a8d8',
+      textDecorationThickness: '3px',
+    },
+    '.cs-voice-voice, .cs-voice-vox': {
+      color: '#070707',
+      textDecoration: 'underline solid #ba55d3',
+      textDecorationThickness: '3px',
+    },
     '.cs-directive': {
       color: '#070707',
       fontWeight: '900',
@@ -1932,6 +2165,16 @@
       color: '#ffffff',
       outlineColor: '#070707',
     },
+    '.cm-line.cs-pulse-piano .cs-token-active': {
+      backgroundColor: '#0a9396',
+      color: '#ffffff',
+      outlineColor: '#070707',
+    },
+    '.cm-line.cs-pulse-violin .cs-token-active': {
+      backgroundColor: '#a04a2a',
+      color: '#ffffff',
+      outlineColor: '#070707',
+    },
     '.cm-scroller': {
       position: 'relative',
     },
@@ -1989,10 +2232,53 @@
       borderRadius: '999px',
       boxShadow: '4px 4px 0 #070707',
     },
+      '.cs-leaf-highlight-drum': {
+        backgroundColor: '#070707',
+        color: '#ffffff',
+        borderRadius: '2px',
+        border: '2px solid #ffffff',
+        boxShadow: '4px 4px 0 #e3342f',
+      },
     '.cs-leaf-highlight-input': {
       backgroundColor: '#0057ff',
       color: '#ffffff',
       borderRadius: '0 10px 10px 0',
+      boxShadow: '4px 4px 0 #070707',
+    },
+    '.cs-leaf-highlight-piano': {
+      backgroundColor: '#0a9396',
+      color: '#ffffff',
+      borderRadius: '0 0 6px 6px',
+      boxShadow: '4px 4px 0 #070707',
+    },
+    '.cs-leaf-highlight-violin': {
+      backgroundColor: '#a04a2a',
+      color: '#ffffff',
+      borderRadius: '0 0 6px 6px',
+      boxShadow: '4px 4px 0 #070707',
+    },
+    '.cs-leaf-highlight-cello': {
+      backgroundColor: '#5b3bb8',
+      color: '#ffffff',
+      borderRadius: '0 0 6px 6px',
+      boxShadow: '4px 4px 0 #070707',
+    },
+    '.cs-leaf-highlight-marimba': {
+      backgroundColor: '#b87516',
+      color: '#ffffff',
+      borderRadius: '0 0 6px 6px',
+      boxShadow: '4px 4px 0 #070707',
+    },
+    '.cs-leaf-highlight-vibraphone, .cs-leaf-highlight-vibes': {
+      backgroundColor: '#00a8d8',
+      color: '#ffffff',
+      borderRadius: '0 0 6px 6px',
+      boxShadow: '4px 4px 0 #070707',
+    },
+    '.cs-leaf-highlight-voice, .cs-leaf-highlight-vox': {
+      backgroundColor: '#ba55d3',
+      color: '#ffffff',
+      borderRadius: '0 0 6px 6px',
       boxShadow: '4px 4px 0 #070707',
     },
     '.cs-leaf-highlight-rest': {
@@ -2239,6 +2525,7 @@
   const COMPLETION_SECTIONS = Object.freeze({
     voice: { name: 'voice', rank: 10 },
     sample: { name: 'sample', rank: 14 },
+    pick: { name: 'pick', rank: 15 },
     directive: { name: 'directive', rank: 20 },
     tuning: { name: 'tuning', rank: 22 },
     coupling: { name: 'coupling', rank: 30 },
@@ -2251,6 +2538,7 @@
   const COMPLETION_BOOST = Object.freeze({
     voice: 6,
     sample: 5,
+    pick: 5,
     directive: 5,
     tuning: 6,
     coupling: 3,
@@ -2658,10 +2946,11 @@
         }
         return null;
       }
-        if (here.head === 'every') {
+        if (here.head === 'every' || here.head === 'enter' || here.head === 'exit') {
           const opts = [
-            { label: '4', type: 'constant', detail: 'count for every <N> bars/beats' },
-            { label: '8', type: 'constant', detail: 'count for every <N> bars/beats' },
+            { label: '4', type: 'constant', detail: `count for ${here.head} <N> bars/beats` },
+            { label: '8', type: 'constant', detail: `count for ${here.head} <N> bars/beats` },
+            { label: '16', type: 'constant', detail: `count for ${here.head} <N> bars/beats` },
             { label: 'bars', type: 'text', detail: 'unit' },
             { label: 'beats', type: 'text', detail: 'unit' },
           ];
@@ -2783,8 +3072,12 @@
           { label: '0.08', type: 'constant', detail: 'seconds' },
           { label: '0.16', type: 'constant', detail: 'seconds' },
           { label: '0.32', type: 'constant', detail: 'seconds' },
+          { label: '60 restart', type: 'constant', detail: 'restart after descent' },
+          { label: '60 return', type: 'constant', detail: 'return over same duration' },
+          { label: '60 return 30', type: 'constant', detail: 'custom return duration' },
+          { label: '60 30', type: 'constant', detail: 'alias: return 30' },
         ];
-        return { from, options: withCompletionCategoryList(opts, 'param'), validFor: /^[0-9.]*$/ };
+        return { from, options: withCompletionCategoryList(opts, 'param'), validFor: /^[0-9.\sA-Za-z]*$/ };
       }
       const kitIds = here.param === 'kit'
         ? getDrumKitsSafe().map((k) => (k && k.id ? String(k.id) : '')).filter(Boolean)
@@ -2792,7 +3085,7 @@
       if (here.param === 'kit') {
         const opts = kitIds.length
           ? kitIds.map((id) => ({ label: id, type: 'constant', detail: 'drum kit id' }))
-          : [{ label: '909', type: 'constant', detail: 'drum kit id' }, { label: 'tub-grid', type: 'constant', detail: 'drum kit id' }];
+          : [{ label: 'breakcore', type: 'constant', detail: 'drum kit id' }];
         return { from, options: withCompletionCategoryList(opts, 'param'), validFor: /^[A-Za-z0-9_-]*$/ };
       }
       return buildParamBodyCompletion({

@@ -1,0 +1,26 @@
+// vibrato + tremolo. four held notes, four different vibrato characters.
+// the tremolo block runs in parallel underneath, modulating amplitude at
+// 11 Hz — the classic film-music shimmer.
+
+tempo 56
+meter 4/4
+
+violin   D5   ~    ~    ~    |   E5   ~    ~    ~    |   F5   ~    ~    ~    |   G5   ~    ~    ~
+force    mf
+vibrato  0.2  0.4  0.7  1.0
+vibratoRate 5.5
+vibratoOnset 0.3
+bow      0.45
+wood     0.3
+release  0.45
+
+// underneath: a slow open-string drone with bow tremolo.
+violin   A3   ~    ~    ~
+force    p
+tremolo  0.45
+tremoloRate 11
+bow      0.35
+wood     0.55
+sympathetic 0.4
+release  0.5
+pan      -0.25

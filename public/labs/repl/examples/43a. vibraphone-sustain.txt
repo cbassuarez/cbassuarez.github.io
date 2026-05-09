@@ -1,0 +1,21 @@
+tempo 72
+meter 4/4
+
+vibes C3 E3 G3 C4 | D3 F3 A3 D4 | E3 G3 B3 E4 | G3 B3 D4 G4
+articulation sustain
+pedal .9
+motor .35
+depth .25
+body .45
+sympathetic .25
+human .04
+pan -.12
+
+vibes C5 . G4 . | E4 . C4 . | D5 . A4 . | F4 . D4 .
+articulation shortsustain
+pedal .55
+motor .18
+depth .18
+body .32
+human .05
+pan .18

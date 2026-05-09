@@ -1,0 +1,17 @@
+// title: 808 pocket machine
+// One-shot drum machine cells. Variance stays lane-local.
+
+tempo 96
+meter 4/4
+
+drum k h s h | k h s o
+kit 808
+variance 0.22
+gain 0.84
+space 0.16
+
+drum . h . h | . o . h
+kit 808
+variance 0.12
+gain 0.48
+pan 0.18

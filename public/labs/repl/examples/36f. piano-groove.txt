@@ -1,0 +1,72 @@
+// piano groove — tracker-style stacked channels.
+//
+// in tracker music, each "channel" is a single monophonic voice. you build
+// a chord by stacking channels that hit the same beat with different notes.
+// each channel can have its own dynamics, pan, pedal, and timing feel.
+//
+// here: 5 piano blocks acting as 5 tracker channels:
+//   1. stride bass     — root + fifth on the downbeats, dry, panned left.
+//   2. comp third      — the third of the chord, off-beat.
+//   3. comp fifth      — the fifth, same off-beat as the third (= triad).
+//   4. comp seventh    — syncopated, slightly louder pedal so it sustains.
+//   5. melody          — top line, slipping between the chord hits, big force range.
+//
+// chord progression: Cm7 → Cm7 → Fm7 → Fm7 (a slow modal vamp).
+
+tempo 96
+meter 4/4
+
+// 1. stride bass — left hand. modest pedal so the line stays articulate.
+piano   C2   .    G2   .    |   C2   .    G2   .    |   F2   .    C3   .    |   F2   .    C3   .
+force   mp
+layer   xfade
+pedal   0.15
+release 0.30
+human   0.06
+pan     -0.4
+
+// 2. inner voice — third of the chord, off-beat hit.
+piano   .    Eb4  .    .    |   .    Eb4  .    .    |   .    Ab4  .    .    |   .    Ab4  .    .
+force   mf
+layer   xfade
+pedal   0.45
+release 0.45
+human   0.10
+
+// 3. inner voice — fifth, same off-beat (combines with #2 into a triad).
+piano   .    G4   .    .    |   .    G4   .    .    |   .    C5   .    .    |   .    C5   .    .
+force   mf
+layer   xfade
+pedal   0.45
+release 0.45
+human   0.10
+pan     0.15
+
+// 4. inner voice — flat seventh, syncopated landing on beat 4&.
+piano   .    .    .    Bb4  |   .    .    .    Bb4  |   .    .    .    Eb5  |   .    .    .    Eb5
+force   mp
+layer   xfade
+pedal   0.55
+release 0.55
+human   0.12
+pan     -0.15
+
+// 5. melody — top line, weaves through the gaps. force tracks the phrasing.
+piano   Eb5  .    G5   .    |   C6   Bb5  G5   Eb5  |   Ab5  .    C6   .    |   F5   Eb5  C5   .
+force   f    _    mf   _    |   ff   f    f    mf   |   f    _    mf   _    |   mf   mp   p    _
+layer   xfade
+pedal   0.30
+release 0.40
+human   0.08
+pan     0.4
+
+// TWEAK IDEAS
+//   - mute the stride (click the gutter dot on block 1) — the comp keeps
+//     the harmony but the pulse evaporates. now mute the comp instead and
+//     hear how naked the bass is.
+//   - swap `human 0.08` to `human 0.22` on the melody for a drunk
+//     pianist. the chord blocks stay tight; the melody wanders.
+//   - try `every 8 bars` on the melody and replace one fixed note with
+//     `*` — the top line rerolls every 8 bars while the comp stays.
+//   - change layer to `random` on the comp blocks — the off-beat
+//     hits start to feel like different mics catching the same chord.

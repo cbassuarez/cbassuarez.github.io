@@ -1,10 +1,13 @@
-// drone + pluck + pulse voices.
+// drone + pluck + pulse voices, staggered into a small arrangement.
 // Drone is second-order: one block keeps sounding and retunes on committed leaves.
 // Pluck and pulse are first-order: each committed leaf makes a clear event.
+// `enter`/`exit` windows arrange them: the drone opens alone, the pluck
+// arrives, then the pulse comes in late and bows out before the rest.
 
 tempo 84
 meter 4/4
 tuning kirnberger-3
+eval   reset
 
 drone   A2   ~    C3   ~
 speed   1
@@ -15,6 +18,7 @@ harm    pair
 pan     center
 space   0.28
 chorus  drift
+// no enter/exit — the drone is the bedrock for the whole piece.
 
 // scoped handoff: this and following pitched blocks use the new tuning.
 tuning 12-tet-edo 432
@@ -26,6 +30,7 @@ decay   0.58
 tone    bright
 harm    pair
 pan     left center right center
+enter   4 bars
 
 pulse   *    .    *    .
 speed   1
@@ -35,3 +40,5 @@ tone    bright
 crush   8
 resolution 0.35
 pan     right center left center
+enter   8 bars
+exit    20 bars

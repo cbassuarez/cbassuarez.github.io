@@ -48,10 +48,22 @@
     const safePlayBtn = document.getElementById('safe-play');
     const stopBtn = document.getElementById('stop');
     const shareBtn = document.getElementById('share');
-  const exampleSelect = document.getElementById('example-select');
-  const videoExampleOptions = exampleSelect
-    ? Array.from(exampleSelect.querySelectorAll('option[data-video-example="1"]'))
-    : [];
+    const clearPatchBtn = document.getElementById('clear-patch');
+    const exampleTrigger = document.getElementById('example-trigger');
+    const examplePopover = document.getElementById('example-popover');
+    const examplePopoverTabs = document.getElementById('example-popover-tabs');
+    const patchBrowserTopTabs = document.getElementById('patch-browser-top-tabs');
+    const examplePopoverList = document.getElementById('example-popover-list');
+    const examplePopoverSearch = document.getElementById('example-popover-search');
+    const examplePopoverCount = document.getElementById('example-popover-count');
+    const exampleCurrentLabel = document.getElementById('example-current-label');
+
+    const commandPopover = document.getElementById('command-popover');
+    const commandPopoverTabs = document.getElementById('command-popover-tabs');
+    const commandPopoverList = document.getElementById('command-popover-list');
+    const commandPopoverSearch = document.getElementById('command-popover-search');
+    const commandPopoverCount = document.getElementById('command-popover-count');
+  let videoExamplesEnabled = true;
   const errorList = document.getElementById('errors');
   const patchTitleChip = document.getElementById('patch-title-chip');
   const beatDotsEl = document.getElementById('beat-dots');
@@ -110,11 +122,31 @@
     const LOCAL_SAMPLES_EXTENSIONS = new Set(['wav', 'mp3', 'ogg', 'm4a', 'aac', 'flac', 'aif', 'aiff']);
     const LOCAL_SAMPLE_GROUP_ID = 'local_folder';
     const LOCAL_SAMPLE_GROUP_LABEL = 'local folder';
+    const SAVED_PATCHES_STORAGE_KEY = 'replSavedPatches:v1';
+    const SAVED_PATCHES_MAX = 50;
 
-  let scheduler = null;
-  let lastGoodProgram = null;
-  let lastEvaluatedText = '';
-  let statusTimer = null;
+    let scheduler = null;
+    let lastGoodProgram = null;
+    let lastEvaluatedText = '';
+    let statusTimer = null;
+
+    const PATCH_HASH_DEBOUNCE_MS = 900;
+    const CLEAR_PATCH_ARM_MS = 2200;
+    const CLEAR_PATCH_SCAFFOLD = '// title: Untitled Patch\n\ntempo 110\nmeter 4/4\n';
+
+    const patchLinkState = {
+      applyingRemotePatch: false,
+      writeTimer: null,
+      lastSavedCode: '',
+      lastSavedTitle: '',
+      editingTitle: false,
+    };
+
+    const clearPatchState = {
+      armed: false,
+      blank: false,
+      timer: null,
+    };
     let editorAPI = null;
     let shouldAutofocusEditor = true;
     let loadedExampleLabel = '';
@@ -253,6 +285,26 @@
     editorAPI.setMutedBlockLines(snapshot);
   }
 
+  // Bulk mute/unmute used when the editor selection spans multiple block
+  // headers and the user clicks any one of their mute glyphs. The desired
+  // state is computed in the editor (collective toggle: if any are unmuted,
+  // mute all; otherwise unmute all) and we just apply it line-by-line.
+  function setBlockMuteFromEditor(lineNumbers, nextMuted) {
+    const list = Array.isArray(lineNumbers) ? lineNumbers : [];
+    let touched = false;
+    for (const raw of list) {
+      const line = Number(raw);
+      if (!Number.isFinite(line) || line <= 0) continue;
+      const block = blockByLine(lastGoodProgram, line);
+      if (block) setStoredBlockMuteOverride(block, Boolean(nextMuted));
+      if (scheduler && typeof scheduler.setBlockMutedByLine === 'function') {
+        scheduler.setBlockMutedByLine(line, Boolean(nextMuted), { quantize: 'bar' });
+      }
+      touched = true;
+    }
+    if (touched) syncEditorBlockMuteLines();
+  }
+
   function toggleBlockMuteFromEditor(lineNumber) {
     const line = Number(lineNumber);
     if (!Number.isFinite(line) || line <= 0) return;
@@ -315,64 +367,270 @@
     if (field && field[1]) return field[1];
     return 'UNTITLED';
   }
+    function computePatchTitle(text, program) {
+      const explicit = findExplicitPatchTitle(text);
+      if (explicit) {
+        return {
+          label: formatPatchTitle(explicit.title),
+          explicit,
+          source: 'patch',
+          title: explicit.title,
+        };
+      }
 
-  function computePatchTitle(text, program) {
-    const explicit = findExplicitPatchTitle(text);
-    if (explicit) return { label: formatPatchTitle(explicit.title), explicit };
-    if (loadedExampleLabel) return { label: formatPatchTitle(loadedExampleLabel), explicit: null };
-    return { label: formatPatchTitle(generatedPatchTitle(program, text)), explicit: null };
-  }
+      if (loadedExampleLabel) {
+        const title = normalizePatchTitle(loadedExampleLabel) || 'Untitled Patch';
+        return {
+          label: `EXAMPLE / ${title.toUpperCase()}`,
+          explicit: null,
+          source: 'example',
+          title,
+        };
+      }
 
-  function setPatchTitleChip(label) {
-    if (!patchTitleChip) return;
-    patchTitleChip.textContent = label || 'PATCH / UNTITLED';
-    patchTitleChip.setAttribute('aria-label', `Patch title: ${patchTitleChip.textContent}`);
-  }
-
-  function refreshPatchTitle() {
-    if (!patchTitleChip || !editorAPI) return;
-    const text = editorAPI.getValue();
-    let program = lastGoodProgram;
-    if (window.ReplDSL && window.ReplDSL.parse) {
-      const parsed = window.ReplDSL.parse(text);
-      if (parsed && parsed.ok) program = parsed.program;
+      const generated = generatedPatchTitle(program, text);
+      return {
+        label: formatPatchTitle(generated),
+        explicit: null,
+        source: 'patch',
+        title: normalizePatchTitle(generated),
+      };
     }
-    setPatchTitleChip(computePatchTitle(text, program).label);
-  }
 
-  function insertPatchTitleMetadata() {
-    if (!editorAPI) return;
-    const text = editorAPI.getValue();
-    const titleInfo = findExplicitPatchTitle(text);
-    if (titleInfo) {
-      editorAPI.selectRange(titleInfo.from, titleInfo.to);
+    function patchTitleInfoFromCurrentText() {
+      const text = editorAPI ? editorAPI.getValue() : '';
+      let program = lastGoodProgram;
+
+      if (window.ReplDSL && window.ReplDSL.parse) {
+        const parsed = window.ReplDSL.parse(text);
+        if (parsed && parsed.ok) program = parsed.program;
+      }
+
+      return computePatchTitle(text, program);
+    }
+
+    function patchTitleIsDirty() {
+      if (!editorAPI) return false;
+
+      const payload = currentPatchPayload();
+      if (!String(payload.code || '').trim()) return false;
+
+      return payload.code !== patchLinkState.lastSavedCode
+        || payload.title !== patchLinkState.lastSavedTitle;
+    }
+
+    function setPatchTitleChip(label, options) {
+      if (!patchTitleChip) return;
+
+      const opts = options || {};
+      const labelText = label || 'PATCH / UNTITLED';
+      const labelEl = patchTitleChip.querySelector('.patch-title-chip-label');
+      const stateEl = patchTitleChip.querySelector('.patch-title-chip-state');
+      const isDirty = Boolean(opts.dirty);
+      const isExample = opts.source === 'example';
+      const isSaved = Boolean(opts.saved) && !isDirty;
+
+      patchTitleChip.classList.toggle('is-dirty', isDirty);
+      patchTitleChip.classList.toggle('is-saved', isSaved);
+      patchTitleChip.classList.toggle('is-example', isExample);
+
+      if (labelEl) {
+        labelEl.textContent = labelText;
+      } else {
+        patchTitleChip.textContent = labelText;
+      }
+
+      if (stateEl) {
+        stateEl.textContent = isDirty ? (isExample ? 'MODIFIED' : 'UNSAVED') : (isSaved ? 'SAVED' : '');
+        stateEl.hidden = !stateEl.textContent;
+      }
+
+      const statePart = stateEl && stateEl.textContent ? ` · ${stateEl.textContent.toLowerCase()}` : '';
+      patchTitleChip.setAttribute('aria-label', `Patch title: ${labelText}${statePart}`);
+      patchTitleChip.title = 'Click to rename/save patch title · Cmd/Ctrl-S saves current patch hash · Option-click inserts title row';
+    }
+
+    function refreshPatchTitle() {
+      if (!patchTitleChip || !editorAPI || patchLinkState.editingTitle) return;
+
+      const info = patchTitleInfoFromCurrentText();
+      const dirty = patchTitleIsDirty();
+      const saved = Boolean(patchLinkState.lastSavedCode && !dirty && info.title);
+
+      setPatchTitleChip(info.label, {
+        dirty,
+        saved,
+        source: info.source,
+      });
+    }
+
+    function insertPatchTitleMetadata() {
+      if (!editorAPI) return;
+
+      const text = editorAPI.getValue();
+      const titleInfo = findExplicitPatchTitle(text);
+
+      if (titleInfo) {
+        editorAPI.selectRange(titleInfo.from, titleInfo.to);
+        editorAPI.focus();
+        return;
+      }
+
+      const inferred = patchTitleInfoFromCurrentText().title || 'Untitled Patch';
+      const title = normalizePatchTitle(inferred) || 'Untitled Patch';
+      const prefix = `// title: ${title}\n`;
+
+      editorAPI.dispatchTextChange(0, 0, prefix);
+      editorAPI.selectRange(prefix.indexOf(title), prefix.indexOf(title) + title.length);
       editorAPI.focus();
-      return;
+      refreshPatchTitle();
     }
 
-    const inferred = computePatchTitle(text, lastGoodProgram).label.replace(/^PATCH\s*\/\s*/i, '');
-    const title = normalizePatchTitle(inferred) || 'Untitled Patch';
-    const prefix = `// title: ${title}\n`;
-    editorAPI.dispatchTextChange(0, 0, prefix);
-    editorAPI.selectRange(prefix.indexOf(title), prefix.indexOf(title) + title.length);
-    editorAPI.focus();
+    function upsertPatchTitleMetadata(rawTitle) {
+      if (!editorAPI) return '';
+
+      const title = normalizePatchTitle(rawTitle) || 'Untitled Patch';
+      const text = editorAPI.getValue();
+      const titleInfo = findExplicitPatchTitle(text);
+
+      if (titleInfo) {
+        editorAPI.dispatchTextChange(titleInfo.from, titleInfo.to, title);
+      } else {
+        const prefix = `// title: ${title}\n`;
+        const insert = text && !text.startsWith('\n') ? `${prefix}\n` : prefix;
+        editorAPI.dispatchTextChange(0, 0, insert);
+      }
+
+      loadedExampleLabel = '';
+      currentExampleFile = '';
+      return title;
+    }
+
+    function focusPatchTitleMetadata(selectText) {
+      if (!editorAPI) return;
+
+      const titleInfo = findExplicitPatchTitle(editorAPI.getValue());
+
+      if (!titleInfo) {
+        openPatchTitleEditor();
+        return;
+      }
+
+      if (selectText && typeof editorAPI.selectRange === 'function') {
+        editorAPI.selectRange(titleInfo.from, titleInfo.to);
+      } else {
+        editorAPI.setCursor(titleInfo.from);
+      }
+
+      editorAPI.focus();
+    }
+
+    function closePatchTitleEditor() {
+      if (!patchTitleChip) return;
+
+      patchLinkState.editingTitle = false;
+      patchTitleChip.classList.remove('is-editing');
+
+      const form = patchTitleChip.querySelector('.patch-title-editor');
+      const labelEl = patchTitleChip.querySelector('.patch-title-chip-label');
+      const stateEl = patchTitleChip.querySelector('.patch-title-chip-state');
+
+      if (form) form.hidden = true;
+      if (labelEl) labelEl.hidden = false;
+      if (stateEl && stateEl.textContent) stateEl.hidden = false;
+
+      refreshPatchTitle();
+    }
+
+    function openPatchTitleEditor() {
+      if (!patchTitleChip || !editorAPI) return;
+
+      const form = patchTitleChip.querySelector('.patch-title-editor');
+      const input = patchTitleChip.querySelector('.patch-title-input');
+
+      if (!form || !input) {
+        insertPatchTitleMetadata();
+        return;
+      }
+
+      const info = patchTitleInfoFromCurrentText();
+
+      input.value = normalizePatchTitle(info.title) || '';
+      patchLinkState.editingTitle = true;
+      patchTitleChip.classList.add('is-editing');
+
+      const labelEl = patchTitleChip.querySelector('.patch-title-chip-label');
+      const stateEl = patchTitleChip.querySelector('.patch-title-chip-state');
+
+      if (labelEl) labelEl.hidden = true;
+      if (stateEl) stateEl.hidden = true;
+
+      form.hidden = false;
+
+      window.setTimeout(() => {
+        input.focus({ preventScroll: true });
+        input.select();
+      }, 0);
+    }
+
+    async function savePatchTitleEditor() {
+      if (!patchTitleChip) return;
+
+      const input = patchTitleChip.querySelector('.patch-title-input');
+      const title = input ? input.value : patchTitleInfoFromCurrentText().title;
+
+      upsertPatchTitleMetadata(title);
+      closePatchTitleEditor();
+
+      await saveCurrentPatchToHash({
+        reason: 'rename',
+      });
+    }
+
+  function closePatchTitleEditor() {
+    if (!patchTitleChip) return;
+    patchLinkState.editingTitle = false;
+    patchTitleChip.classList.remove('is-editing');
+    const form = patchTitleChip.querySelector('.patch-title-editor');
+    if (form) form.hidden = true;
+    const labelEl = patchTitleChip.querySelector('.patch-title-chip-label');
+    const stateEl = patchTitleChip.querySelector('.patch-title-chip-state');
+    if (labelEl) labelEl.hidden = false;
+    if (stateEl && stateEl.textContent) stateEl.hidden = false;
     refreshPatchTitle();
   }
 
-  function focusPatchTitleMetadata(selectText) {
-    if (!editorAPI) return;
-    const titleInfo = findExplicitPatchTitle(editorAPI.getValue());
-    if (!titleInfo) {
-      editorAPI.focus();
-      editorAPI.setCursor(0);
+  function openPatchTitleEditor() {
+    if (!patchTitleChip || !editorAPI) return;
+    const form = patchTitleChip.querySelector('.patch-title-editor');
+    const input = patchTitleChip.querySelector('.patch-title-input');
+    if (!form || !input) {
+      insertPatchTitleMetadata();
       return;
     }
-    if (selectText && typeof editorAPI.selectRange === 'function') {
-      editorAPI.selectRange(titleInfo.from, titleInfo.to);
-    } else {
-      editorAPI.setCursor(titleInfo.from);
-    }
-    editorAPI.focus();
+
+    const info = patchTitleInfoFromCurrentText();
+    input.value = normalizePatchTitle(info.title) || '';
+    patchLinkState.editingTitle = true;
+    patchTitleChip.classList.add('is-editing');
+    const labelEl = patchTitleChip.querySelector('.patch-title-chip-label');
+    const stateEl = patchTitleChip.querySelector('.patch-title-chip-state');
+    if (labelEl) labelEl.hidden = true;
+    if (stateEl) stateEl.hidden = true;
+    form.hidden = false;
+    window.setTimeout(() => {
+      input.focus({ preventScroll: true });
+      input.select();
+    }, 0);
+  }
+
+  async function savePatchTitleEditor() {
+    if (!patchTitleChip) return;
+    const input = patchTitleChip.querySelector('.patch-title-input');
+    const title = input ? input.value : patchTitleInfoFromCurrentText().title;
+    upsertPatchTitleMetadata(title);
+    closePatchTitleEditor();
+    await saveCurrentPatchToHash({ quiet: false, reason: 'rename' });
   }
 
   // ---------------- status / errors ----------------
@@ -450,10 +708,10 @@
       videoToggleBtn.hidden = true;
       videoToggleBtn.setAttribute('aria-expanded', 'false');
     }
-    for (const option of videoExampleOptions) {
-      if (!option) continue;
-      option.hidden = true;
-      if (option.selected) option.selected = false;
+    videoExamplesEnabled = false;
+    if (examplePopover && !examplePopover.hidden) {
+      // If the popover is already open, re-render so the video category vanishes.
+      renderExamplePopover();
     }
   }
     
@@ -928,6 +1186,12 @@
     if (window.InputVoice && window.InputVoice.setAudioContext) {
       window.InputVoice.setAudioContext(audioCtx);
     }
+    if (window.PianoVoice && typeof window.PianoVoice.prewarm === 'function') {
+      window.PianoVoice.prewarm(audioCtx).catch(() => {});
+    }
+    if (window.ViolinVoice && typeof window.ViolinVoice.prewarm === 'function') {
+      window.ViolinVoice.prewarm(audioCtx).catch(() => {});
+    }
     if (videoDebugEnabled() && window.VideoVoice && window.VideoVoice.setAudioContext) {
       window.VideoVoice.setAudioContext(audioCtx);
     }
@@ -958,97 +1222,386 @@
     });
   }
 
-  // ---------------- URL hash share ----------------
+    // ---------------- URL hash share ----------------
 
-  async function encodeHash(text) {
-    if (!text) return '';
-    if (typeof CompressionStream === 'undefined') {
-      return 'v0.' + btoaUrl(unicodeToBytes(text));
-    }
-    try {
-      const cs = new CompressionStream('gzip');
-      const writer = cs.writable.getWriter();
-      writer.write(unicodeToBytes(text));
-      writer.close();
-      const compressed = await new Response(cs.readable).arrayBuffer();
-      return 'v1.' + btoaUrl(new Uint8Array(compressed));
-    } catch (_) {
-      return 'v0.' + btoaUrl(unicodeToBytes(text));
-    }
-  }
+    function getPatchTitleForShare() {
+      if (!editorAPI) return '';
 
-  async function decodeHash(hash) {
-    if (!hash) return '';
-    const trimmed = hash.replace(/^#/, '').trim();
-    if (!trimmed) return '';
-    if (trimmed.startsWith('v0.')) {
-      try { return bytesToUnicode(atobUrl(trimmed.slice(3))); } catch (_) { return ''; }
+      const info = patchTitleInfoFromCurrentText();
+      return normalizePatchTitle(info && info.title ? info.title : '');
     }
-    if (trimmed.startsWith('v1.')) {
-      if (typeof DecompressionStream === 'undefined') return '';
+
+    function currentPatchPayload() {
+      return {
+        title: getPatchTitleForShare(),
+        code: editorAPI ? editorAPI.getValue() : '',
+      };
+    }
+
+    async function saveCurrentPatchToHash(options) {
+      const opts = options || {};
+
+      if (!window.ReplPatchLinks) {
+        showWarning('save codec unavailable');
+        setTimeout(clearErrors, 3000);
+        return false;
+      }
+
+      const payload = currentPatchPayload();
+
+      if (!String(payload.code || '').trim()) {
+        showWarning('nothing to save yet');
+        setTimeout(clearErrors, 2500);
+        return false;
+      }
+
       try {
-        const compressed = atobUrl(trimmed.slice(3));
-        const ds = new DecompressionStream('gzip');
-        const writer = ds.writable.getWriter();
-        writer.write(compressed);
-        writer.close();
-        const decompressed = await new Response(ds.readable).arrayBuffer();
-        return bytesToUnicode(new Uint8Array(decompressed));
-      } catch (_) {
-        return '';
+        await window.ReplPatchLinks.write(payload, { push: true });
+        upsertSavedPatchRecord(payload, currentPatchHashValue());
+
+        patchLinkState.lastSavedCode = payload.code;
+        patchLinkState.lastSavedTitle = payload.title;
+
+        refreshPatchTitle();
+
+        showWarning(opts.reason === 'rename'
+          ? 'patch renamed + saved to URL'
+          : 'patch saved to URL'
+        );
+        setTimeout(clearErrors, 2200);
+
+        return true;
+      } catch (err) {
+        console.warn('[repl] save failed:', err);
+        showWarning('patch save failed');
+        setTimeout(clearErrors, 3500);
+        return false;
       }
     }
-    return '';
-  }
 
-  function unicodeToBytes(s) {
-    return new TextEncoder().encode(s);
-  }
-  function bytesToUnicode(bytes) {
-    return new TextDecoder().decode(bytes);
-  }
-  function btoaUrl(bytes) {
-    let bin = '';
-    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-  function atobUrl(s) {
-    s = s.replace(/-/g, '+').replace(/_/g, '/');
-    while (s.length % 4 !== 0) s += '=';
-    const bin = atob(s);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes;
-  }
+    async function saveCurrentPatchToHash(options) {
+      const opts = options || {};
+      if (!window.ReplPatchLinks) {
+        showWarning('save codec unavailable');
+        setTimeout(clearErrors, 3000);
+        return false;
+      }
 
-  async function shareCurrent() {
-    const text = editorAPI ? editorAPI.getValue() : '';
-    const encoded = await encodeHash(text);
-    const url = location.origin + location.pathname + (encoded ? '#' + encoded : '');
-    history.replaceState(null, '', url);
-    try {
-      await navigator.clipboard.writeText(url);
-      showWarning('share link copied to clipboard');
-      setTimeout(clearErrors, 2500);
-    } catch (_) {
-      // Older browsers / iframe contexts: leave the URL bar as the share.
-      showWarning('URL bar updated — copy from there to share');
-      setTimeout(clearErrors, 4000);
+      const payload = currentPatchPayload();
+      if (!String(payload.code || '').trim()) {
+        showWarning('nothing to save yet');
+        setTimeout(clearErrors, 2500);
+        return false;
+      }
+
+      try {
+        await window.ReplPatchLinks.write(payload, { push: true });
+        upsertSavedPatchRecord(payload, currentPatchHashValue());
+        patchLinkState.lastSavedCode = payload.code;
+        patchLinkState.lastSavedTitle = payload.title;
+        refreshPatchTitle();
+        showWarning(opts.reason === 'rename' ? 'patch renamed + saved to URL' : 'patch saved to URL');
+        setTimeout(clearErrors, 2200);
+        return true;
+      } catch (err) {
+        console.warn('[repl] save failed:', err);
+        showWarning('patch save failed');
+        setTimeout(clearErrors, 3500);
+        return false;
+      }
     }
-  }
 
-  async function loadFromHash() {
-    if (!location.hash || location.hash === '#') return false;
-    const text = await decodeHash(location.hash);
-    if (text) {
+    function setShareVisual(state, label) {
+      if (!shareBtn) return;
+
+      shareBtn.classList.remove('is-copied', 'is-warn', 'is-error');
+      if (state) shareBtn.classList.add(state);
+
+      const main = shareBtn.querySelector('.button-main');
+      const shortcut = shareBtn.querySelector('.button-shortcut');
+      const status = document.getElementById('sharePatchStatus');
+
+      if (main) main.textContent = label || 'share';
+      else shareBtn.textContent = label || 'share';
+
+      if (shortcut) shortcut.textContent = 'copy link';
+      if (status) status.textContent = label && label !== 'share' ? label : '';
+
+      window.clearTimeout(shareBtn._shareResetTimer);
+      if (label && label !== 'share') {
+        shareBtn._shareResetTimer = window.setTimeout(() => {
+          shareBtn.classList.remove('is-copied', 'is-warn', 'is-error');
+          if (main) main.textContent = 'share';
+          if (shortcut) shortcut.textContent = 'copy link';
+          if (status) status.textContent = '';
+        }, 1800);
+      }
+    }
+
+    async function persistPatchHashNow() {
+      if (!window.ReplPatchLinks) return;
+      if (patchLinkState.applyingRemotePatch) return;
+
+      const payload = currentPatchPayload();
+      if (!payload.code.trim()) return;
+
+      if (
+        payload.code === patchLinkState.lastSavedCode
+        && payload.title === patchLinkState.lastSavedTitle
+      ) {
+        return;
+      }
+
+      try {
+        const result = await window.ReplPatchLinks.write(payload, { replace: true });
+        patchLinkState.lastSavedCode = payload.code;
+        patchLinkState.lastSavedTitle = payload.title;
+
+        if (result && result.warn) {
+          setShareVisual('is-warn', 'long link');
+        }
+      } catch (err) {
+        console.warn('[repl] could not persist patch hash:', err);
+        setShareVisual('is-error', 'hash fail');
+      }
+    }
+
+    function schedulePatchHashPersist() {
+      if (patchLinkState.applyingRemotePatch) return;
+
+      window.clearTimeout(patchLinkState.writeTimer);
+      patchLinkState.writeTimer = window.setTimeout(() => {
+        refreshPatchTitle();
+      }, PATCH_HASH_DEBOUNCE_MS);
+    }
+
+    async function shareCurrent() {
+      if (!window.ReplPatchLinks) {
+        showWarning('share codec unavailable');
+        setTimeout(clearErrors, 3000);
+        return;
+      }
+
+      const payload = currentPatchPayload();
+
+      if (!payload.code.trim()) {
+        showWarning('nothing to share yet');
+        setTimeout(clearErrors, 2500);
+        return;
+      }
+
+      if (shareBtn) shareBtn.disabled = true;
+
+      try {
+        const result = await window.ReplPatchLinks.share(payload);
+
+        patchLinkState.lastSavedCode = payload.code;
+        patchLinkState.lastSavedTitle = payload.title;
+
+          await window.ReplPatchLinks.write(payload, { push: true });
+          refreshPatchTitle();
+
+          if (result.warn) {
+          setShareVisual('is-warn', result.copied ? 'copied · long' : 'long link');
+        } else {
+          setShareVisual(result.copied ? 'is-copied' : 'is-warn', result.copied ? 'copied url' : 'copy failed');
+        }
+
+        showWarning(result.copied ? 'share link copied to clipboard' : 'URL bar updated — copy from there to share');
+        setTimeout(clearErrors, 2500);
+      } catch (err) {
+        console.warn('[repl] share failed:', err);
+        setShareVisual('is-error', 'too large');
+        showWarning('patch link too large or share failed');
+        setTimeout(clearErrors, 3500);
+      } finally {
+        if (shareBtn) shareBtn.disabled = false;
+      }
+    }
+    
+    function setClearPatchVisual(state) {
+      if (!clearPatchBtn) return;
+
+      const main = clearPatchBtn.querySelector('.button-main');
+      const shortcut = clearPatchBtn.querySelector('.button-shortcut');
+
+      clearPatchBtn.classList.remove(
+        'is-armed',
+        'is-blank-armed',
+        'is-cleared'
+      );
+
+      if (state === 'armed') {
+        clearPatchBtn.classList.add('is-armed');
+        if (main) main.textContent = '?';
+        if (shortcut) shortcut.textContent = 'click again to clear patch';
+        clearPatchBtn.setAttribute('aria-label', 'Confirm clear patch');
+        clearPatchBtn.title = 'Click again to clear patch';
+        return;
+      }
+
+      if (state === 'blank-armed') {
+        clearPatchBtn.classList.add('is-blank-armed');
+        if (main) main.textContent = '∅';
+        if (shortcut) shortcut.textContent = 'click again to blank editor';
+        clearPatchBtn.setAttribute('aria-label', 'Confirm blank editor');
+        clearPatchBtn.title = 'Click again to blank editor';
+        return;
+      }
+
+      if (state === 'cleared') {
+        clearPatchBtn.classList.add('is-cleared');
+        if (main) main.textContent = '✓';
+        if (shortcut) shortcut.textContent = 'patch cleared';
+        clearPatchBtn.setAttribute('aria-label', 'Patch cleared');
+        clearPatchBtn.title = 'Patch cleared';
+        return;
+      }
+
+      if (main) main.textContent = '×';
+      if (shortcut) shortcut.textContent = 'clear patch';
+      clearPatchBtn.setAttribute('aria-label', 'Clear patch');
+      clearPatchBtn.title = 'Clear patch · Cmd/Ctrl-Shift-Backspace. Option-click: blank editor.';
+    }
+
+    function resetClearPatchArm() {
+      window.clearTimeout(clearPatchState.timer);
+      clearPatchState.armed = false;
+      clearPatchState.blank = false;
+      clearPatchState.timer = null;
+      setClearPatchVisual('idle');
+    }
+
+    function armClearPatch(options) {
+      const opts = options || {};
+
+      window.clearTimeout(clearPatchState.timer);
+      clearPatchState.armed = true;
+      clearPatchState.blank = Boolean(opts.blank);
+
+      setClearPatchVisual(clearPatchState.blank ? 'blank-armed' : 'armed');
+
+      clearPatchState.timer = window.setTimeout(() => {
+        resetClearPatchArm();
+      }, CLEAR_PATCH_ARM_MS);
+    }
+
+    function clearPatchHashIfNeeded() {
+      try {
+        if (!window.location.hash || !window.location.hash.startsWith('#patch=v1.')) return;
+        const nextUrl = `${window.location.pathname}${window.location.search}`;
+        window.history.replaceState(null, '', nextUrl);
+      } catch (_) {}
+    }
+
+    function performClearPatch(options) {
+      const opts = options || {};
+      const blank = Boolean(opts.blank);
+
+      window.clearTimeout(clearPatchState.timer);
+      clearPatchState.armed = false;
+      clearPatchState.timer = null;
+
+      stop();
+
       loadedExampleLabel = '';
-      if (editorAPI) editorAPI.setValue(text);
+      currentExampleFile = '';
+      lastGoodProgram = null;
+      lastEvaluatedText = '';
+      lastParseErrorText = '';
+      lastRuntimeErrorText = '';
+      lastEditorMuteSnapshotKey = '';
+
+      if (blockMuteOverridesBySignature && typeof blockMuteOverridesBySignature.clear === 'function') {
+        blockMuteOverridesBySignature.clear();
+      }
+
+      if (editorAPI && typeof editorAPI.setValue === 'function') {
+        editorAPI.setValue(blank ? '' : CLEAR_PATCH_SCAFFOLD);
+      }
+
+      patchLinkState.applyingRemotePatch = false;
+      patchLinkState.lastSavedCode = '';
+      patchLinkState.lastSavedTitle = '';
+      window.clearTimeout(patchLinkState.writeTimer);
+      patchLinkState.writeTimer = null;
+
+      clearPatchHashIfNeeded();
+      clearErrors();
+
+      if (exampleCurrentLabel) {
+        exampleCurrentLabel.textContent = 'load…';
+      }
+
       refreshPatchTitle();
-      return true;
+      syncEditorBlockMuteLines();
+      setStatusLine();
+      setShareVisual('', 'share');
+      setClearPatchVisual('cleared');
+
+      window.setTimeout(() => {
+        if (!clearPatchState.armed) setClearPatchVisual('idle');
+      }, 1300);
+
+      if (editorAPI) editorAPI.focus();
     }
-    showWarning('couldn\'t load shared patch — falling back to default example');
-    return false;
-  }
+
+    function requestClearPatch(options) {
+      const opts = options || {};
+
+      if (clearPatchState.armed) {
+        performClearPatch({
+          blank: Boolean(clearPatchState.blank || opts.blank),
+        });
+        return;
+      }
+
+      armClearPatch({
+        blank: Boolean(opts.blank),
+      });
+
+      showWarning(opts.blank
+        ? 'blank editor armed — click clear patch again to remove all score text'
+        : 'clear patch armed — click clear patch again to reset the score'
+      );
+      window.setTimeout(clearErrors, CLEAR_PATCH_ARM_MS);
+    }
+
+    async function loadFromHash() {
+      if (!location.hash || location.hash === '#') return false;
+
+      if (location.hash.startsWith('#example=')) return false;
+
+      if (!window.ReplPatchLinks) {
+        showWarning('share codec unavailable — falling back to default example');
+        return false;
+      }
+
+      if (!location.hash.startsWith('#patch=v1.')) {
+        return false;
+      }
+
+      const shared = await window.ReplPatchLinks.read();
+
+      if (shared && typeof shared.code === 'string' && shared.code.trim()) {
+        patchLinkState.applyingRemotePatch = true;
+
+        try {
+          loadedExampleLabel = '';
+          currentExampleFile = '';
+          if (editorAPI) editorAPI.setValue(shared.code);
+          patchLinkState.lastSavedCode = shared.code;
+          patchLinkState.lastSavedTitle = shared.title || '';
+          refreshPatchTitle();
+          return true;
+        } finally {
+          patchLinkState.applyingRemotePatch = false;
+        }
+      }
+
+      showWarning('couldn\'t load shared patch — falling back to default example');
+      return false;
+    }
 
   async function loadDefaultExample() {
     try {
@@ -1129,6 +1682,14 @@
       if (editorAPI) editorAPI.focus();
     });
 
+    if (clearPatchBtn) {
+      clearPatchBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        requestClearPatch({
+          blank: Boolean(event.altKey),
+        });
+      });
+    }
     if (referenceToggleBtn) {
       referenceToggleBtn.addEventListener('click', toggleReference);
     }
@@ -1140,20 +1701,59 @@
       });
     }
 
-  if (patchTitleChip) {
-    patchTitleChip.addEventListener('click', (e) => {
-      if (e.altKey || e.metaKey) {
+    if (patchTitleChip) {
+      patchTitleChip.addEventListener('click', (e) => {
+        const target = e.target;
+
+        if (target && target.closest && target.closest('.patch-title-editor')) return;
+
+        if (e.altKey) {
+          e.preventDefault();
+          insertPatchTitleMetadata();
+          return;
+        }
+
         e.preventDefault();
-        insertPatchTitleMetadata();
-        return;
+        openPatchTitleEditor();
+      });
+
+      patchTitleChip.addEventListener('keydown', (e) => {
+        const target = e.target;
+
+        if (target && target.closest && target.closest('.patch-title-editor')) return;
+
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openPatchTitleEditor();
+        }
+      });
+
+      const titleForm = patchTitleChip.querySelector('.patch-title-editor');
+      const titleCancel = patchTitleChip.querySelector('[data-title-cancel]');
+
+      if (titleForm) {
+        titleForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          savePatchTitleEditor();
+        });
+
+        titleForm.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            closePatchTitleEditor();
+            if (editorAPI) editorAPI.focus();
+          }
+        });
       }
-      focusPatchTitleMetadata(false);
-    });
-    patchTitleChip.addEventListener('dblclick', (e) => {
-      e.preventDefault();
-      focusPatchTitleMetadata(true);
-    });
-  }
+
+      if (titleCancel) {
+        titleCancel.addEventListener('click', (e) => {
+          e.preventDefault();
+          closePatchTitleEditor();
+          if (editorAPI) editorAPI.focus();
+        });
+      }
+    }
 
   // Document-level Esc safety net: if the user presses Esc anywhere inside
   // the REPL shell, stop audio and refocus the editor. Scoped to the REPL
@@ -1168,8 +1768,60 @@
     stop();
     if (editorAPI) editorAPI.focus();
   });
+    
+    document.addEventListener('keydown', (event) => {
+      const key = String(event.key || '').toLowerCase();
+      const hasCommandModifier = Boolean(event.metaKey || event.ctrlKey);
+
+      if (!hasCommandModifier || key !== 's') return;
+
+      const replShell = document.querySelector('main.shell');
+      const target = event.target;
+
+      if (!replShell || !(target instanceof Node) || !replShell.contains(target)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      saveCurrentPatchToHash({
+        reason: 'save',
+      });
+    });
+
+    document.addEventListener('keydown', (event) => {
+      const key = String(event.key || '');
+      const isDeleteKey = key === 'Backspace' || key === 'Delete';
+      const hasCommandModifier = Boolean(event.metaKey || event.ctrlKey);
+
+      if (!hasCommandModifier || !event.shiftKey || !isDeleteKey) return;
+
+      const replShell = document.querySelector('main.shell');
+      const target = event.target;
+      if (!replShell || !(target instanceof Node) || !replShell.contains(target)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      requestClearPatch({
+        blank: Boolean(event.altKey),
+      });
+    });
 
 
+
+  document.addEventListener('keydown', (event) => {
+    const key = String(event.key || '').toLowerCase();
+    const hasCommandModifier = Boolean(event.metaKey || event.ctrlKey);
+    if (!hasCommandModifier || key !== 's') return;
+
+    const replShell = document.querySelector('main.shell');
+    const target = event.target;
+    if (!replShell || !(target instanceof Node) || !replShell.contains(target)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    saveCurrentPatchToHash({ reason: 'save' });
+  });
 
   function setupExamplePicker(selectEl) {
     if (!selectEl || selectEl.dataset.customPicker === '1') return;
@@ -1281,25 +1933,1286 @@
 
   // ---------------- examples loader ----------------
 
-  if (exampleSelect) {
-    setupExamplePicker(exampleSelect);
-    exampleSelect.addEventListener('change', async () => {
-      const v = exampleSelect.value;
-      if (!v) return;
+  // ---- categorized example popover ----
+  // Replaces the old <select id="example-select">. Tabs group examples by
+  // topic; URL hash (`#example=<slug>`) survives refresh and can be deep-linked.
+
+  const EXAMPLE_CATEGORIES = [
+    { id: 'foundations', label: 'foundations', examples: [
+      { file: '0a. welcome.txt', label: '0a. welcome (start here)' },
+      { file: '0b. a row of notes.txt', label: '0b. a row of notes' },
+      { file: '0c. rests and ties.txt', label: '0c. rests and ties' },
+      { file: '0d. two voices.txt', label: '0d. two voices' },
+      { file: '0e. tempo and meter.txt', label: '0e. tempo and meter' },
+      { file: 'default.txt', label: 'default' },
+      { file: '1. literal-vs-coupled.txt', label: 'literal vs coupled' },
+      { file: '1b. arrangement.txt', label: 'arrangement (enter/exit)' },
+      { file: '2. pitch-organism.txt', label: 'pitch organism' },
+      { file: '2b. sine-noise-voices.txt', label: 'sine + noise voices' },
+      { file: '2c. drone-pluck-pulse.txt', label: 'drone + pluck + pulse' },
+      { file: '3. sample-field.txt', label: 'sample field' },
+      { file: '4. speed-warp.txt', label: 'speed warp' },
+    ] },
+    { id: 'coupling', label: 'coupling', examples: [
+      { file: '5. weather-dew.txt', label: 'weather dew' },
+      { file: '6. quake-rupture.txt', label: 'quake rupture' },
+      { file: '7. tide-breath.txt', label: 'tide breath' },
+      { file: '8. solar-flare.txt', label: 'solar flare' },
+      { file: '9. archive-memory.txt', label: 'archive memory' },
+    ] },
+    { id: 'reference', label: 'reference', examples: [
+      { file: '10. notation-reference.txt', label: 'notation reference' },
+      { file: '11. effect-surfaces.txt', label: 'effect surfaces' },
+      { file: '12. weather-body.txt', label: 'weather body' },
+      { file: '13. archive-scar.txt', label: 'archive scar' },
+      { file: '14. fades.txt', label: 'fades' },
+    ] },
+    { id: 'live-input', label: 'live input', examples: [
+      { file: '15. live-input.txt', label: 'live input primer' },
+      { file: '16. live-input-modulation.txt', label: 'live input modulation' },
+      { file: '17. live-input-as-silent-attractor.txt', label: 'silent mic attractor' },
+      { file: '18. live-input-as-audible-material.txt', label: 'audible mic material' },
+      { file: '19. tab-input-sample-weather.txt', label: 'tab input sample weather' },
+      { file: '20. interface-input-cybernetic-score.txt', label: 'interface input cybernetic score' },
+    ] },
+    { id: 'video', label: 'video', isVideo: true, examples: [
+      { file: '2e. video-arm-v1.txt', label: 'video arm v1', isVideo: true },
+      { file: '21. video-01-camera-basics.txt', label: 'video 01 camera basics', isVideo: true },
+      { file: '22. video-02-camera-pattern-overlay.txt', label: 'video 02 camera pattern overlay', isVideo: true },
+      { file: '23. video-03-video-as-input-signals.txt', label: 'video 03 video as input signals', isVideo: true },
+      { file: '24. video-04-camera-drives-audio.txt', label: 'video 04 camera drives audio', isVideo: true },
+      { file: '25. video-05-audio-drives-video.txt', label: 'video 05 audio drives video', isVideo: true },
+      { file: '26. video-06-bidirectional-loop.txt', label: 'video 06 bidirectional loop', isVideo: true },
+      { file: '27. video-07-screen-capture-body.txt', label: 'video 07 screen capture body', isVideo: true },
+      { file: '28. video-08-file-material.txt', label: 'video 08 file material', isVideo: true },
+      { file: '29. video-09-multilayer-composite.txt', label: 'video 09 multilayer composite', isVideo: true },
+      { file: '30. video-10-video-gen-basics.txt', label: 'video 10 video gen basics', isVideo: true },
+      { file: '31. video-11-gen-to-stage-reuse.txt', label: 'video 11 gen to stage reuse', isVideo: true },
+      { file: '32. video-12-performance-scene.txt', label: 'video 12 performance scene', isVideo: true },
+    ] },
+    { id: 'tuning', label: 'tuning', examples: [
+      { file: '33. tuning-scopes-and-reference.txt', label: 'tuning scopes + reference' },
+      { file: '34. tuning-performance-organism.txt', label: 'tuning performance organism' },
+      { file: '35. pitch-span-glide.txt', label: 'pitch ramps' },
+    ] },
+    { id: 'piano', label: 'piano', examples: [
+      { file: '36. iowa-piano-body.txt', label: '36. iowa piano body' },
+      { file: '36c. piano-layer-xfade.txt', label: '36c. layer xfade (pp / mf / ff)' },
+      { file: '36d. piano-body-resonance.txt', label: '36d. body resonance (sympathetic / lid)' },
+      { file: '36e. piano-phasing.txt', label: '36e. phasing (Reich)' },
+      { file: '36f. piano-groove.txt', label: '36f. groove (stacked channels)' },
+      { file: '36g. piano-pitch-span-glide.txt', label: '36g. pitch-span glide' },
+      { file: '36h. piano-études.txt', label: '36h. études — masterpiece' },
+    ] },
+    { id: 'violin', label: 'violin', examples: [
+      { file: '40. iowa-violin-arco.txt', label: '40. iowa violin arco' },
+      { file: '40b. violin-pizz.txt', label: '40b. pizzicato' },
+      { file: '40c. violin-strings.txt', label: '40c. strings (sulG / D / A / E)' },
+      { file: '40d. violin-vibrato.txt', label: '40d. vibrato + tremolo' },
+      { file: '40e. violin-glide.txt', label: '40e. portamento' },
+      { file: '40f. violin-body.txt', label: '40f. body + sympathetic' },
+      { file: '40g. violin-double-stops.txt', label: '40g. double stops' },
+      { file: '40h. violin-études.txt', label: '40h. études' },
+    ] },
+    { id: 'cello', label: 'cello', examples: [
+      { file: '42a. cello-arco.txt', label: '42a. arco' },
+      { file: '42b. cello-pizz.txt', label: '42b. pizzicato' },
+      { file: '42c. cello-strings.txt', label: '42c. strings (sulC / G / D / A)' },
+      { file: '42d. cello-double-stops.txt', label: '42d. double stops' },
+      { file: '42e. cello-body.txt', label: '42e. body + sympathetic' },
+      { file: '42f. cello-etudes.txt', label: '42f. études' },
+    ] },
+    { id: 'marimba', label: 'marimba', examples: [
+      { file: '41a. marimba-first-bars.txt', label: '41a. first bars' },
+      { file: '41b. marimba-resonance-and-damping.txt', label: '41b. resonance + damping' },
+      { file: '41c. marimba-rolls.txt', label: '41c. rolls + four mallets' },
+      { file: '41d. marimba-arrangement.txt', label: '41d. wooden machine arrangement' },
+    ] },
+    { id: 'vibraphone', label: 'vibraphone', examples: [
+      { file: '43a. vibraphone-sustain.txt', label: '43a. sustain + pedal' },
+      { file: '43b. vibraphone-pedal-and-damp.txt', label: '43b. pedal + damp' },
+      { file: '43c. vibraphone-motor.txt', label: '43c. motor shimmer' },
+      { file: '43d. vibraphone-bowed-bars.txt', label: '43d. bowed bars' },
+      { file: '43e. vibraphone-chords.txt', label: '43e. chord shimmer' },
+      { file: '43f. vibraphone-arrangement.txt', label: '43f. arrangement' },
+    ] },
+    { id: 'voice', label: 'voice / vox', examples: [
+      { file: '45a. voice-vowels.txt', label: '45a. robot vowels' },
+      { file: '45b. voice-breath-and-roughness.txt', label: '45b. carriers + roughness' },
+      { file: '45c. voice-techniques.txt', label: '45c. robot states' },
+      { file: '45d. voice-ensemble-chords.txt', label: '45d. vocoder + chords' },
+      { file: '45e. voice-machine-choir.txt', label: '45e. machine choir' },
+    ] },
+    { id: 'drums', label: 'drums', examples: [
+      { file: '2d. drum-kits.txt', label: '2d. drum kit grammar' },
+      { file: '2d2. breakcore-beat.txt', label: '2d2. breakcore beat' },
+      { file: '44e. wa-808-tape-kit.txt', label: '44e. 808 tape kit' },
+      { file: '44f. 808-pocket-machine.txt', label: '44f. 808 pocket machine' },
+      { file: '44g. 808-surface-drift.txt', label: '44g. 808 surface drift' },
+      { file: '44h. kit-switch-arrangement.txt', label: '44h. 808 × rock arrangement' },
+      { file: '44i. polyrhythm-switchyard.txt', label: '44i. polyrhythm switchyard' },
+      { file: '44j. bk-phrases-over-808.txt', label: '44j. BK phrase over 808' },
+      { file: '44a. smdrums-basic-kit.txt', label: '44a. rock kit map' },
+      { file: '44b. smdrums-ride-time.txt', label: '44b. rock ride time' },
+      { file: '44c. smdrums-variance.txt', label: '44c. variance as round robin' },
+      { file: '44d. smdrums-fills.txt', label: '44d. fills + cymbal grammar' },
+    ] },
+  ];
+    let activePatchBrowserTab = 'examples';
+    let activeExampleCategoryId = EXAMPLE_CATEGORIES[0].id;
+    let savedPatchDeleteArmedId = '';
+    let savedPatchDeleteTimer = null;
+    let savedPatchCopiedId = '';
+    let savedPatchCopiedTimer = null;
+    let currentExampleFile = '';
+    let activeExampleFocusIndex = 0;
+    let exampleSearchQuery = '';
+
+    let activeCommandGroupId = 'actions';
+    let activeCommandFocusIndex = 0;
+    let commandSearchQuery = '';
+    const commandBrowserState = {
+      mode: 'commands',
+      samplePath: [],
+    };
+    const commandSampleLibraryState = {
+      libraries: null,
+      loading: null,
+      auditionBuffers: new Map(),
+      auditionSource: null,
+    };
+
+
+  function visibleExampleCategories() {
+    return EXAMPLE_CATEGORIES.filter((cat) => videoExamplesEnabled || !cat.isVideo);
+  }
+
+  function findExampleByFile(file) {
+    if (!file) return null;
+    for (const cat of EXAMPLE_CATEGORIES) {
+      for (const ex of cat.examples) {
+        if (ex.file === file) return { category: cat, example: ex };
+      }
+    }
+    return null;
+  }
+
+    function escapeExampleHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[c]));
+    }
+
+    function exampleNumber(ex) {
+      const file = String((ex && ex.file) || '');
+      const label = String((ex && ex.label) || '');
+      const m = file.match(/^([\dA-Za-z]+(?:[.-][\dA-Za-z]+)?)\./)
+        || label.match(/^([\dA-Za-z]+(?:[.-][\dA-Za-z]+)?)[.)\s]/);
+      return m ? m[1].toUpperCase() : '•';
+    }
+
+    function cleanExampleTitle(ex) {
+      const label = String((ex && ex.label) || (ex && ex.file) || 'example')
+        .replace(/\.txt$/i, '')
+        .replace(/^[\dA-Za-z]+(?:[.-][\dA-Za-z]+)?[.)]?\s*/i, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+        return (label || 'example').toLowerCase();
+    }
+
+    function exampleAccentId(cat, ex) {
+      const raw = [
+        cat && cat.id,
+        cat && cat.label,
+        ex && ex.group,
+        ex && ex.accent,
+        ex && ex.label,
+        ex && ex.file,
+      ].join(' ').toLowerCase();
+
+      if (raw.includes('marimba')) return 'marimba';
+      if (raw.includes('vibraphone') || raw.includes('vibes')) return 'vibraphone';
+      if (raw.includes('violin')) return 'violin';
+      if (raw.includes('cello')) return 'cello';
+      if (raw.includes('voice') || raw.includes('vox') || raw.includes('robot')) return 'voice';
+      if (raw.includes('drum') || raw.includes('breakcore') || raw.includes('rock')) return 'drums';
+      if (raw.includes('video') || raw.includes('camera') || raw.includes('screen')) return 'video';
+      if (raw.includes('piano')) return 'piano';
+      if (raw.includes('sample')) return 'samples';
+      if (raw.includes('input') || raw.includes('mic') || raw.includes('tab')) return 'live-input';
+      if (raw.includes('coupling') || raw.includes('weather') || raw.includes('quake') || raw.includes('tide')) return 'coupling';
+      if (raw.includes('reference') || raw.includes('notation')) return 'reference';
+      return String((cat && cat.id) || 'foundations').toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+    }
+
+    function exampleDetail(cat, ex) {
+      if (ex && ex.detail) return String(ex.detail);
+
+      const raw = `${(cat && cat.id) || ''} ${(ex && ex.file) || ''} ${(ex && ex.label) || ''}`.toLowerCase();
+
+      if (raw.includes('marimba')) return 'mallets · resonance · struck body';
+      if (raw.includes('vibraphone') || raw.includes('vibes')) return 'pedal · motor · metal shimmer';
+      if (raw.includes('violin')) return 'bow state · strings · body';
+      if (raw.includes('cello')) return 'low strings · bow state · body';
+      if (raw.includes('piano')) return 'Iowa Steinway · pedal · sympathetic';
+      if (raw.includes('voice') || raw.includes('robot')) return 'synthetic mouth · carrier · vocoder';
+      if (raw.includes('drum') || raw.includes('breakcore') || raw.includes('rock')) return 'kit lanes · variance · one-shots';
+      if (raw.includes('input') || raw.includes('mic') || raw.includes('tab')) return 'live source · modulation · routing';
+      if (raw.includes('video') || raw.includes('camera') || raw.includes('screen')) return 'image source · feedback · stage';
+      if (raw.includes('weather') || raw.includes('quake') || raw.includes('tide') || raw.includes('solar')) return 'attractor · coupling · environment';
+      if (raw.includes('reference') || raw.includes('notation')) return 'syntax · grammar · surfaces';
+      if (raw.includes('sample')) return 'archive · playback · scar';
+      return 'score-grid patch · tutorial card';
+    }
+
+    function exampleMatchesQuery(cat, ex, query) {
+      const q = String(query || '').trim().toLowerCase();
+      if (!q) return true;
+
+      const haystack = [
+        cat && cat.id,
+        cat && cat.label,
+        ex && ex.file,
+        ex && ex.label,
+        ex && ex.detail,
+        exampleDetail(cat, ex),
+      ].join(' ').toLowerCase();
+
+      return q.split(/\s+/).filter(Boolean).every((part) => haystack.includes(part));
+    }
+
+    function visibleExamplesForCategory(cat) {
+      if (!cat) return [];
+      return (cat.examples || []).filter((ex) => {
+        if (!videoExamplesEnabled && ex && ex.isVideo) return false;
+        return exampleMatchesQuery(cat, ex, exampleSearchQuery);
+      });
+    }
+
+    function visibleExampleCategories() {
+      return EXAMPLE_CATEGORIES
+        .filter((cat) => videoExamplesEnabled || !cat.isVideo)
+        .map((cat) => ({ ...cat, examples: visibleExamplesForCategory(cat) }))
+        .filter((cat) => cat.examples.length > 0 || !exampleSearchQuery);
+    }
+
+    function totalVisibleExamples(cats) {
+      return (cats || []).reduce((sum, cat) => sum + (cat.examples ? cat.examples.length : 0), 0);
+    }
+
+    function exampleItemButtons() {
+      if (!examplePopoverList) return [];
+      return Array.from(examplePopoverList.querySelectorAll('.example-popover-item'));
+    }
+
+    function focusExampleItem(index) {
+      const items = exampleItemButtons();
+      if (!items.length) return;
+
+      const next = Math.max(0, Math.min(items.length - 1, Number(index) || 0));
+      activeExampleFocusIndex = next;
+      items[next].focus();
+    }
+
+    function moveExampleFocus(delta) {
+      const items = exampleItemButtons();
+      if (!items.length) return;
+
+      const current = items.indexOf(document.activeElement);
+      const base = current >= 0 ? current : activeExampleFocusIndex;
+      const next = (base + delta + items.length) % items.length;
+      focusExampleItem(next);
+    }
+
+    function safeSavedPatchId(seed) {
+      const base = String(seed || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 42);
+      return base || `patch-${Date.now().toString(36)}`;
+    }
+
+    function readSavedPatches() {
       try {
-        const r = await fetch(`./examples/${v}`);
+        const raw = localStorage.getItem(SAVED_PATCHES_STORAGE_KEY);
+        const list = JSON.parse(raw || '[]');
+        if (!Array.isArray(list)) return [];
+        return list
+          .filter((item) => item && typeof item === 'object' && typeof item.code === 'string')
+          .map((item) => ({
+            id: String(item.id || safeSavedPatchId(item.title || item.hash || item.updatedAt)),
+            title: normalizePatchTitle(item.title || 'Untitled Patch') || 'Untitled Patch',
+            code: String(item.code || ''),
+            hash: String(item.hash || ''),
+            createdAt: Number(item.createdAt) || Date.now(),
+            updatedAt: Number(item.updatedAt) || Number(item.createdAt) || Date.now(),
+            lines: Number(item.lines) || String(item.code || '').split(/\r?\n/).filter((line) => line.trim()).length,
+            voices: Array.isArray(item.voices) ? item.voices.slice(0, 8) : [],
+            pinned: Boolean(item.pinned),
+            tempo: String(item.tempo || '').slice(0, 24),
+            meter: String(item.meter || '').slice(0, 24),
+            preview: String(item.preview || savedPatchPreview(item.code || '')).slice(0, 220),
+          }))
+          .sort((a, b) => {
+            const pinned = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+            if (pinned) return pinned;
+            return Number(b.updatedAt) - Number(a.updatedAt);
+          })
+          .slice(0, SAVED_PATCHES_MAX);
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function writeSavedPatches(list) {
+      try {
+        const sorted = (list || [])
+          .filter((item) => item && typeof item === 'object')
+          .sort((a, b) => {
+            const pinned = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+            if (pinned) return pinned;
+            return Number(b.updatedAt) - Number(a.updatedAt);
+          })
+          .slice(0, SAVED_PATCHES_MAX);
+        localStorage.setItem(SAVED_PATCHES_STORAGE_KEY, JSON.stringify(sorted));
+      } catch (err) {
+        console.warn('[repl] could not write saved patches:', err);
+      }
+    }
+
+    function savedPatchTopDirectives(code) {
+      const out = { tempo: '', meter: '' };
+      for (const line of String(code || '').split(/\r?\n/)) {
+        const clean = line.trim();
+        if (!clean || clean.startsWith('//')) continue;
+        const parts = clean.split(/\s+/);
+        const head = String(parts[0] || '').toLowerCase();
+        if (head === 'tempo' && !out.tempo) out.tempo = parts[1] || '';
+        if (head === 'meter' && !out.meter) out.meter = parts[1] || '';
+        if (out.tempo && out.meter) break;
+      }
+      return out;
+    }
+
+    function savedPatchPreview(code) {
+      const lines = String(code || '')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('//'));
+      const directives = savedPatchTopDirectives(code);
+      const body = lines.filter((line) => !/^(tempo|meter|eval|evaluate|tuning)\b/i.test(line));
+      const parts = [];
+      if (directives.tempo) parts.push(`tempo ${directives.tempo}`);
+      if (directives.meter) parts.push(`meter ${directives.meter}`);
+      parts.push(...body.slice(0, 2));
+      return parts.join(' · ') || 'empty patch';
+    }
+
+    function savedPatchVoices(code) {
+      const out = [];
+      const seen = new Set();
+      const voiceSet = new Set(Array.from(COMMAND_INSERT_VOICE_HEADS || []));
+      for (const line of String(code || '').split(/\r?\n/)) {
+        const head = String(line || '').trim().split(/\s+/, 1)[0].toLowerCase();
+        if (!head || seen.has(head) || !voiceSet.has(head)) continue;
+        seen.add(head);
+        out.push(head);
+      }
+      return out;
+    }
+
+    function currentPatchHashValue() {
+      try { return window.location.hash && window.location.hash.startsWith('#patch=v1.') ? window.location.hash : ''; }
+      catch (_) { return ''; }
+    }
+
+    function upsertSavedPatchRecord(payload, hash) {
+      const code = String(payload && payload.code || '');
+      if (!code.trim()) return null;
+      const title = normalizePatchTitle(payload && payload.title) || 'Untitled Patch';
+      const patchHash = String(hash || currentPatchHashValue() || '');
+      const now = Date.now();
+      const list = readSavedPatches();
+      const existingIndex = list.findIndex((item) => ((patchHash && item.hash === patchHash) || (item.code === code && item.title === title)));
+      const previous = existingIndex >= 0 ? list[existingIndex] : null;
+      const directives = savedPatchTopDirectives(code);
+      const record = {
+        id: previous ? previous.id : safeSavedPatchId(`${title}-${now.toString(36)}`),
+        title,
+        code,
+        hash: patchHash,
+        createdAt: previous ? previous.createdAt : now,
+        updatedAt: now,
+        pinned: previous ? Boolean(previous.pinned) : false,
+        lines: code.split(/\r?\n/).filter((line) => line.trim()).length,
+        voices: savedPatchVoices(code),
+        tempo: directives.tempo,
+        meter: directives.meter,
+        preview: savedPatchPreview(code),
+      };
+      if (existingIndex >= 0) list.splice(existingIndex, 1);
+      list.unshift(record);
+      writeSavedPatches(list);
+      return record;
+    }
+
+    function savedPatchRelativeTime(ts) {
+      const delta = Math.max(0, Date.now() - (Number(ts) || 0));
+      const minute = 60000;
+      const hour = 60 * minute;
+      const day = 24 * hour;
+      if (delta < minute) return 'just now';
+      if (delta < hour) return `${Math.floor(delta / minute)}m ago`;
+      if (delta < day) return `${Math.floor(delta / hour)}h ago`;
+      return `${Math.floor(delta / day)}d ago`;
+    }
+
+    function renderPatchBrowserTopTabs() {
+      if (!patchBrowserTopTabs) return;
+      const savedCount = readSavedPatches().length;
+      const exampleCount = totalVisibleExamples(visibleExampleCategories());
+      const tabs = [{ id: 'examples', label: 'examples', count: exampleCount }, { id: 'my-patches', label: 'my patches', count: savedCount }];
+      patchBrowserTopTabs.innerHTML = '';
+      for (const tab of tabs) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = ['patch-browser-top-tab', tab.id === activePatchBrowserTab ? 'is-active' : ''].filter(Boolean).join(' ');
+        btn.setAttribute('role', 'tab');
+        btn.setAttribute('aria-selected', tab.id === activePatchBrowserTab ? 'true' : 'false');
+        btn.innerHTML = `<span class="patch-browser-top-tab-label">${escapeExampleHtml(tab.label)}</span><span class="patch-browser-top-tab-count">${escapeExampleHtml(String(tab.count))}</span>`;
+        btn.addEventListener('click', () => { activePatchBrowserTab = tab.id; activeExampleFocusIndex = 0; renderExamplePopover(); });
+        patchBrowserTopTabs.appendChild(btn);
+      }
+    }
+
+    const PATCH_BROWSER_STARTER_RECIPES = {
+      piano: {
+        label: 'piano body',
+        nouns: ['resonant body', 'prepared room', 'pedal field', 'hammer trace'],
+        make: () => {
+          const chord = choosePatchStarterValue([
+            'C3 E3 G3 C4',
+            'A2 E3 C4 E4',
+            'D3 A3 C4 F4',
+            'G2 D3 B3 E4',
+          ]);
+          const pedal = choosePatchStarterValue(['0 0 0.75 0', '0 0.65 0 1', '1 1 0 0']);
+          const gain = choosePatchStarterValue(['0.72', '0.78', '0.64', '0.86']);
+          return `piano ${chord}\npedal ${pedal}\ngain ${gain}`;
+        },
+      },
+      bk: {
+        label: 'bk fragment',
+        nouns: ['bk fragment', 'cut cell', 'break shard', 'sample scar'],
+        make: () => {
+          const sample = choosePatchStarterValue(['bk-01', 'bk-03', 'bk-07', 'bk-10']);
+          const gain = choosePatchStarterValue(['0.72', '0.8', '0.68']);
+          const pan = choosePatchStarterValue(['center', 'left center right', 'center center left']);
+          return `sample ${sample}\ngain ${gain}\npan ${pan}`;
+        },
+      },
+      drums: {
+        label: '808 pocket',
+        nouns: ['808 pocket', 'lane machine', 'tape clock', 'kick lattice'],
+        make: () => {
+          const cells = choosePatchStarterValue(['k h s h | k h s o', 'k h s h | k o s c', 'k . h s | k h s o']);
+          const variance = choosePatchStarterValue(['0.18', '0.24', '0.34']);
+          const gain = choosePatchStarterValue(['0.78', '0.84', '0.72']);
+          return `drum ${cells}\nkit 808\nvariance ${variance}\ngain ${gain}\nspace 0.16`;
+        },
+      },
+      string: {
+        label: 'string drone',
+        nouns: ['string drone', 'body tone', 'slow string', 'pressure field'],
+        make: () => {
+          const line = choosePatchStarterValue(['C3 . G3 .', 'A2 ~ E3 .', 'D3 . A3 ~', 'G2 . D3 .']);
+          const force = choosePatchStarterValue(['mf mp p pp', 'p mp mf f', 'mp mf f ff']);
+          const space = choosePatchStarterValue(['0.28', '0.34', '0.22']);
+          return `string ${line}\nforce ${force}\nspace ${space}`;
+        },
+      },
+    };
+
+    function choosePatchStarterValue(list) {
+      const values = Array.isArray(list) ? list : [];
+      if (!values.length) return '';
+      return values[Math.floor(Math.random() * values.length) % values.length];
+    }
+
+    function makePatchBrowserStarter(kind) {
+      const recipe = PATCH_BROWSER_STARTER_RECIPES[kind] || PATCH_BROWSER_STARTER_RECIPES.piano;
+      const noun = choosePatchStarterValue(recipe.nouns) || recipe.label;
+      return {
+        kind,
+        label: recipe.label,
+        noun,
+        code: recipe.make(),
+      };
+    }
+
+    function sanitizePatchBrowserStarterCode(starter) {
+      const kind = String(starter && starter.kind || '').toLowerCase();
+      const lines = String(starter && starter.code || '')
+        .replace(/\r\n?/g, '\n')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      const sanitized = lines.map((line) => {
+        const parts = line.split(/\s+/);
+        const head = String(parts[0] || '').toLowerCase();
+
+        if (head === 'pedal') {
+          const values = parts.slice(1).map((token) => {
+            const raw = String(token || '').trim();
+            const lower = raw.toLowerCase();
+            if (raw === '.' || raw === '~' || raw === '_' || raw === '*') return '0';
+            if (lower === 'on') return 'on';
+            if (lower === 'off') return 'off';
+            if (lower === 'down') return '1';
+            if (lower === 'up') return '0';
+            if (lower === 'half') return '0.5';
+            const n = Number(raw);
+            if (Number.isFinite(n)) return String(Math.max(0, Math.min(1, n)));
+            return '0';
+          });
+          return `pedal ${values.length ? values.join(' ') : '0'}`;
+        }
+
+        if (head === 'force') {
+          const legalDynamics = new Set(['pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'random']);
+          const values = parts.slice(1).map((token) => {
+            const raw = String(token || '').trim();
+            const lower = raw.toLowerCase();
+            if (raw === '.' || raw === '~' || raw === '_' || raw === '*') return 'mf';
+            if (legalDynamics.has(lower)) return lower;
+            const n = Number(raw);
+            if (Number.isFinite(n)) return String(Math.max(0, Math.min(1, n)));
+            return 'mf';
+          });
+          return `force ${values.length ? values.join(' ') : 'mf'}`;
+        }
+
+        return line;
+      });
+
+      if (kind === 'piano' && !sanitized.some((line) => /^pedal\b/i.test(line))) {
+        sanitized.push('pedal 0 0 0.75 0');
+      }
+
+      return sanitized.join('\n');
+    }
+
+    function validatePatchBrowserStarterPatch(patch) {
+      if (!String(patch || '').trim()) return false;
+      if (!window.ReplDSL || typeof window.ReplDSL.parse !== 'function') return true;
+      try {
+        const parsed = window.ReplDSL.parse(patch);
+        return Boolean(parsed && parsed.ok);
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function fallbackPatchBrowserStarterScaffold(starter) {
+      const kind = String(starter && starter.kind || '').toLowerCase();
+      const title = normalizePatchTitle(starter && starter.noun ? starter.noun : starter && starter.label) || 'starter block';
+      const needsTuning = kind === 'piano' || kind === 'string';
+      const block = kind === 'bk'
+        ? 'sample bk-01\ngain 0.8\npan center'
+        : kind === 'string'
+          ? 'string C3 . G3 .\nforce mf mp p pp\nspace 0.28'
+          : 'piano C3 E3 G3 C4\npedal 0 0 0.75 0\ngain 0.78';
+      const header = [
+        `// title: ${title}`,
+        '',
+        'tempo 110',
+        'meter 4/4',
+      ];
+      if (needsTuning) header.push('tuning 12-henricus-grammateus');
+      return `${header.join('\n')}\n\n${block}\n`;
+    }
+
+    function patchBrowserStarterScaffold(starter) {
+      const code = sanitizePatchBrowserStarterCode(starter).trim();
+      if (!code) return '';
+      const needsTuning = starter && (starter.kind === 'piano' || starter.kind === 'string');
+      const title = normalizePatchTitle(starter && starter.noun ? starter.noun : starter && starter.label) || 'Starter Block';
+      const header = [
+        `// title: ${title}`,
+        '',
+        'tempo 110',
+        'meter 4/4',
+      ];
+      if (needsTuning) header.push('tuning 12-henricus-grammateus');
+      const patch = `${header.join('\n')}\n\n${code}\n`;
+      return validatePatchBrowserStarterPatch(patch) ? patch : fallbackPatchBrowserStarterScaffold(starter);
+    }
+
+    function addPatchBrowserStarterBlock(starter) {
+      if (!starter || !starter.code || !editorAPI) return;
+      const patch = patchBrowserStarterScaffold(starter);
+      if (!patch) return;
+
+      stop();
+      loadedExampleLabel = '';
+      currentExampleFile = '';
+      lastGoodProgram = null;
+      lastEvaluatedText = '';
+      lastParseErrorText = '';
+      lastRuntimeErrorText = '';
+      lastEditorMuteSnapshotKey = '';
+      if (blockMuteOverridesBySignature && typeof blockMuteOverridesBySignature.clear === 'function') {
+        blockMuteOverridesBySignature.clear();
+      }
+
+      editorAPI.setValue(patch);
+      patchLinkState.applyingRemotePatch = false;
+      patchLinkState.lastSavedCode = '';
+      patchLinkState.lastSavedTitle = '';
+      window.clearTimeout(patchLinkState.writeTimer);
+      patchLinkState.writeTimer = null;
+      clearPatchHashIfNeeded();
+      clearErrors();
+      if (exampleCurrentLabel) exampleCurrentLabel.textContent = 'examples / saved';
+      refreshPatchTitle();
+      syncEditorBlockMuteLines();
+      setStatusLine();
+      closeExamplePopover();
+      editorAPI.focus();
+    }
+
+    function openPatchBrowserTutorials() {
+      activePatchBrowserTab = 'examples';
+      activeExampleCategoryId = 'foundations';
+      activeExampleFocusIndex = 0;
+      if (examplePopoverSearch) {
+        examplePopoverSearch.value = '';
+        exampleSearchQuery = '';
+      }
+      renderExamplePopover();
+      window.requestAnimationFrame(() => {
+        const first = examplePopoverList && examplePopoverList.querySelector('.example-popover-item');
+        if (first && typeof first.focus === 'function') first.focus();
+      });
+    }
+
+    function renderSavedPatchEmptyState() {
+      if (!examplePopoverList) return;
+      const primary = makePatchBrowserStarter(choosePatchStarterValue(['piano', 'bk', 'string']));
+      const alternates = ['piano', 'bk', 'string']
+        .filter((kind) => kind !== primary.kind)
+        .map((kind) => makePatchBrowserStarter(kind));
+      const shell = document.createElement('div');
+      shell.className = 'patch-browser-empty';
+      shell.innerHTML = [
+        '<div class="patch-browser-empty-glyph" aria-hidden="true">⟦ . ⟧</div>',
+        '<div>',
+        '<p class="patch-browser-empty-copy">you do not have anything saved yet. start with a tutorial, or skip ahead with a generated block.</p>',
+        '<div class="patch-browser-empty-route">',
+        '<button type="button" class="patch-browser-tutorial-button" data-patch-tutorials>open tutorials</button>',
+        '</div>',
+        '<span class="patch-browser-empty-route-note">power user skip:</span>',
+        `<pre class="patch-browser-empty-code" aria-label="generated starter patch preview">${escapeExampleHtml(patchBrowserStarterScaffold(primary))}</pre>`,
+        '<div class="patch-browser-starter-grid"></div>',
+        '</div>',
+      ].join('');
+      const tutorialButton = shell.querySelector('[data-patch-tutorials]');
+      if (tutorialButton) tutorialButton.addEventListener('click', openPatchBrowserTutorials);
+      const grid = shell.querySelector('.patch-browser-starter-grid');
+      const starters = [primary].concat(alternates);
+      starters.forEach((starter, index) => {
+        const item = document.createElement('span');
+        item.className = 'patch-browser-starter';
+        const label = index === 0 ? `add ${starter.noun}` : starter.label;
+        item.innerHTML = `<button type="button" title="${escapeExampleHtml(patchBrowserStarterScaffold(starter))}">${escapeExampleHtml(label)}</button>`;
+        item.querySelector('button').addEventListener('click', () => addPatchBrowserStarterBlock(starter));
+        grid.appendChild(item);
+      });
+      examplePopoverList.appendChild(shell);
+    }
+
+    function savedPatchUrl(record) {
+      const hash = String(record && record.hash || '');
+      if (!hash) return '';
+      try { return `${window.location.origin}${window.location.pathname}${window.location.search}${hash}`; }
+      catch (_) { return hash; }
+    }
+
+    function openSavedPatch(record) {
+      if (!record || !editorAPI) return;
+      loadedExampleLabel = '';
+      currentExampleFile = '';
+      editorAPI.setValue(String(record.code || ''));
+      if (record.hash && record.hash.startsWith('#patch=v1.')) {
+        try { history.pushState(null, '', `${window.location.pathname}${window.location.search}${record.hash}`); } catch (_) {}
+      }
+      patchLinkState.lastSavedCode = String(record.code || '');
+      patchLinkState.lastSavedTitle = normalizePatchTitle(record.title || '');
+      if (exampleCurrentLabel) exampleCurrentLabel.textContent = 'saved';
+      activePatchBrowserTab = 'my-patches';
+      refreshPatchTitle();
+      closeExamplePopover();
+      editorAPI.focus();
+    }
+
+    async function copySavedPatchUrl(record) {
+      const url = savedPatchUrl(record);
+      if (!url) { showWarning('saved patch has no hash URL yet'); setTimeout(clearErrors, 2200); return; }
+      try {
+        await navigator.clipboard.writeText(url);
+        savedPatchCopiedId = record.id;
+        window.clearTimeout(savedPatchCopiedTimer);
+        savedPatchCopiedTimer = window.setTimeout(() => {
+          savedPatchCopiedId = '';
+          if (examplePopover && !examplePopover.hidden) renderExamplePopover();
+        }, 1500);
+        if (examplePopover && !examplePopover.hidden) renderExamplePopover();
+        showWarning('saved patch URL copied');
+      }
+      catch (_) { showWarning('clipboard unavailable — open patch and use share'); }
+      setTimeout(clearErrors, 2200);
+    }
+
+    function toggleSavedPatchPinned(record) {
+      if (!record) return;
+      const list = readSavedPatches();
+      const item = list.find((patch) => patch.id === record.id);
+      if (!item) return;
+      item.pinned = !Boolean(item.pinned);
+      item.updatedAt = Date.now();
+      writeSavedPatches(list);
+      renderExamplePopover();
+    }
+
+    function exportSavedPatchLibrary() {
+      const payload = {
+        app: 'seb-repl',
+        kind: 'saved-patches',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        patches: readSavedPatches(),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'seb-repl-patches.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function mergeImportedSavedPatches(incoming) {
+      const current = readSavedPatches();
+      const byKey = new Map();
+      for (const item of current) {
+        byKey.set(item.id || item.hash, item);
+        if (item.hash) byKey.set(item.hash, item);
+      }
+      let imported = 0;
+      for (const raw of incoming || []) {
+        if (!raw || typeof raw !== 'object' || typeof raw.code !== 'string' || !raw.code.trim()) continue;
+        const title = normalizePatchTitle(raw.title || 'Untitled Patch') || 'Untitled Patch';
+        const directives = savedPatchTopDirectives(raw.code);
+        const id = String(raw.id || safeSavedPatchId(`${title}-${raw.updatedAt || Date.now()}`));
+        const candidate = {
+          id,
+          title,
+          code: String(raw.code || ''),
+          hash: String(raw.hash || ''),
+          createdAt: Number(raw.createdAt) || Date.now(),
+          updatedAt: Number(raw.updatedAt) || Date.now(),
+          pinned: Boolean(raw.pinned),
+          lines: String(raw.code || '').split(/\r?\n/).filter((line) => line.trim()).length,
+          voices: savedPatchVoices(raw.code),
+          tempo: directives.tempo,
+          meter: directives.meter,
+          preview: savedPatchPreview(raw.code),
+        };
+        const existing = byKey.get(candidate.hash) || byKey.get(candidate.id);
+        if (!existing) {
+          current.push(candidate);
+          imported += 1;
+          continue;
+        }
+        if (Number(candidate.updatedAt) > Number(existing.updatedAt)) {
+          Object.assign(existing, candidate, { pinned: Boolean(existing.pinned || candidate.pinned) });
+          imported += 1;
+        }
+      }
+      writeSavedPatches(current);
+      return imported;
+    }
+
+    function importSavedPatchLibrary() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json,.json';
+      input.addEventListener('change', async () => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const data = JSON.parse(text);
+          const patches = Array.isArray(data) ? data : (Array.isArray(data.patches) ? data.patches : []);
+          const count = mergeImportedSavedPatches(patches);
+          renderExamplePopover();
+          showWarning(count ? `imported ${count} saved patch${count === 1 ? '' : 'es'}` : 'no newer saved patches found');
+        } catch (err) {
+          console.warn('[repl] patch library import failed:', err);
+          showWarning('patch library import failed');
+        }
+        setTimeout(clearErrors, 2600);
+      });
+      input.click();
+    }
+
+    function deleteSavedPatch(record) {
+      if (!record) return;
+      if (savedPatchDeleteArmedId !== record.id) {
+        savedPatchDeleteArmedId = record.id;
+        window.clearTimeout(savedPatchDeleteTimer);
+        savedPatchDeleteTimer = window.setTimeout(() => { savedPatchDeleteArmedId = ''; if (examplePopover && !examplePopover.hidden) renderExamplePopover(); }, 2200);
+        renderExamplePopover();
+        return;
+      }
+      savedPatchDeleteArmedId = '';
+      window.clearTimeout(savedPatchDeleteTimer);
+      writeSavedPatches(readSavedPatches().filter((item) => item.id !== record.id));
+      renderExamplePopover();
+    }
+
+    function renderSavedPatchLibraryBar(count) {
+      const bar = document.createElement('div');
+      bar.className = 'saved-patch-library-bar';
+      bar.innerHTML = [
+        `<span class="saved-patch-library-title">my patches / ${escapeExampleHtml(String(count))}</span>`,
+        '<span class="saved-patch-library-tools">',
+        '<button type="button" data-action="import">import</button>',
+        '<button type="button" data-action="export">export</button>',
+        '</span>',
+      ].join('');
+      bar.querySelector('[data-action="import"]').addEventListener('click', importSavedPatchLibrary);
+      bar.querySelector('[data-action="export"]').addEventListener('click', exportSavedPatchLibrary);
+      return bar;
+    }
+
+    function renderSavedPatchBrowser() {
+      if (!examplePopoverTabs || !examplePopoverList) return;
+      const query = String(exampleSearchQuery || '').trim().toLowerCase();
+      let patches = readSavedPatches();
+      if (query) {
+        patches = patches.filter((item) => [
+          item.title,
+          item.preview,
+          item.tempo,
+          item.meter,
+          (item.voices || []).join(' '),
+        ].join(' ').toLowerCase().includes(query));
+      }
+      if (examplePopoverCount) examplePopoverCount.textContent = `${patches.length} SAVED`;
+      examplePopoverTabs.innerHTML = '<div class="example-popover-section-label example-accent-samples">local hash library</div>';
+      examplePopoverList.innerHTML = '';
+      examplePopoverList.appendChild(renderSavedPatchLibraryBar(patches.length));
+      if (!patches.length) { renderSavedPatchEmptyState(); return; }
+      patches.forEach((record) => {
+        const card = document.createElement('div');
+        card.className = ['saved-patch-card', record.pinned ? 'is-pinned' : ''].filter(Boolean).join(' ');
+        const voices = record.voices && record.voices.length ? record.voices.slice(0, 4).join(' + ') : 'no voices yet';
+        const meter = record.meter ? ` · ${record.meter}` : '';
+        const tempo = record.tempo ? `tempo ${record.tempo}` : 'tempo ?';
+        const copied = savedPatchCopiedId === record.id;
+        card.innerHTML = [
+          `<button type="button" class="saved-patch-pin" aria-pressed="${record.pinned ? 'true' : 'false'}" title="${record.pinned ? 'unpin patch' : 'pin patch'}">${record.pinned ? '★' : '☆'}</button>`,
+          `<button type="button" class="saved-patch-open"><span class="saved-patch-title">PATCH / ${escapeExampleHtml(record.title)}</span><span class="saved-patch-meta">${escapeExampleHtml(`${savedPatchRelativeTime(record.updatedAt)} · ${record.lines || 0} lines · ${voices}`)}</span><span class="saved-patch-preview">${escapeExampleHtml(`${tempo}${meter} · ${record.preview || 'saved patch'}`)}</span></button>`,
+          '<span class="saved-patch-actions">',
+          '<button type="button" data-action="open">open</button>',
+          `<button type="button" data-action="copy"${copied ? ' data-copy-done="1"' : ''}>${copied ? 'copied' : 'copy url'}</button>`,
+          `<button type="button" data-action="delete"${savedPatchDeleteArmedId === record.id ? ' data-delete-armed="1"' : ''}>${savedPatchDeleteArmedId === record.id ? 'delete?' : 'delete'}</button>`,
+          '</span>',
+        ].join('');
+        card.querySelector('.saved-patch-open').addEventListener('click', () => openSavedPatch(record));
+        card.querySelector('.saved-patch-pin').addEventListener('click', () => toggleSavedPatchPinned(record));
+        card.querySelector('[data-action="open"]').addEventListener('click', () => openSavedPatch(record));
+        card.querySelector('[data-action="copy"]').addEventListener('click', () => copySavedPatchUrl(record));
+        card.querySelector('[data-action="delete"]').addEventListener('click', () => deleteSavedPatch(record));
+        examplePopoverList.appendChild(card);
+      });
+    }
+
+    function renderExamplePopover() {
+      if (!examplePopoverTabs || !examplePopoverList) return;
+
+      renderPatchBrowserTopTabs();
+      if (activePatchBrowserTab === 'my-patches') {
+        renderSavedPatchBrowser();
+        return;
+      }
+
+      const cats = visibleExampleCategories();
+      const count = totalVisibleExamples(cats);
+
+      if (examplePopoverCount) {
+        examplePopoverCount.textContent = `${count} PATCH${count === 1 ? '' : 'ES'}`;
+      }
+
+      if (!cats.length) {
+        examplePopoverTabs.innerHTML = '';
+        examplePopoverList.innerHTML = '<div class="example-popover-empty">No score cards match this filter.</div>';
+        return;
+      }
+
+      if (!cats.some((c) => c.id === activeExampleCategoryId)) {
+        activeExampleCategoryId = cats[0].id;
+        activeExampleFocusIndex = 0;
+      }
+
+      examplePopoverTabs.innerHTML = '';
+
+      for (const cat of cats) {
+        const accent = exampleAccentId(cat, null);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = [
+          'example-popover-tab',
+          `example-accent-${accent}`,
+          cat.id === activeExampleCategoryId ? 'is-active' : '',
+        ].filter(Boolean).join(' ');
+        btn.setAttribute('role', 'tab');
+        btn.setAttribute('aria-selected', cat.id === activeExampleCategoryId ? 'true' : 'false');
+        btn.innerHTML = [
+          '<span class="example-popover-tab-main">',
+          escapeExampleHtml(cat.label || cat.id),
+          '</span>',
+          '<span class="example-popover-tab-count">',
+          escapeExampleHtml(cat.examples.length),
+          '</span>',
+        ].join('');
+
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          activeExampleCategoryId = cat.id;
+          activeExampleFocusIndex = 0;
+          renderExamplePopover();
+          requestAnimationFrame(positionExamplePopover);
+        });
+
+        btn.addEventListener('keydown', (e) => {
+          const tabs = Array.from(examplePopoverTabs.querySelectorAll('.example-popover-tab'));
+          const idx = tabs.indexOf(document.activeElement);
+
+          if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            const next = tabs[(idx + 1 + tabs.length) % tabs.length];
+            if (next) next.focus();
+          }
+
+          if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+            e.preventDefault();
+            const next = tabs[(idx - 1 + tabs.length) % tabs.length];
+            if (next) next.focus();
+          }
+
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            btn.click();
+          }
+        });
+
+        examplePopoverTabs.appendChild(btn);
+      }
+
+      examplePopoverList.innerHTML = '';
+
+      const active = cats.find((c) => c.id === activeExampleCategoryId);
+      if (!active) return;
+
+      const section = document.createElement('div');
+      section.className = `example-popover-section-label example-accent-${exampleAccentId(active, null)}`;
+      section.textContent = active.label || active.id;
+      examplePopoverList.appendChild(section);
+
+      active.examples.forEach((ex, idx) => {
+        const accent = exampleAccentId(active, ex);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = [
+          'example-popover-item',
+          `example-accent-${accent}`,
+          ex.file === currentExampleFile ? 'is-current' : '',
+        ].filter(Boolean).join(' ');
+        btn.dataset.exampleFile = ex.file;
+        btn.dataset.exampleIndex = String(idx);
+
+        if (ex.isVideo) btn.dataset.video = '1';
+        if (ex.file === currentExampleFile) btn.setAttribute('aria-current', 'true');
+
+        btn.innerHTML = [
+          '<span class="example-popover-num">',
+          escapeExampleHtml(exampleNumber(ex)),
+          '</span>',
+          '<span class="example-popover-copy">',
+          '<span class="example-popover-label">',
+          escapeExampleHtml(cleanExampleTitle(ex)),
+          '</span>',
+          '<span class="example-popover-detail">',
+          escapeExampleHtml(exampleDetail(active, ex)),
+          '</span>',
+          '</span>',
+          '<span class="example-popover-stamp" aria-hidden="true"></span>',
+        ].join('');
+
+        btn.addEventListener('click', () => {
+          activeExampleFocusIndex = idx;
+          void loadExampleByFile(ex.file);
+          closeExamplePopover();
+        });
+
+        btn.addEventListener('keydown', (e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            moveExampleFocus(1);
+          }
+
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            moveExampleFocus(-1);
+          }
+
+          if (e.key === 'Home') {
+            e.preventDefault();
+            focusExampleItem(0);
+          }
+
+          if (e.key === 'End') {
+            e.preventDefault();
+            focusExampleItem(exampleItemButtons().length - 1);
+          }
+
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            btn.click();
+          }
+        });
+
+        examplePopoverList.appendChild(btn);
+      });
+
+      const items = exampleItemButtons();
+      if (items.length) {
+        const currentIndex = items.findIndex((item) => item.dataset.exampleFile === currentExampleFile);
+        activeExampleFocusIndex = currentIndex >= 0 ? currentIndex : Math.min(activeExampleFocusIndex, items.length - 1);
+      }
+    }
+
+    function positionExamplePopover() {
+      // Centered modal is positioned entirely by CSS.
+      // Kept as a no-op because open/render/resize code already calls it.
+    }
+
+    function openExamplePopover() {
+      if (!examplePopover || !exampleTrigger) return;
+
+      if (currentExampleFile) activePatchBrowserTab = 'examples';
+      else if (readSavedPatches().length > 0) activePatchBrowserTab = 'my-patches';
+
+      if (currentExampleFile) {
+        const found = findExampleByFile(currentExampleFile);
+        if (found && visibleExampleCategories().some((c) => c.id === found.category.id)) {
+          activeExampleCategoryId = found.category.id;
+        }
+      }
+
+      if (examplePopoverSearch) {
+        exampleSearchQuery = examplePopoverSearch.value || '';
+      }
+
+        renderExamplePopover();
+
+        examplePopover.style.left = '';
+        examplePopover.style.top = '';
+        examplePopover.hidden = false;
+        document.body.classList.add('example-popover-open');
+        exampleTrigger.setAttribute('aria-expanded', 'true');
+
+        requestAnimationFrame(() => {
+          const current = examplePopoverList && examplePopoverList.querySelector('.example-popover-item.is-current');
+          if (current) {
+            current.scrollIntoView({ block: 'nearest' });
+          }
+
+          if (examplePopoverSearch) {
+            examplePopoverSearch.focus();
+            examplePopoverSearch.select();
+          }
+        });
+    }
+
+    function closeExamplePopover() {
+      if (!examplePopover || !exampleTrigger) return;
+        examplePopover.hidden = true;
+        document.body.classList.remove('example-popover-open');
+        exampleTrigger.setAttribute('aria-expanded', 'false');
+    }
+
+  function toggleExamplePopover() {
+    if (!examplePopover) return;
+    if (examplePopover.hidden) openExamplePopover();
+    else closeExamplePopover();
+  }
+
+  function exampleHashSlug(file) {
+    return String(file || '').replace(/\.txt$/i, '');
+  }
+
+  function writeExampleHash(file) {
+    if (!file) return;
+    try {
+      const target = '#example=' + encodeURIComponent(exampleHashSlug(file));
+      if (window.location.hash !== target) {
+        history.replaceState(null, '', target);
+      }
+    } catch (_) {}
+  }
+
+  function readExampleHash() {
+    const h = (window.location.hash || '').replace(/^#/, '');
+    if (!h.startsWith('example=')) return '';
+    let decoded = '';
+    try { decoded = decodeURIComponent(h.slice('example='.length)); } catch (_) { return ''; }
+    if (!decoded) return '';
+    const candidates = [decoded, decoded + '.txt'];
+    for (const cand of candidates) {
+      if (findExampleByFile(cand)) return cand.endsWith('.txt') ? cand : cand + '.txt';
+    }
+    return '';
+  }
+
+  async function loadExampleByFile(file) {
+    if (!file) return;
+    const found = findExampleByFile(file);
+    if (found && found.example.isVideo && !videoExamplesEnabled) return;
+    try {
+      const r = await fetch('./examples/' + file);
         if (r.ok) {
           const text = await r.text();
-          const selectedOption = exampleSelect.options[exampleSelect.selectedIndex];
-          loadedExampleLabel = selectedOption ? selectedOption.textContent : v.replace(/\.txt$/i, '');
+          const label = found ? found.example.label : file.replace(/\.txt$/i, '');
+          loadedExampleLabel = label;
+          currentExampleFile = file;
+
+          if (found && found.category) activeExampleCategoryId = found.category.id;
+          if (exampleCurrentLabel) exampleCurrentLabel.textContent = 'examples / saved';
           if (editorAPI) editorAPI.setValue(text);
+
           refreshPatchTitle();
+          writeExampleHash(file);
+
+          patchLinkState.lastSavedCode = editorAPI ? editorAPI.getValue() : '';
+          patchLinkState.lastSavedTitle = getPatchTitleForShare();
+          refreshPatchTitle();
+
+          if (examplePopover && !examplePopover.hidden) {
+            renderExamplePopover();
+          }
         }
-      } catch (_) {}
-      exampleSelect.value = '';
+    } catch (err) {
+      console.warn('[repl] failed to load example:', file, err);
+      showWarning(`couldn't load example: ${file}`);
+    }
       if (editorAPI) editorAPI.focus();
-    });
   }
+
+    if (exampleTrigger && examplePopover) {
+      exampleTrigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleExamplePopover();
+      });
+
+      exampleTrigger.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openExamplePopover();
+
+          requestAnimationFrame(() => {
+            if (examplePopoverSearch) examplePopoverSearch.focus();
+            else focusExampleItem(activeExampleFocusIndex);
+          });
+        }
+      });
+
+      if (examplePopoverSearch) {
+        examplePopoverSearch.addEventListener('click', (e) => {
+          e.stopPropagation();
+        });
+
+        examplePopoverSearch.addEventListener('input', () => {
+          exampleSearchQuery = examplePopoverSearch.value || '';
+          activeExampleFocusIndex = 0;
+          renderExamplePopover();
+          requestAnimationFrame(positionExamplePopover);
+        });
+
+        examplePopoverSearch.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            closeExamplePopover();
+            exampleTrigger.focus();
+          }
+
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            focusExampleItem(0);
+          }
+
+          if (e.key === 'Enter') {
+            const first = exampleItemButtons()[0];
+            if (first) {
+              e.preventDefault();
+              first.click();
+            }
+          }
+        });
+      }
+
+      examplePopover.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+
+      document.addEventListener('click', (e) => {
+        if (examplePopover.hidden) return;
+        if (examplePopover.contains(e.target)) return;
+        if (exampleTrigger.contains(e.target)) return;
+        closeExamplePopover();
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (examplePopover.hidden) return;
+
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeExamplePopover();
+          exampleTrigger.focus();
+        }
+
+        if (e.key === 'ArrowDown' && document.activeElement === exampleTrigger) {
+          e.preventDefault();
+          focusExampleItem(activeExampleFocusIndex);
+        }
+      });
+
+      window.addEventListener('resize', () => {
+        if (!examplePopover.hidden) positionExamplePopover();
+      });
+
+      window.addEventListener('hashchange', () => {
+        const file = readExampleHash();
+        if (file && file !== currentExampleFile) void loadExampleByFile(file);
+      });
+    }
 
     // ---------------- transport / coupling visualizer ----------------
 
@@ -1521,8 +3434,8 @@
         detail: 'Selects the manifest-defined drum kit used by drum lane tokens (k/s/h/o/t/r/c/*). It is the curatorial surface for deterministic lane hits and wildcard pool behavior.',
         use: 'change kit id = new lane pools while timing and pattern stay unchanged',
         audio: 'Routes drum lane tokens to kit sample pools; does not change timing.',
-        range: 'manifest kit ids, e.g. 909, tub-grid',
-        examples: ['kit 909', 'kit tub-grid'],
+        range: 'manifest kit ids, e.g. breakcore',
+        examples: ['kit breakcore'],
         drivenBy: ['sample', 'density'],
       },
       variance: {
@@ -1992,6 +3905,189 @@
         units: ['number', 'mode'],
         cues: [{ test: () => true, text: 'resonant mass / object color' }],
       },
+        mallet: {
+          label: 'MALLET',
+          role: 'marimba mallet family / attack material',
+          bends: ['attack', 'tone', 'body'],
+          units: ['yarn', 'cord', 'rubber'],
+          cues: [
+            { test: (item) => item.displayText.includes('RUBBER'), text: 'hard mallet / bright attack' },
+            { test: (item) => item.displayText.includes('CORD'), text: 'medium mallet / balanced attack' },
+            { test: (item) => item.displayText.includes('YARN'), text: 'soft mallet / warm attack' },
+            { test: () => true, text: 'marimba mallet selection' },
+          ],
+        },
+        deadstroke: {
+          label: 'DEADSTROKE',
+          role: 'bar damping / stopped resonance',
+          bends: ['damping', 'attack', 'decay'],
+          units: ['0–1', 'off', 'on'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.7, text: 'strongly damped dead stroke' },
+            { test: (item) => numericAverage(item.values) > 0, text: 'partial damping / shortened bar resonance' },
+            { test: () => true, text: 'open ringing stroke' },
+          ],
+        },
+        roll: {
+          label: 'ROLL',
+          role: 'marimba roll density / tremolo sustain',
+          bends: ['density', 'time', 'resonance'],
+          units: ['0–1', 'off', 'on'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.7, text: 'dense sustained roll' },
+            { test: (item) => numericAverage(item.values) > 0, text: 'light roll / tremolo sustain' },
+            { test: () => true, text: 'single strike / no roll' },
+          ],
+        },
+        spread: {
+          label: 'SPREAD',
+          role: 'four-mallet chord timing spread',
+          bends: ['gesture', 'human', 'time'],
+          units: ['0–1', 'seconds'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.05, text: 'wide hand-spread chord gesture' },
+            { test: (item) => numericAverage(item.values) > 0, text: 'small four-mallet timing spread' },
+            { test: () => true, text: 'vertical chord attack' },
+          ],
+        },
+        motor: {
+          label: 'MOTOR',
+          role: 'rotating resonator tremolo / vibraphone motor',
+          bends: ['motion', 'shimmer', 'time'],
+          units: ['0–1', 'off', 'on'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.7, text: 'fast mechanical shimmer' },
+            { test: (item) => numericAverage(item.values) > 0, text: 'motor tremolo active' },
+            { test: () => true, text: 'motor off / static bars' },
+          ],
+        },
+        depth: {
+          label: 'DEPTH',
+          role: 'motor tremolo depth',
+          bends: ['amplitude', 'motion', 'shimmer'],
+          units: ['0–1', 'off', 'on'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.7, text: 'deep motor gating' },
+            { test: (item) => numericAverage(item.values) > 0, text: 'subtle amplitude shimmer' },
+            { test: () => true, text: 'no motor depth' },
+          ],
+        },
+        damp: {
+          label: 'DAMP',
+          role: 'manual damping / stopped metal bar',
+          bends: ['damping', 'pedal', 'decay'],
+          units: ['0–1', 'off', 'on'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.7, text: 'strong stopped-bar damping' },
+            { test: (item) => numericAverage(item.values) > 0, text: 'partial hand damping' },
+            { test: () => true, text: 'open undamped bar' },
+          ],
+        },
+        bowpressure: {
+          label: 'BOWPRESSURE',
+          role: 'bowed metal pressure / spectral edge',
+          bends: ['attack', 'scrape', 'brightness'],
+          units: ['0–1', 'off', 'on'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.7, text: 'high bow pressure / bright scrape' },
+            { test: (item) => numericAverage(item.values) > 0, text: 'bowed-bar pressure' },
+            { test: () => true, text: 'light bowed-bar contact' },
+          ],
+        },
+        vowel: {
+          label: 'VOWEL',
+          role: 'voice vowel / mouth shape',
+          bends: ['mouth', 'tone', 'body'],
+          units: ['ah', 'eh', 'ee', 'oh', 'oo'],
+          cues: [{ test: () => true, text: 'vowel material / sung mouth state' }],
+        },
+        syllable: {
+          label: 'SYLLABLE',
+          role: 'controlled robot-mouth token',
+          bends: ['mouth', 'signal', 'word'],
+          units: ['ah', 'ma', 'null', 'input', 'error'],
+          cues: [{ test: () => true, text: 'machine syllable / token source' }],
+        },
+        carrier: {
+          label: 'CARRIER',
+          role: 'synthetic source / corpus fallback mode',
+          bends: ['oscillator', 'sample', 'tone'],
+          units: ['sample', 'sine', 'saw', 'square', 'pulse', 'noise'],
+          cues: [{ test: () => true, text: 'robot voice carrier source' }],
+        },
+        robot: {
+          label: 'ROBOT',
+          role: 'mechanical stepping / quantized mouth motion',
+          bends: ['stepping', 'roughness', 'machine'],
+          units: ['0–1', 'off', 'on'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.7, text: 'hard machine-mouth stepping' },
+            { test: (item) => numericAverage(item.values) > 0, text: 'light robot stepping' },
+            { test: () => true, text: 'smooth formant voice' },
+          ],
+        },
+        breath: {
+          label: 'BREATH',
+          role: 'air/noise layer / breath pressure',
+          bends: ['air', 'noise', 'fragility'],
+          units: ['0–1', 'off', 'on'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.65, text: 'high breath/noise presence' },
+            { test: (item) => numericAverage(item.values) > 0, text: 'audible breath layer' },
+            { test: () => true, text: 'clean voice tone' },
+          ],
+        },
+        mouth: {
+          label: 'MOUTH',
+          role: 'vowel openness / brightness',
+          bends: ['formant', 'tone', 'body'],
+          units: ['0–1', 'off', 'on'],
+          cues: [{ test: () => true, text: 'mouth brightness / openness' }],
+        },
+        formant: {
+          label: 'FORMANT',
+          role: 'approximate voice tract shift',
+          bends: ['body', 'mouth', 'register'],
+          units: ['-1–1'],
+          cues: [
+            { test: (item) => numericAverage(item.values) > 0.15, text: 'smaller/brighter voice tract approximation' },
+            { test: (item) => numericAverage(item.values) < -0.15, text: 'larger/darker voice tract approximation' },
+            { test: () => true, text: 'natural formant region' },
+          ],
+        },
+        roughness: {
+          label: 'ROUGHNESS',
+          role: 'instability / fry / voice edge',
+          bends: ['noise', 'rate', 'crush'],
+          units: ['0–1', 'off', 'on'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.65, text: 'strong voice instability' },
+            { test: (item) => numericAverage(item.values) > 0, text: 'subtle roughness / edge' },
+            { test: () => true, text: 'clean emission' },
+          ],
+        },
+        ensemble: {
+          label: 'ENSEMBLE',
+          role: 'stacked synthetic mouths / machine choir',
+          bends: ['human', 'spread', 'chorus'],
+          units: ['0–1', 'off', 'on'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.6, text: 'stacked machine choir' },
+            { test: (item) => numericAverage(item.values) > 0, text: 'light synthetic doubling' },
+            { test: () => true, text: 'single robot mouth' },
+          ],
+        },
+        vocoder: {
+          label: 'VOCODER',
+          role: 'banded metallic speech color',
+          bends: ['bands', 'metal', 'mouth'],
+          units: ['0–1', 'off', 'on'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.6, text: 'strong vocoder-ish banding' },
+            { test: (item) => numericAverage(item.values) > 0, text: 'subtle banded machine color' },
+            { test: () => true, text: 'unbanded robot voice' },
+          ],
+        },
     };
 
     const SIGNALS = Object.entries(SIGNAL_META).map(([abbr, meta]) => [abbr, meta.key, meta.name]);
@@ -2006,6 +4102,7 @@
         if (t.kind === 'noise') return 'sample';
         if (t.kind === 'pulse') return 'sample';
         if (t.kind === 'drum') return 'sample';
+        if (t.kind === 'voice') return 'sample';
         return 'note';
       }
       return 'rest';
@@ -2644,7 +4741,7 @@
       if (block.fade && block.fade.mode && block.fade.mode !== 'clear') push('fade');
       if (block.speed && (hasParamControlStream(block.speed) || block.speed.kind === 'vector')) push('speed');
 
-      for (const name of ['pan', 'gain', 'rate', 'start', 'crush', 'resolution', 'variance', 'force', 'decay', 'tone', 'harm', 'octave']) {
+        for (const name of ['pan', 'gain', 'rate', 'start', 'crush', 'resolution', 'variance', 'force', 'decay', 'tone', 'harm', 'octave', 'pedal', 'una', 'lid', 'sympathetic', 'release', 'human', 'stretch', 'layer', 'poly', 'articulation', 'sul', 'vibrato', 'vibratorate', 'vibratoonset', 'tremolo', 'tremolorate', 'bow', 'wood', 'mallet', 'deadstroke', 'roll', 'spread', 'motor', 'depth', 'damp', 'bowpressure', 'vowel', 'syllable', 'carrier', 'robot', 'breath', 'mouth', 'formant', 'roughness', 'vocoder', 'ensemble']) {
         if (hasParamControlStream(params[name])) push(name);
       }
       for (const name of ['opacity', 'threshold', 'edges', 'posterize', 'invert', 'contrast', 'saturate', 'displace', 'feedback', 'delay', 'slitscan', 'trail', 'mask', 'key', 'color', 'blend', 'monitor', 'listen']) {
@@ -2655,7 +4752,7 @@
         if (effects[name]) push(name);
       }
 
-      if (block.voice === 'string' || block.voice === 'sine' || block.voice === 'osc' || block.voice === 'pluck' || block.voice === 'drone') {
+        if (block.voice === 'string' || block.voice === 'sine' || block.voice === 'osc' || block.voice === 'pluck' || block.voice === 'drone' || block.voice === 'piano' || block.voice === 'violin' || block.voice === 'cello' || block.voice === 'marimba' || block.voice === 'vibraphone' || block.voice === 'voice') {
         const hasRandomPitch = blockHasTokenKind(block, (tok) => tok && tok.kind === 'note-random');
         if (hasRandomPitch) push('pitch');
       }
@@ -2671,7 +4768,45 @@
         push('kit');
         push('sample');
       }
-      if (block.voice === 'video' || block.voice === 'video-gen') {
+
+      if (block.voice === 'marimba') {
+        push('mallet');
+        push('force');
+        push('resonance');
+        push('body');
+        push('deadstroke');
+        push('roll');
+        push('spread');
+        push('human');
+      }
+
+      if (block.voice === 'vibraphone') {
+        push('articulation');
+        push('pedal');
+        push('motor');
+        push('depth');
+        push('damp');
+        push('bowpressure');
+        push('body');
+        push('sympathetic');
+        push('spread');
+        push('human');
+      }
+        if (block.voice === 'voice') {
+          push('vowel');
+          push('syllable');
+          push('carrier');
+          push('robot');
+          push('mouth');
+          push('formant');
+          push('breath');
+          push('roughness');
+          push('vocoder');
+          push('ensemble');
+          push('body');
+          push('sympathetic');
+        }
+if (block.voice === 'video' || block.voice === 'video-gen') {
         for (const name of ['opacity', 'threshold', 'edges', 'posterize', 'invert', 'contrast', 'saturate', 'displace', 'feedback', 'delay', 'slitscan', 'trail', 'mask', 'key', 'color', 'blend', 'monitor', 'listen']) {
           if (params[name]) push(name);
         }
@@ -2686,12 +4821,56 @@
         push('gain');
         push('pan');
 
-        if (block.voice === 'string' || block.voice === 'sine' || block.voice === 'osc' || block.voice === 'pluck' || block.voice === 'drone') {
+          if (block.voice === 'string' || block.voice === 'sine' || block.voice === 'osc' || block.voice === 'pluck' || block.voice === 'drone' || block.voice === 'piano' || block.voice === 'violin' || block.voice === 'cello' || block.voice === 'marimba' || block.voice === 'vibraphone' || block.voice === 'voice') {
           push('decay');
           push('tone');
           push('crush');
           push('resolution');
           push('pitch');
+          if (block.voice === 'piano') {
+            push('pedal');
+            push('sympathetic');
+            push('body');
+            push('lid');
+          }
+          if (block.voice === 'violin') {
+            push('vibrato');
+            push('bow');
+            push('wood');
+            push('sympathetic');
+          }
+          if (block.voice === 'cello') {
+            push('articulation');
+            push('sul');
+            push('vibrato');
+            push('bow');
+            push('wood');
+            push('sympathetic');
+            push('release');
+            push('human');
+          }
+          if (block.voice === 'vibraphone') {
+            push('articulation');
+            push('pedal');
+            push('motor');
+            push('depth');
+            push('damp');
+            push('bowpressure');
+            push('body');
+            push('sympathetic');
+            push('spread');
+            push('human');
+          }
+              if (block.voice === 'marimba') {
+                push('mallet');
+                push('force');
+                push('resonance');
+                push('body');
+                push('deadstroke');
+                push('roll');
+                push('spread');
+                push('human');
+              }
         } else if (block.voice === 'noise' || block.voice === 'pulse') {
           push('decay');
           push('tone');
@@ -2976,6 +5155,11 @@
 
     function renderTransportShell(program) {
       if (!beatDotsEl || !blockRowsEl) return;
+
+      // Hide the entire beat row when the patch is in free-time mode (no
+      // explicit tempo/meter) — there's nothing for it to count.
+      const beatRowEl = beatDotsEl.closest('.beat-row');
+      if (beatRowEl) beatRowEl.hidden = Boolean(program && program.freeTime);
 
       // Beat dots — one per beat in the meter.
       beatDotsEl.innerHTML = '';
@@ -4202,6 +6386,2488 @@
     }
   }
 
+  const COMMAND_INSERT_VOICE_HEADS = new Set([
+    'string', 'sample', 'drum', 'piano', 'violin', 'cello', 'marimba',
+    'vibraphone', 'vibes', 'voice', 'vox', 'input', 'sine', 'osc', 'noise',
+    'pluck', 'pulse', 'drone', 'video',
+  ]);
+  const COMMAND_INSERT_GLOBAL_HEADS = new Set([
+    'tempo', 'meter', 'tuning', 'source', 'attractor', 'every', 'enter', 'exit',
+  ]);
+  const COMMAND_INSERT_PARAM_HEADS = new Set([
+    'gain', 'pan', 'force', 'speed', 'rate', 'start', 'decay', 'space', 'body',
+    'sympathetic', 'compress', 'crush', 'resolution', 'tone', 'filter', 'color',
+    'mallet', 'roll', 'deadstroke', 'pedal', 'motor', 'depth', 'damp',
+    'bowpressure', 'articulation', 'sul', 'vibrato', 'carrier', 'syllable',
+    'vocoder', 'robot', 'mouth', 'formant', 'roughness', 'kit', 'variance',
+    'listen', 'monitor', 'opacity', 'feedback', 'edges', 'blend', 'vowel',
+    'human', 'wood', 'release', 'lid', 'una', 'resonance',
+  ]);
+
+  function commandLineRanges(doc) {
+    const text = String(doc || '');
+    const lines = text.split(/\n/);
+    const ranges = [];
+    let pos = 0;
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      ranges.push({ index: i, start: pos, end: pos + line.length, text: line });
+      pos += line.length + 1;
+    }
+    return ranges;
+  }
+
+  function commandLineIndexAt(ranges, pos) {
+    const cursor = Math.max(0, Number(pos) || 0);
+    for (let i = 0; i < ranges.length; i += 1) {
+      const line = ranges[i];
+      if (cursor >= line.start && cursor <= line.end) return i;
+      if (cursor === line.end + 1 && i + 1 < ranges.length) return i + 1;
+    }
+    return Math.max(0, ranges.length - 1);
+  }
+
+  function commandRowHead(line) {
+    const text = String(line || '').trim();
+    if (!text || text.startsWith('//') || text.startsWith('#')) return '';
+    return String(text.split(/\s+/, 1)[0] || '').toLowerCase();
+  }
+
+  function commandIsBlankish(line) {
+    const text = String(line || '').trim();
+    return !text || text.startsWith('//') || text.startsWith('#');
+  }
+
+  function commandIsVoiceHead(line) {
+    return COMMAND_INSERT_VOICE_HEADS.has(commandRowHead(line));
+  }
+
+  function commandIsGlobalHead(line) {
+    return COMMAND_INSERT_GLOBAL_HEADS.has(commandRowHead(line));
+  }
+
+  function commandSelectionRange(doc) {
+    if (!editorAPI) return null;
+    const max = String(doc || '').length;
+    const normalize = (from, to) => {
+      const a = Number(from);
+      const b = Number(to);
+      if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) return null;
+      return {
+        from: Math.max(0, Math.min(max, Math.min(a, b) | 0)),
+        to: Math.max(0, Math.min(max, Math.max(a, b) | 0)),
+      };
+    };
+    try {
+      if (typeof editorAPI.getSelectionRange === 'function') {
+        const r = editorAPI.getSelectionRange();
+        const out = r && normalize(r.from, r.to);
+        if (out) return out;
+      }
+      if (typeof editorAPI.getSelectedRange === 'function') {
+        const r = editorAPI.getSelectedRange();
+        const out = r && normalize(r.from, r.to);
+        if (out) return out;
+      }
+      if (typeof editorAPI.getSelection === 'function') {
+        const r = editorAPI.getSelection();
+        if (r && typeof r === 'object') {
+          const out = normalize(r.from, r.to);
+          if (out) return out;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function commandBlockAtLine(ranges, lineIndex) {
+    if (!ranges || !ranges.length) return null;
+    const idx = Math.max(0, Math.min(ranges.length - 1, Number(lineIndex) || 0));
+    let start = -1;
+    for (let i = idx; i >= 0; i -= 1) {
+      const line = ranges[i].text;
+      if (commandIsBlankish(line)) break;
+      if (commandIsVoiceHead(line)) {
+        start = i;
+        break;
+      }
+    }
+    if (start < 0) return null;
+    let end = start;
+    for (let i = start + 1; i < ranges.length; i += 1) {
+      const line = ranges[i].text;
+      if (commandIsBlankish(line) || commandIsVoiceHead(line) || commandIsGlobalHead(line)) break;
+      end = i;
+    }
+    return {
+      startLine: start,
+      endLine: end,
+      start: ranges[start].start,
+      end: ranges[end].end,
+      head: commandRowHead(ranges[start].text),
+    };
+  }
+
+  function commandLastMusicalBlock(ranges) {
+    let last = null;
+    for (let i = 0; i < ranges.length; i += 1) {
+      if (commandIsVoiceHead(ranges[i].text)) {
+        last = commandBlockAtLine(ranges, i) || last;
+      }
+    }
+    return last;
+  }
+
+  function commandDocumentEndAfterHeader(doc, ranges) {
+    if (!ranges || !ranges.length) return String(doc || '').length;
+    for (const line of ranges) {
+      if (commandIsVoiceHead(line.text)) return line.start;
+    }
+    return String(doc || '').length;
+  }
+
+  function commandInsertionRole(subject, text) {
+    const item = subject || {};
+    const group = String(item.group || '').toLowerCase();
+    const kind = String(item.kind || '').toLowerCase();
+    const first = commandRowHead(String(text || '').split(/\r?\n/, 1)[0] || '');
+    if (group === 'params' || kind === 'param' || COMMAND_INSERT_PARAM_HEADS.has(first)) return 'param';
+    if (group === 'voices' || group === 'instruments' || group === 'kits') return 'block';
+    if (group === 'samples' || kind === 'sample') return 'block';
+    if (group === 'syntax' || kind === 'syntax' || COMMAND_INSERT_GLOBAL_HEADS.has(first)) return 'inline';
+    return String(text || '').includes('\n') || COMMAND_INSERT_VOICE_HEADS.has(first) ? 'block' : 'inline';
+  }
+
+  function commandInsertionTextForPosition(doc, pos, text, role) {
+    const value = String(text || '').trim();
+    if (!value) return '';
+    const before = doc.slice(0, pos);
+    const after = doc.slice(pos);
+    if (role === 'param') {
+      const lead = before && !before.endsWith('\n') ? '\n' : '';
+      const trail = after && !after.startsWith('\n') ? '\n' : '';
+      return `${lead}${value}${trail}`;
+    }
+    const lead = before.trim() ? (before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n') : '';
+    const trail = after.trim() ? (after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n') : '';
+    return `${lead}${value}${trail}`;
+  }
+
+  function insertCommandSelection(subject, text) {
+    if (!editorAPI) return;
+    const value = typeof text === 'string' ? text : '';
+    if (!value) return;
+
+    const doc = (typeof editorAPI.getValue === 'function') ? String(editorAPI.getValue() || '') : '';
+    const selection = commandSelectionRange(doc);
+    if (selection && typeof editorAPI.dispatchTextChange === 'function') {
+      editorAPI.dispatchTextChange(selection.from, selection.to, value);
+      if (typeof editorAPI.setCursor === 'function') editorAPI.setCursor(selection.from + value.length);
+      editorAPI.focus();
+      return;
+    }
+
+    const role = commandInsertionRole(subject, value);
+    if (role === 'inline' || typeof editorAPI.dispatchTextChange !== 'function') {
+      insertAtCursor(value);
+      return;
+    }
+
+    const rawCursor = typeof editorAPI.getCursor === 'function' ? editorAPI.getCursor() : doc.length;
+    const cursor = Number.isFinite(rawCursor) ? Math.max(0, Math.min(doc.length, rawCursor | 0)) : doc.length;
+    const ranges = commandLineRanges(doc);
+    const lineIndex = commandLineIndexAt(ranges, cursor);
+    const currentBlock = commandBlockAtLine(ranges, lineIndex);
+    const lastBlock = commandLastMusicalBlock(ranges);
+    const line = ranges[lineIndex] ? ranges[lineIndex].text : '';
+    const cursorLooksGlobal = !currentBlock && (commandIsBlankish(line) || commandIsGlobalHead(line));
+
+    let target = doc.length;
+    if (role === 'param') {
+      const block = currentBlock || lastBlock;
+      target = block ? block.end : commandDocumentEndAfterHeader(doc, ranges);
+    } else if (currentBlock && !cursorLooksGlobal) {
+      target = currentBlock.end;
+    } else if (lastBlock) {
+      target = lastBlock.end;
+    } else {
+      target = commandDocumentEndAfterHeader(doc, ranges);
+    }
+
+    const insert = commandInsertionTextForPosition(doc, target, value, role);
+    editorAPI.dispatchTextChange(target, target, insert);
+    if (typeof editorAPI.setCursor === 'function') editorAPI.setCursor(target + insert.length);
+    editorAPI.focus();
+  }
+    
+    // ---------------- command palette / surface index ----------------
+
+    const COMMAND_GROUPS = [
+      { id: 'actions', label: 'actions' },
+      { id: 'voices', label: 'voices' },
+      { id: 'instruments', label: 'instruments' },
+      { id: 'samples', label: 'samples' },
+      { id: 'kits', label: 'kits' },
+      { id: 'params', label: 'parameters' },
+      { id: 'syntax', label: 'syntax' },
+      { id: 'docs', label: 'docs' },
+    ];
+
+    const COMMAND_SURFACE_COPY = {
+      actions: 'Transport, patch utilities, and browser actions. These cards run immediately or open a related surface.',
+      voices: 'Core synthesis and playback rows. Pick one to insert a playable voice header into the score grid.',
+      instruments: 'Modeled or manifest-backed instruments. These rows expect pitch cells and optional technique rows.',
+      samples: 'Library browser for archive files, local files, instruments, and kit/sample sets. Folder tiles navigate; sample tiles insert or audition.',
+      kits: 'Drum-kit grammar shortcuts. Use these when you want lane/cell-based kit behavior rather than a raw one-shot.',
+      params: 'Modifier rows for force, gain, tone, routing, live input, and instrument technique.',
+      syntax: 'Score-grid operators, grouping marks, and structural grammar for timing and repetition.',
+      docs: 'Reference links and field-report surfaces for debugging, sharing, and reading the REPL language.',
+    };
+
+    function commandSurfaceCopy(id) {
+      return COMMAND_SURFACE_COPY[String(id || '').toLowerCase()] || 'Command surface. Select a card to insert, run, open, or copy its associated REPL action.';
+    }
+
+    const COMMAND_PALETTE_LAYOUT_STYLE_ID = 'repl-command-palette-layout-fix';
+
+    function ensureCommandPaletteLayoutStyles() {
+      if (document.getElementById(COMMAND_PALETTE_LAYOUT_STYLE_ID)) return;
+      const style = document.createElement('style');
+      style.id = COMMAND_PALETTE_LAYOUT_STYLE_ID;
+      style.textContent = `
+        #command-popover .command-surface-note {
+          margin: 0.36rem 0 0.48rem;
+          padding: 0.42rem 0.54rem;
+          border-top: 2px solid var(--cs-line, #070707);
+          border-bottom: 2px solid var(--cs-line, #070707);
+          background: rgba(255, 255, 255, 0.72);
+          font-size: clamp(0.72rem, 0.9vw, 0.88rem);
+          line-height: 1.22;
+          max-width: 100%;
+        }
+
+        /* Only voice/instrument command cards need a readable row repair.
+           This must resize the actual .example-popover-item shell, not only the
+           inner copy column, otherwise the border/shadow/accent stripe stay short. */
+        #command-popover .example-popover-item.command-card-voices,
+        #command-popover .example-popover-item.command-card-instruments {
+          display: grid;
+          grid-template-columns: clamp(4.2rem, 7.2vw, 5.15rem) minmax(0, 1fr) clamp(1.05rem, 2vw, 1.32rem);
+          align-items: stretch;
+          min-height: 6.55rem !important;
+          height: auto !important;
+          max-height: none !important;
+          overflow: hidden;
+        }
+
+        #command-popover .example-popover-item.command-card-voices::before,
+        #command-popover .example-popover-item.command-card-instruments::before {
+          top: 0;
+          bottom: 0;
+          height: auto;
+        }
+
+        #command-popover .example-popover-item.command-card-voices .example-popover-num,
+        #command-popover .example-popover-item.command-card-instruments .example-popover-num {
+          position: static;
+          min-width: 0;
+          width: auto;
+          height: auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0.42rem 0.34rem 0.5rem;
+          writing-mode: horizontal-tb;
+          transform: none;
+          text-align: center;
+          white-space: normal;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+          overflow: visible;
+        }
+
+        #command-popover .example-popover-item.command-card-voices .command-popover-rail-label,
+        #command-popover .example-popover-item.command-card-instruments .command-popover-rail-label {
+          display: inline-block;
+          line-height: 1.34;
+          padding-top: 0.04em;
+          padding-bottom: 0.18em;
+          overflow: visible;
+          transform: translateY(-0.02em);
+        }
+
+        #command-popover .example-popover-item.command-card-voices .example-popover-copy,
+        #command-popover .example-popover-item.command-card-instruments .example-popover-copy {
+          min-width: 0;
+          display: grid;
+          grid-template-rows: auto auto auto auto;
+          align-content: center;
+          gap: 0.12rem;
+          padding: 0.54rem 0.62rem 0.6rem;
+          overflow: hidden;
+        }
+
+        #command-popover .example-popover-item.command-card-voices .example-popover-detail,
+        #command-popover .example-popover-item.command-card-instruments .example-popover-detail,
+        #command-popover .example-popover-item.command-card-voices .command-popover-snippet,
+        #command-popover .example-popover-item.command-card-instruments .command-popover-snippet,
+        #command-popover .example-popover-item.command-card-voices .command-popover-paramline,
+        #command-popover .example-popover-item.command-card-instruments .command-popover-paramline {
+          display: block;
+          min-width: 0;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          box-sizing: border-box;
+        }
+
+        #command-popover .example-popover-item.command-card-voices .command-popover-paramline,
+        #command-popover .example-popover-item.command-card-instruments .command-popover-paramline {
+          line-height: 1.22;
+          margin-top: 0.02rem;
+          padding-bottom: 0.04em;
+          opacity: 0.86;
+        }
+
+        #command-popover .example-popover-item.command-card-voices .example-popover-detail,
+        #command-popover .example-popover-item.command-card-instruments .example-popover-detail {
+          line-height: 1.32;
+          padding-bottom: 0.08em;
+        }
+
+        #command-popover .example-popover-item.command-card-voices .command-popover-snippet,
+        #command-popover .example-popover-item.command-card-instruments .command-popover-snippet {
+          line-height: 1.28;
+          margin-top: 0.08rem;
+          padding-top: 0.26rem;
+          padding-bottom: 0.3rem;
+        }
+
+        #command-popover .example-popover-item.command-card-voices .command-popover-paramline,
+        #command-popover .example-popover-item.command-card-instruments .command-popover-paramline {
+          line-height: 1.3;
+          margin-top: 0.04rem;
+          padding-bottom: 0.08em;
+          opacity: 0.86;
+        }
+
+        #command-popover .example-popover-item.command-card-voices:focus-visible,
+        #command-popover .example-popover-item.command-card-instruments:focus-visible {
+          outline-offset: -4px;
+        }
+      
+      `;
+      document.head.appendChild(style);
+    }
+
+    const COMMAND_BASE_ENTRIES = [
+      {
+        id: 'action.evaluate',
+        group: 'actions',
+        kind: 'action',
+        label: 'evaluate',
+        detail: 'run current score · CMD ENTER',
+        action: 'run',
+        run: () => evaluateAndRun(),
+      },
+      {
+        id: 'action.save-patch',
+        group: 'actions',
+        kind: 'action',
+        label: 'save patch',
+        detail: 'write current patch title/code to URL hash · CMD S',
+        action: 'run',
+        run: () => saveCurrentPatchToHash({ reason: 'save' }),
+      },
+      {
+        id: 'action.rename-patch',
+        group: 'actions',
+        kind: 'action',
+        label: 'rename patch',
+        detail: 'edit the patch title plate and save hash identity',
+        action: 'run',
+        run: () => openPatchTitleEditor(),
+      },
+      {
+        id: 'action.replay',
+        group: 'actions',
+        kind: 'action',
+        label: 'replay',
+        detail: 're-arm without unlocking frozen choices · CMD SHIFT ENTER',
+        action: 'run',
+        run: () => safePlay(),
+      },
+      {
+        id: 'action.stop',
+        group: 'actions',
+        kind: 'action',
+        label: 'stop',
+        detail: 'red interrupt · stop all active voices · ESC',
+        action: 'run',
+        run: () => stop(),
+      },
+      {
+        id: 'action.share',
+        group: 'actions',
+        kind: 'action',
+        label: 'share patch',
+        detail: 'copy persistent patch URL',
+        action: 'run',
+        run: () => shareCurrent(),
+      },
+      {
+        id: 'action.open-patches',
+        group: 'actions',
+        kind: 'action',
+        label: 'patch browser',
+        detail: 'browse examples and my saved hash patches',
+        action: 'run',
+        run: () => openExamplePopover(),
+      },
+      {
+        id: 'action.save-patch',
+        group: 'actions',
+        kind: 'action',
+        label: 'save patch',
+        detail: 'write current patch to URL hash · CMD S',
+        action: 'run',
+        run: () => saveCurrentPatchToHash({ reason: 'save' }),
+      },
+      {
+        id: 'action.rename-patch',
+        group: 'actions',
+        kind: 'action',
+        label: 'rename patch',
+        detail: 'edit title plate and save hash identity',
+        action: 'run',
+        run: () => openPatchTitleEditor(),
+      },
+      {
+        id: 'action.clear-patch',
+        group: 'actions',
+        kind: 'action',
+        label: 'clear patch',
+        detail: 'reset score scaffold · CMD SHIFT BACKSPACE',
+        action: 'run',
+        run: () => requestClearPatch(),
+      },
+      {
+        id: 'action.sample-library',
+        group: 'actions',
+        kind: 'sample',
+        label: 'browse samples',
+        detail: 'open hierarchical library browser',
+        action: 'open',
+        run: () => {
+          activeCommandGroupId = 'samples';
+          commandBrowserState.mode = 'samples';
+          renderCommandPalette();
+          ensureCommandSampleLibraries().then(() => {
+            if (!commandPopover || commandPopover.hidden) return;
+            renderCommandPalette();
+          }).catch(() => {});
+        },
+      },
+      {
+        id: 'action.examples',
+        group: 'actions',
+        kind: 'action',
+        label: 'open examples',
+        detail: 'open score-bank drawer',
+        action: 'open',
+        run: () => openExamplePopover(),
+      },
+      {
+        id: 'action.io',
+        group: 'actions',
+        kind: 'action',
+        label: 'open i/o',
+        detail: 'arm live sources and output routing',
+        action: 'open',
+        run: () => inputToggleBtn && inputToggleBtn.click(),
+      },
+      {
+        id: 'action.video',
+        group: 'actions',
+        kind: 'action',
+        label: 'open video stage',
+        detail: 'camera · screen · file · generated stage',
+        action: 'open',
+        run: () => videoToggleBtn && videoToggleBtn.click(),
+      },
+      {
+        id: 'action.reference',
+        group: 'actions',
+        kind: 'action',
+        label: 'open reference',
+        detail: 'surface map and syntax rail',
+        action: 'open',
+        run: () => referenceToggleBtn && referenceToggleBtn.click(),
+      },
+      {
+        id: 'action.docs',
+        group: 'docs',
+        kind: 'docs',
+        label: 'open docs',
+        detail: 'manual · language · voices · examples',
+        action: 'open',
+        run: () => {
+          const btn = document.getElementById('docs-toggle');
+          if (btn) btn.click();
+        },
+      },
+
+      {
+        id: 'voice.string',
+        group: 'voices',
+        kind: 'voice',
+        label: 'string',
+        detail: 'synthetic resonant pitched body',
+        insert: 'string A3 C4 E4 G4\ngain .55\ndecay 4\nbody glass\nspace .25',
+        params: 'GAIN · DECAY · BODY · SPACE · TONE',
+      },
+      {
+        id: 'voice.sample',
+        group: 'voices',
+        kind: 'voice',
+        label: 'sample',
+        detail: 'archive object / material playback',
+        insert: 'sample snm-* . tub-* .\ngain .55\nrate 1\nstart 0\nscar memory',
+        params: 'GAIN · RATE · START · GRAIN · SCAR',
+      },
+      {
+        id: 'voice.drum',
+        group: 'voices',
+        kind: 'voice',
+        label: 'drum',
+        detail: 'kit lanes / one-shot grammar',
+        insert: 'drum k h s h | k h s h\nkit rock\nvariance .25\ngain .55',
+        params: 'KIT · VARIANCE · GAIN · PAN · RATE',
+      },
+      {
+        id: 'voice.piano',
+        group: 'instruments',
+        kind: 'instrument',
+        label: 'piano',
+        detail: 'keyed string body / Iowa Steinway',
+        insert: 'piano C3 E3 G3 C4\npedal .65\nsympathetic .45\ngain .6',
+        params: 'PEDAL · UNA · LID · SYMPATHETIC · HUMAN',
+      },
+      {
+        id: 'voice.violin',
+        group: 'instruments',
+        kind: 'instrument',
+        label: 'violin',
+        detail: 'bowed soprano string state',
+        insert: 'violin D4 ~ A4 .\narticulation arco\nsul auto\nbow .45\nvibrato .25\nhuman .05',
+        params: 'ARTICULATION · SUL · BOW · VIBRATO · WOOD',
+      },
+      {
+        id: 'voice.cello',
+        group: 'instruments',
+        kind: 'instrument',
+        label: 'cello',
+        detail: 'bowed tenor / bass string body',
+        insert: 'cello C2 ~ G2 .\narticulation arco\nsul sulC\nbow .45\nwood .7\nrelease .8',
+        params: 'ARTICULATION · SUL · BOW · WOOD · RELEASE',
+      },
+      {
+        id: 'voice.marimba',
+        group: 'instruments',
+        kind: 'instrument',
+        label: 'marimba',
+        detail: 'struck wooden bars / mallet body',
+        insert: 'marimba C3 E3 G3 C4\nmallet yarn\nresonance .65\nbody .45\nroll 0\ndeadstroke 0',
+        params: 'MALLET · RESONANCE · BODY · ROLL · DEADSTROKE',
+      },
+      {
+        id: 'voice.vibraphone',
+        group: 'instruments',
+        kind: 'instrument',
+        label: 'vibraphone',
+        detail: 'metal bar / pedal / motor shimmer',
+        insert: 'vibraphone C3 E3 G3 C4\narticulation sustain\npedal .9\nmotor .35\ndepth .25\ndamp 0',
+        params: 'PEDAL · MOTOR · DEPTH · DAMP · BOWPRESSURE',
+      },
+      {
+        id: 'voice.voice',
+        group: 'instruments',
+        kind: 'instrument',
+        label: 'voice / vox',
+        detail: 'synthetic mouth machine / eSpeak corpus',
+        insert: 'voice C3 E3 G3 C4\nvowel ah\nsyllable input\ncarrier sample\nrobot .35\nvocoder .35',
+        params: 'VOWEL · SYLLABLE · CARRIER · ROBOT · VOCODER',
+      },
+      {
+        id: 'voice.input',
+        group: 'voices',
+        kind: 'voice',
+        label: 'input',
+        detail: 'live source as material and sensor',
+        insert: 'input mic\nlisten on\nmonitor off\ngain .7\nspace .25',
+        params: 'LISTEN · MONITOR · GAIN · SPACE',
+      },
+      {
+        id: 'voice.video',
+        group: 'voices',
+        kind: 'video',
+        label: 'video',
+        detail: 'camera / screen / file / generated image source',
+        insert: 'video camera * . * .\nopacity .85\nfeedback .25\nedges .35\nblend screen',
+        params: 'SOURCE · OPACITY · FEEDBACK · EDGES · BLEND',
+      },
+
+      {
+        id: 'kit.rock',
+        group: 'kits',
+        kind: 'kit',
+        label: 'rock',
+        detail: 'acoustic drum kit lane map',
+        insert: 'drum r h r h | r h s h\nkit rock\nvariance .25\ngain .48',
+        params: 'K · S · H · O · T · R · C · VARIANCE',
+      },
+      {
+        id: 'kit.808',
+        group: 'kits',
+        kind: 'kit',
+        label: '808',
+        detail: 'Wave Alchemy 808 Tape lane map',
+        insert: 'drum k h s h | k o s c\nkit 808\nvariance 0.35\ngain 0.86\nspace 0.22\npan 0 -0.2 0.2 0\nrate 1 1 0.5 1.25\ncrush 0 8 0 12',
+        params: 'K · S · H · O · T · R · C · VARIANCE',
+      },
+      {
+        id: 'kit.breakcore',
+        group: 'kits',
+        kind: 'sample',
+        label: 'bk phrases',
+        detail: 'breakcore chopped/screwed phrase material, not lane-mapped one-shots',
+        insert: 'sample bk-01 . bk-04 .\nrate 1 1 0.5 1\ngain 0.78\nspace 0.18',
+        params: 'BK PHRASES · RATE · GAIN · SPACE',
+      },
+
+      {
+        id: 'syntax.tempo',
+        group: 'syntax',
+        kind: 'syntax',
+        label: 'tempo',
+        detail: 'quarter-note BPM directive',
+        insert: 'tempo 92',
+        params: 'TOP DIRECTIVE',
+      },
+      {
+        id: 'syntax.meter',
+        group: 'syntax',
+        kind: 'syntax',
+        label: 'meter',
+        detail: 'bar container / denominator-aware timing',
+        insert: 'meter 12/8',
+        params: 'TOP DIRECTIVE · NUMERATOR / DENOMINATOR',
+      },
+      {
+        id: 'syntax.tuning',
+        group: 'syntax',
+        kind: 'syntax',
+        label: 'tuning',
+        detail: 'forward-scoped pitch system',
+        insert: 'tuning kirnberger-3',
+        params: 'EQUAL · JUST · KIRNBERGER-3',
+      },
+      {
+        id: 'syntax.attractor',
+        group: 'syntax',
+        kind: 'syntax',
+        label: 'attractor',
+        detail: 'outside system leaning on a block',
+        insert: 'attractor weather.dew',
+        params: 'WEATHER · ARCHIVE · TUB · MIC · CAMERA',
+      },
+      {
+        id: 'syntax.source',
+        group: 'syntax',
+        kind: 'syntax',
+        label: 'source',
+        detail: 'bind an attractor to a concrete feed',
+        insert: 'source station KLAX',
+        params: 'STATION · FEED · REGION · CITY · COORDS',
+      },
+      {
+        id: 'syntax.every',
+        group: 'syntax',
+        kind: 'syntax',
+        label: 'every',
+        detail: 'periodic block behavior',
+        insert: 'every 4 bars',
+        params: 'BEATS · BARS',
+      },
+      {
+        id: 'syntax.enter',
+        group: 'syntax',
+        kind: 'syntax',
+        label: 'enter',
+        detail: 'fade or introduce a block',
+        insert: 'enter 2 bars',
+        params: 'BEATS · BARS',
+      },
+      {
+        id: 'syntax.exit',
+        group: 'syntax',
+        kind: 'syntax',
+        label: 'exit',
+        detail: 'fade or remove a block',
+        insert: 'exit 2 bars',
+        params: 'BEATS · BARS',
+      },
+      {
+        id: 'syntax.feedback',
+        group: 'syntax',
+        kind: 'syntax',
+        label: 'feedback',
+        detail: 'system self-steering / memory pressure',
+        insert: 'feedback .35',
+        params: '0–1 · FIRST-ORDER CONTROL',
+      },
+
+      ...[
+        ['gain', 'block loudness / amplitude surface', 'gain .55'],
+        ['pan', 'left/right placement', 'pan -.25'],
+        ['force', 'gesture pressure / dynamic intensity', 'force mf'],
+        ['speed', 'pattern/signal speed multiplier', 'speed 1'],
+        ['rate', 'sample playback rate', 'rate .5 1 2'],
+        ['start', 'sample start offset', 'start .25'],
+        ['decay', 'envelope tail / struck duration', 'decay 2'],
+        ['space', 'room / memory send', 'space .25'],
+        ['body', 'material bloom / resonant surface', 'body glass'],
+        ['sympathetic', 'resonant string/body coupling', 'sympathetic .45'],
+        ['compress', 'dynamics clamp / glue', 'compress .22'],
+        ['crush', 'bit-depth damage', 'crush 8'],
+        ['resolution', 'sample-rate / pixel-step reduction', 'resolution .25'],
+        ['tone', 'dark/bright filter target', 'tone dark'],
+        ['filter', 'filter color / spectral leaning', 'filter bright'],
+        ['color', 'video color pressure', 'color .5'],
+        ['mallet', 'marimba mallet family', 'mallet yarn'],
+        ['roll', 'marimba repeated soft strike density', 'roll .55'],
+        ['deadstroke', 'marimba damping after attack', 'deadstroke .8'],
+        ['pedal', 'piano/vibes damper openness', 'pedal .85'],
+        ['motor', 'vibraphone rotating resonator speed', 'motor .45'],
+        ['depth', 'vibraphone motor/tremolo depth', 'depth .35'],
+        ['damp', 'manual damping / stopped bar', 'damp .8'],
+        ['bowpressure', 'bowed vibraphone pressure', 'bowpressure .45'],
+        ['articulation', 'arco / pizz / sustain / bow family', 'articulation arco'],
+        ['sul', 'string choice / string surface', 'sul sulC'],
+        ['vibrato', 'bowed-string vibrato amount', 'vibrato .25'],
+        ['carrier', 'voice source oscillator/material', 'carrier sample'],
+        ['syllable', 'controlled machine-mouth token', 'syllable input'],
+        ['vocoder', 'sample-driven carrier/corpus blend', 'vocoder .5'],
+        ['robot', 'machine stepping / instability', 'robot .65'],
+        ['mouth', 'vowel openness / brightness', 'mouth .55'],
+        ['formant', 'approximate vocal tract shift', 'formant -.25'],
+        ['roughness', 'circuit grit / unstable modulation', 'roughness .35'],
+      ].map(([label, detail, insert]) => ({
+        id: `param.${label}`,
+        group: 'params',
+        kind: 'param',
+        label,
+        detail,
+        insert,
+        params: 'PARAMETER ROW',
+      })),
+    ];
+
+    function normalizeCommandText(value) {
+      return String(value || '')
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/[\u201c\u201d]/g, '"')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function commandEscapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[c]));
+    }
+
+    function commandContextVoice() {
+      if (!editorAPI || typeof editorAPI.getValue !== 'function') return '';
+      const doc = String(editorAPI.getValue() || '');
+      const rawCursor = typeof editorAPI.getCursor === 'function' ? editorAPI.getCursor() : doc.length;
+      const cursor = Number.isFinite(rawCursor) ? Math.max(0, Math.min(doc.length, rawCursor | 0)) : doc.length;
+      const before = doc.slice(0, cursor).split(/\r?\n/);
+      const heads = new Set(['string', 'sample', 'piano', 'violin', 'cello', 'marimba', 'vibraphone', 'vibes', 'voice', 'vox', 'input', 'sine', 'osc', 'noise', 'pluck', 'pulse', 'drone', 'drum', 'video']);
+      for (let i = before.length - 1; i >= 0; i -= 1) {
+        const head = String(before[i] || '').trim().split(/\s+/, 1)[0].toLowerCase();
+        if (heads.has(head)) return head === 'vox' ? 'voice' : head === 'vibes' ? 'vibraphone' : head;
+      }
+      return '';
+    }
+
+    function contextWeightForCommand(entry) {
+      const ctx = commandContextVoice();
+      if (!ctx || !entry) return 0;
+
+      const hay = `${entry.id || ''} ${entry.group || ''} ${entry.kind || ''} ${entry.label || ''} ${entry.detail || ''} ${entry.params || ''}`.toLowerCase();
+
+      if (hay.includes(ctx)) return 12;
+      if (ctx === 'marimba' && /(mallet|roll|deadstroke|resonance|body|spread|human)/.test(hay)) return 8;
+      if (ctx === 'vibraphone' && /(pedal|motor|depth|damp|bowpressure|articulation|body|spread)/.test(hay)) return 8;
+      if (ctx === 'voice' && /(vowel|syllable|carrier|vocoder|robot|mouth|formant|roughness|breath|ensemble)/.test(hay)) return 8;
+      if ((ctx === 'violin' || ctx === 'cello') && /(articulation|sul|vibrato|bow|wood|sympathetic|release)/.test(hay)) return 8;
+      if (ctx === 'drum' && /(kit|variance|rock|breakcore|lane)/.test(hay)) return 8;
+      if (ctx === 'sample' && /(sample|rate|start|grain|scar)/.test(hay)) return 8;
+      return 0;
+    }
+
+    function commandEntries() {
+      // Samples are no longer flattened into command cards. The samples tab now
+      // renders a hierarchical library browser, so command entries stay semantic.
+      return COMMAND_BASE_ENTRIES;
+    }
+    
+    const COMMAND_INSTRUMENT_MANIFESTS = [
+      {
+        id: 'piano',
+        label: 'piano',
+        accent: 'piano',
+        kind: 'instrument',
+        urls: [
+          './public/instruments/iowa-piano/manifest.full.json',
+          './public/instruments/iowa-piano/manifest.json',
+          './public/instruments/piano/manifest.full.json',
+          './public/instruments/piano/manifest.json',
+        ],
+        detail: 'Iowa piano · keyed string body',
+      },
+      {
+        id: 'violin',
+        label: 'violin',
+        accent: 'violin',
+        kind: 'instrument',
+        urls: [
+          './public/instruments/iowa-violin/manifest.full.json',
+          './public/instruments/iowa-violin/manifest.json',
+          './public/instruments/violin/manifest.full.json',
+          './public/instruments/violin/manifest.json',
+        ],
+        detail: 'Iowa violin · bowed soprano string',
+      },
+      {
+        id: 'cello',
+        label: 'cello',
+        accent: 'cello',
+        kind: 'instrument',
+        urls: [
+          './public/instruments/iowa-cello/manifest.full.json',
+          './public/instruments/iowa-cello/manifest.json',
+          './public/instruments/cello/manifest.full.json',
+          './public/instruments/cello/manifest.json',
+        ],
+        detail: 'Iowa cello · bowed tenor/bass body',
+      },
+      {
+        id: 'marimba',
+        label: 'marimba',
+        accent: 'marimba',
+        kind: 'instrument',
+        urls: [
+          './public/instruments/iowa-marimba/manifest.full.json',
+          './public/instruments/iowa-marimba/manifest.json',
+          './public/instruments/marimba/manifest.full.json',
+          './public/instruments/marimba/manifest.json',
+        ],
+        detail: 'Iowa marimba · struck wood body',
+      },
+      {
+        id: 'vibraphone',
+        label: 'vibraphone',
+        accent: 'vibraphone',
+        kind: 'instrument',
+        urls: [
+          './public/instruments/iowa-vibraphone/manifest.full.json',
+          './public/instruments/iowa-vibraphone/manifest.json',
+          './public/instruments/vibraphone/manifest.full.json',
+          './public/instruments/vibraphone/manifest.json',
+        ],
+        detail: 'Iowa vibraphone · metal bar / pedal / motor',
+      },
+      {
+        id: 'voice',
+        label: 'voice / vox',
+        accent: 'voice',
+        kind: 'instrument',
+        urls: [
+          './public/instruments/espeak-robotvoice/manifest.full.json',
+          './public/instruments/espeak-robotvoice/manifest.json',
+        ],
+        detail: 'eSpeak corpus · synthetic mouth machine',
+      },
+    ];
+    function noteMidiForBrowser(note) {
+      const m = String(note || '').match(/^([A-Ga-g])([#b])?(-?\d{1,2})$/);
+      if (!m) return 9999;
+      const pc = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1].toUpperCase()];
+      const acc = m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0;
+      return (Number(m[3]) + 1) * 12 + pc + acc;
+    }
+    function commandSampleCount(node) {
+      if (!node) return 0;
+      if (Number.isFinite(Number(node.count))) return Number(node.count);
+      if (Array.isArray(node.children)) {
+        return node.children.reduce((sum, child) => sum + commandSampleCount(child), 0);
+      }
+      return node.url || node.rawSample ? 1 : 0;
+    }
+    function commandNodeByPath(nodes, path) {
+      let current = null;
+      let children = Array.isArray(nodes) ? nodes : [];
+      for (const part of path || []) {
+        current = children.find((node) => node && node.id === part);
+        if (!current) return null;
+        children = Array.isArray(current.children) ? current.children : [];
+      }
+      return current || { id: 'samples-root', label: 'samples', children };
+    }
+    function uniqueSorted(values) {
+      return Array.from(new Set(values.filter(Boolean))).sort((a, b) => {
+        const am = noteMidiForBrowser(a);
+        const bm = noteMidiForBrowser(b);
+        if (am !== 9999 || bm !== 9999) return am - bm;
+        return String(a).localeCompare(String(b));
+      });
+    }
+    function inferCommandSampleFamily(spec, sample) {
+      const raw = [
+        sample.family,
+        sample.mallet,
+        sample.articulation,
+        sample.material,
+        sample.string,
+        sample.token,
+        sample.sourceFile,
+        sample.url,
+        sample.rawSample,
+      ].join(' ').toLowerCase();
+      if (spec.id === 'marimba') {
+        if (raw.includes('yarn')) return 'yarn';
+        if (raw.includes('cord')) return 'cord';
+        if (raw.includes('rubber')) return 'rubber';
+        return 'mallet';
+      }
+      if (spec.id === 'vibraphone') {
+        if (raw.includes('shortsustain') || raw.includes('short-sustain')) return 'shortsustain';
+        if (raw.includes('dampen') || raw.includes('damp')) return 'dampen';
+        if (raw.includes('bow')) return 'bow';
+        if (raw.includes('sustain')) return 'sustain';
+        return 'sustain';
+      }
+      if (spec.id === 'violin' || spec.id === 'cello') {
+        if (raw.includes('pizz')) return 'pizz';
+        if (raw.includes('arco')) return 'arco';
+        return String(sample.articulation || 'arco');
+      }
+      if (spec.id === 'voice') {
+        return String(sample.material || 'vowel').toLowerCase();
+      }
+      if (raw.includes('sustain')) return 'sustain';
+      return String(sample.family || sample.articulation || sample.material || 'samples').toLowerCase();
+    }
+    function inferCommandSampleSubfamily(spec, sample) {
+      const raw = [
+        sample.string,
+        sample.sul,
+        sample.sourceFile,
+        sample.url,
+        sample.rawSample,
+      ].join(' ');
+      if (spec.id === 'violin' || spec.id === 'cello') {
+        const m = raw.match(/\bsul[CGDAE]\b/i);
+        return m ? m[0] : 'auto';
+      }
+      if (spec.id === 'voice') {
+        return String(sample.token || sample.vowel || 'token').toLowerCase();
+      }
+      return '';
+    }
+    function extractManifestSampleLeaves(manifest, spec, manifestUrl) {
+      const out = [];
+      const seen = new Set();
+      function noteFromContext(context, obj) {
+        if (obj && (obj.rootNote || obj.note)) return obj.rootNote || obj.note;
+        for (let i = context.length - 1; i >= 0; i -= 1) {
+          const part = String(context[i] || '');
+          if (/^[A-G](?:#|b)?-?\d{1,2}$/i.test(part)) return part;
+        }
+        const raw = [
+          obj && obj.url,
+          obj && obj.sourceFile,
+          obj && obj.file,
+          obj && obj.name,
+          obj && obj.id,
+        ].join(' ');
+        const m = raw.match(/\b([A-G](?:#|b)?-?\d{1,2})\b/i);
+        return m ? m[1].replace(/^([a-g])/, (x) => x.toUpperCase()) : '';
+      }
+      function pushSample(obj, context) {
+        if (!obj || typeof obj !== 'object') return;
+        const url = obj.url || obj.path || obj.href || obj.src || obj.fileUrl || '';
+        const sourceFile = obj.sourceFile || obj.file || obj.filename || obj.name || obj.id || '';
+        const hasAudioishUrl = /\.(ogg|wav|aif|aiff|mp3|flac|m4a|aac)(?:[?#].*)?$/i.test(String(url || sourceFile));
+        const hasManifestAudioShape = Boolean(url || sourceFile) && (
+          obj.rootNote || obj.rootMidi || obj.midi || obj.frequency || obj.material || obj.articulation || obj.string || obj.sul
+        );
+        if (!hasAudioishUrl && !hasManifestAudioShape) return;
+        const rootNote = noteFromContext(context, obj);
+        const rawSample = sourceFile
+          || (url ? String(url).split('/').pop().replace(/\.(ogg|wav|aif|aiff|mp3|flac|m4a|aac)$/i, '') : '')
+          || rootNote;
+        const key = [
+          url,
+          sourceFile,
+          rawSample,
+          rootNote,
+          context.join('/'),
+        ].join('|');
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push({
+          ...obj,
+          note: rootNote,
+          rootNote,
+          url,
+          baseUrl: manifestUrl,
+          sourceFile,
+          rawSample,
+          context: context.slice(),
+          family: obj.family || obj.articulation || obj.material || context[0] || '',
+          subfamily: obj.string || obj.sul || obj.layer || context[1] || '',
+        });
+      }
+      function walk(node, context) {
+        if (!node) return;
+        if (Array.isArray(node)) {
+          node.forEach((item, index) => walk(item, context.concat(String(index))));
+          return;
+        }
+        if (typeof node !== 'object') return;
+        pushSample(node, context);
+        for (const [key, value] of Object.entries(node)) {
+          if (value == null) continue;
+          if (typeof value !== 'object') continue;
+          // Skip massive/non-sample metadata-looking keys only when they are simple.
+          if (['format', 'engine', 'license', 'range'].includes(key)) continue;
+          walk(value, context.concat(key));
+        }
+      }
+      // Prefer notes when present, but also scan the whole manifest because piano,
+      // violin, and cello manifests may use layers/articulations/variants/samples.
+      if (manifest && manifest.notes && typeof manifest.notes === 'object') {
+        for (const [noteName, entry] of Object.entries(manifest.notes)) {
+          walk(entry, [noteName]);
+        }
+      }
+      if (Array.isArray(manifest && manifest.samples)) {
+        walk(manifest.samples, ['samples']);
+      }
+      if (Array.isArray(manifest && manifest.variants)) {
+        walk(manifest.variants, ['variants']);
+      }
+      walk(manifest, []);
+      return out;
+    }
+    function commandInstrumentInsert(spec, family, subfamily, note) {
+      const n = note || 'C4';
+      if (spec.id === 'marimba') {
+        return `marimba ${n}\nmallet ${family || 'yarn'}`;
+      }
+      if (spec.id === 'vibraphone') {
+        const articulation = family || 'sustain';
+        if (articulation === 'bow') return `vibraphone ${n} ~ ~ .\narticulation bow\npedal 1`;
+        if (articulation === 'dampen') return `vibraphone ${n}\narticulation dampen\ndamp .85`;
+        return `vibraphone ${n}\narticulation ${articulation}\npedal .9`;
+      }
+      if (spec.id === 'violin' || spec.id === 'cello') {
+        const articulation = family || 'arco';
+        const sul = subfamily && subfamily !== 'auto' ? `\nsul ${subfamily}` : '';
+        return `${spec.id} ${n}\narticulation ${articulation}${sul}`;
+      }
+      if (spec.id === 'voice') {
+        const token = subfamily || family || 'ah';
+        const isVowel = ['ah', 'eh', 'ee', 'oh', 'oo', 'uh', 'mm', 'nn'].includes(token);
+        return `voice ${n}\nvowel ${isVowel ? token : 'ah'}\nsyllable ${token}\ncarrier sample`;
+      }
+      if (spec.id === 'piano') {
+        return `piano ${n}\npedal .65\nsympathetic .45`;
+      }
+      return `${spec.id} ${n}`;
+    }
+    function buildInstrumentLibraryFromManifest(spec, manifest, manifestUrl) {
+      const leaves = extractManifestSampleLeaves(manifest, spec, manifestUrl);
+      const byFamily = new Map();
+      for (const leaf of leaves) {
+        const family = inferCommandSampleFamily(spec, leaf);
+        const subfamily = inferCommandSampleSubfamily(spec, leaf);
+        if (!byFamily.has(family)) byFamily.set(family, []);
+        byFamily.get(family).push({ ...leaf, family, subfamily });
+      }
+      const familyNodes = Array.from(byFamily.entries()).map(([family, familyLeaves]) => {
+        const subfamilies = uniqueSorted(familyLeaves.map((leaf) => leaf.subfamily).filter(Boolean));
+        if (subfamilies.length > 1) {
+          return {
+            id: family,
+            label: family,
+            kind: 'folder',
+            accent: spec.accent,
+            detail: `${spec.label} · ${family}`,
+            count: familyLeaves.length,
+            chips: subfamilies.slice(0, 6),
+            children: subfamilies.map((sub) => {
+              const subLeaves = familyLeaves.filter((leaf) => leaf.subfamily === sub);
+              const notes = uniqueSorted(subLeaves.map((leaf) => leaf.rootNote || leaf.note));
+              return {
+                id: sub,
+                label: sub,
+                kind: 'folder',
+                accent: spec.accent,
+                detail: `${family} · ${sub}`,
+                count: subLeaves.length,
+                children: notes.map((note) => {
+                  const noteLeaf = subLeaves.find((leaf) => (leaf.rootNote || leaf.note) === note) || subLeaves[0];
+                  return {
+                    id: note,
+                    label: note,
+                    kind: 'sample',
+                    accent: spec.accent,
+                    detail: `${family} · ${sub} · exact sample`,
+                    count: 1,
+                    insert: commandInstrumentInsert(spec, family, sub, note),
+                    rawInsert: noteLeaf.rawSample ? `sample ${noteLeaf.rawSample}` : '',
+                    rawSample: noteLeaf.rawSample,
+                    url: noteLeaf.url,
+                    baseUrl: noteLeaf.baseUrl,
+                    chips: ['insert instrument row', 'raw available'],
+                  };
+                }),
+              };
+            }),
+          };
+        }
+        const notes = uniqueSorted(familyLeaves.map((leaf) => leaf.rootNote || leaf.note));
+        return {
+          id: family,
+          label: family,
+          kind: 'folder',
+          accent: spec.accent,
+          detail: `${spec.label} · ${family}`,
+          count: familyLeaves.length,
+          chips: notes.length ? [`${notes[0]}-${notes[notes.length - 1]}`] : [],
+          children: notes.map((note) => {
+            const noteLeaf = familyLeaves.find((leaf) => (leaf.rootNote || leaf.note) === note) || familyLeaves[0];
+            return {
+              id: note,
+              label: note,
+              kind: 'sample',
+              accent: spec.accent,
+              detail: `${family} · exact sample`,
+              count: 1,
+              insert: commandInstrumentInsert(spec, family, '', note),
+              rawInsert: noteLeaf.rawSample ? `sample ${noteLeaf.rawSample}` : '',
+              rawSample: noteLeaf.rawSample,
+              url: noteLeaf.url,
+              baseUrl: noteLeaf.baseUrl,
+              chips: ['insert instrument row', 'raw available'],
+            };
+          }),
+        };
+      }).sort((a, b) => String(a.label).localeCompare(String(b.label)));
+      return {
+        id: spec.id,
+        label: spec.label,
+        kind: 'library',
+        accent: spec.accent,
+        detail: spec.detail,
+        count: leaves.length,
+        chips: familyNodes.map((node) => node.label).slice(0, 6),
+        manifestUrl: manifestUrl || spec.url || (Array.isArray(spec.urls) ? spec.urls[0] : ''),
+        children: familyNodes,
+      };
+    }
+    async function fetchJsonQuiet(url) {
+      try {
+        const r = await fetch(url, { credentials: 'omit' });
+        if (!r.ok) return null;
+        const json = await r.json();
+        return { json, url };
+      } catch (_) {
+        return null;
+      }
+    }
+    async function fetchFirstJsonQuiet(urls) {
+      const list = Array.isArray(urls) ? urls : [urls].filter(Boolean);
+      for (const url of list) {
+        const result = await fetchJsonQuiet(url);
+        if (result && result.json) return result;
+      }
+      return null;
+    }
+    function normalizeCommandSampleName(value) {
+      return String(value || '')
+        .trim()
+        .replace(/\.(ogg|wav|aif|aiff|mp3|flac|m4a|aac)(?:[?#].*)?$/i, '')
+        .toLowerCase();
+    }
+    function commandSampleSlug(value) {
+      return normalizeCommandSampleName(value)
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    }
+    function drumKitCellFromPrefix(prefix, raw) {
+      if (['bk', 'bd', 'kd', 'kick'].includes(prefix) || /\b(kick|bassdrum|bass-drum|bass_drum|bd|kd)\b/.test(raw)) return ['k', 'kick / bass drum', 'bass drum'];
+      if (['sn', 'sd', 'snr', 'rs', 'rim'].includes(prefix) || /\b(snare|rimshot|rim-shot|rim_shot|sd|sn)\b/.test(raw)) return ['s', 'snare', 'snare'];
+      if (['ch', 'hh', 'hc', 'hat', 'pedal'].includes(prefix) || /\b(closed[ _-]?hat|closed|pedal|hihat|hi-hat|hat|hh)\b/.test(raw)) return ['h', 'hi-hat', 'closed / pedal'];
+      if (['oh', 'ho', 'openhat'].includes(prefix) || /\b(open[ _-]?hat|open-hat)\b/.test(raw)) return ['o', 'hi-hat', 'open'];
+      if (['rd', 'rb', 'ride', 'bell'].includes(prefix) || /\b(ride|ridebell|ride-bell|ride_bell|bell)\b/.test(raw)) return ['r', 'ride cymbal', 'ride / bell'];
+      if (['cr', 'cy', 'cym', 'sp', 'china'].includes(prefix) || /\b(crash|splash|china|cymbal)\b/.test(raw)) return ['c', 'crash cymbal', 'crash / splash'];
+      if (['tom', 'tm', 'lt', 'mt', 'ht', 'ft', 'flr'].includes(prefix) || /\b(tom|rack|floor)\b/.test(raw)) return ['t', 'toms', 'rack / floor'];
+      return ['', 'other / unresolved', 'raw fallback'];
+    }
+    function drumKitNameParts(name) {
+      const slug = commandSampleSlug(name);
+      const parts = slug.split('-').filter(Boolean);
+      const leading = parts[0] || '';
+      const kitLikePrefixes = new Set(['rock', 'smd', 'smdrums', 'wa808', 'tr808', 'bk']);
+      const sampleGroup = leading || '';
+      const laneToken = parts.length > 1 && kitLikePrefixes.has(leading) ? parts[1] : leading;
+      return { slug, parts, sampleGroup, laneToken };
+    }
+    function drumKitInfoForSample(raw, sampleGroup) {
+      const text = String(raw || '').toLowerCase();
+      const prefix = String(sampleGroup || '').toLowerCase();
+      if (/wa808|tr808|808[ _-]?tape|wave[ _-]?alchemy/.test(text) || prefix === 'wa808' || prefix === 'tr808') {
+        return {
+          kit: '808',
+          kitLabel: '808 tape kit',
+          corpus: 'wa 808 tape',
+          sampleGroupLabel: '808',
+          kitType: 'one-shot',
+          source: 'Wave Alchemy 808 Tape',
+        };
+      }
+      if (/bk|breakcore/.test(text) || prefix === 'bk') {
+        return {
+          kit: 'breakcore',
+          kitLabel: 'breakcore phrases',
+          corpus: 'breakcore',
+          sampleGroupLabel: 'BK',
+          kitType: 'phrase',
+          source: 'chopped / screwed phrase material',
+        };
+      }
+      return {
+        kit: 'rock',
+        kitLabel: 'rock kit',
+        corpus: /smd|sm[ _-]?drums/i.test(text) ? 'smdrums' : 'drum-kits',
+        sampleGroupLabel: '',
+        kitType: 'one-shot',
+        source: 'mapped one-shot drum kit',
+      };
+    }
+    function classifyDrumLaneFromName(name, groupLabel) {
+      const raw = `${groupLabel || ''} ${name || ''}`.toLowerCase();
+      const parts = drumKitNameParts(name);
+      const [cell, familyLabel] = drumKitCellFromPrefix(parts.laneToken, raw);
+      return [cell, familyLabel];
+    }
+    function normalizeDrumKitAddress(sample) {
+      const name = String(sample && sample.name ? sample.name : sample || '').trim();
+      if (!name) return null;
+
+      const groupId = String(sample && sample.groupId ? sample.groupId : '').trim();
+      const groupLabel = String(sample && sample.groupLabel ? sample.groupLabel : groupId).trim();
+      const raw = `${groupId} ${groupLabel} ${name}`.toLowerCase();
+      const nameParts = drumKitNameParts(name);
+      const sampleGroup = nameParts.sampleGroup || 'other';
+      const kitInfo = drumKitInfoForSample(raw, sampleGroup);
+      const [cell, family, subfamily] = drumKitCellFromPrefix(nameParts.laneToken, raw);
+      const kit = kitInfo.kit;
+      const sampleGroupLabel = kitInfo.sampleGroupLabel || (sampleGroup === 'other' ? 'other / unresolved' : sampleGroup.toUpperCase());
+      const corpus = kitInfo.corpus;
+      const kitType = kitInfo.kitType || 'one-shot';
+
+      if (kitType === 'phrase') {
+        return {
+          resolved: false,
+          library: 'drum-kits',
+          corpus,
+          kit,
+          kitLabel: kitInfo.kitLabel,
+          kitType,
+          family: 'phrase',
+          familyLabel: 'phrase / chopped material',
+          sampleGroup,
+          sampleGroupLabel,
+          subfamily: 'direct sample',
+          cell: '',
+          token: '',
+          sample: name,
+          params: [],
+          sourceGroupId: groupId,
+          sourceGroupLabel: groupLabel,
+          insertPlan: { resolved: false, voice: 'sample', kitType, kit, sample: name },
+        };
+      }
+
+      if (!cell) {
+        return {
+          resolved: false,
+          library: 'drum-kits',
+          corpus,
+          kit,
+          kitLabel: kitInfo.kitLabel,
+          kitType,
+          family: 'other',
+          familyLabel: 'other / unresolved',
+          sampleGroup,
+          sampleGroupLabel,
+          subfamily,
+          cell: '',
+          token: '',
+          sample: name,
+          params: [],
+          sourceGroupId: groupId,
+          sourceGroupLabel: groupLabel,
+          insertPlan: { resolved: false, voice: 'sample', kitType, kit, sample: name },
+        };
+      }
+
+      const insertPlan = {
+        resolved: true,
+        voice: 'drum',
+        library: 'drum-kits',
+        corpus,
+        kit,
+        kitLabel: kitInfo.kitLabel,
+        kitType,
+        source: kitInfo.source || '',
+        family,
+        sampleGroup,
+        sampleGroupLabel,
+        subfamily,
+        lane: cell,
+        laneLabel: family,
+        cell,
+        token: `${cell}!`,
+        sample: name,
+        params: [
+          ['kit', kit],
+          ['pick', name],
+          ['variance', '0'],
+        ],
+      };
+
+      return {
+        resolved: true,
+        library: 'drum-kits',
+        corpus,
+        kit,
+        kitLabel: kitInfo.kitLabel,
+        kitType,
+        source: kitInfo.source || '',
+        family,
+        familyLabel: family,
+        sampleGroup,
+        sampleGroupLabel,
+        subfamily,
+        lane: cell,
+        laneLabel: family,
+        cell,
+        token: `${cell}!`,
+        sample: name,
+        params: insertPlan.params,
+        sourceGroupId: groupId,
+        sourceGroupLabel: groupLabel,
+        insertPlan,
+      };
+    }
+    function resolveRockKitSampleAddress(sample) {
+      const address = normalizeDrumKitAddress(sample);
+      return address ? address.insertPlan : null;
+    }
+    function commandInsertFromPlan(plan) {
+      if (!plan || typeof plan !== 'object') return '';
+      if (plan.voice === 'drum' && plan.kit && plan.token && plan.sample) {
+        const lines = [`drum ${plan.token} . . .`];
+        const params = Array.isArray(plan.params) ? plan.params : [];
+        for (const pair of params) {
+          if (!Array.isArray(pair) || pair.length < 2) continue;
+          const key = String(pair[0] || '').trim();
+          const value = String(pair[1] || '').trim();
+          if (!key || !value) continue;
+          lines.push(`${key} ${value}`);
+        }
+        return lines.join('\n');
+      }
+      if (plan.sample) return `sample ${plan.sample}`;
+      return '';
+    }
+    function buildExactDrumSampleLeaf(address) {
+      const name = String(address && address.sample ? address.sample : '').trim();
+      if (!name) return null;
+      const plan = address && address.insertPlan ? address.insertPlan : { resolved: false, voice: 'sample', sample: name };
+      const insert = commandInsertFromPlan(plan) || `sample ${name}`;
+      if (address && address.resolved) {
+        return {
+          id: name,
+          label: name,
+          kind: 'sample',
+          accent: 'rock',
+          detail: `${address.kitLabel || 'rock kit'} / ${address.sampleGroupLabel || address.sampleGroup || 'sample group'} / ${address.familyLabel || address.family} / cell ${address.cell} / sample ${name}`,
+          count: 1,
+          insert,
+          insertPlan: plan,
+          rawInsert: `sample ${name}`,
+          rawSample: name,
+          chips: [`kit ${address.kit}`, `${address.sampleGroupLabel || address.sampleGroup || 'group'}`, `cell ${address.cell}`, `pick ${name}`, 'variance 0'],
+        };
+      }
+      return {
+        id: name,
+        label: name,
+        kind: 'sample',
+        accent: 'rock',
+        detail: `raw fallback only · ${name}`,
+        count: 1,
+        insert: `sample ${name}`,
+        insertPlan: plan,
+        rawInsert: `sample ${name}`,
+        rawSample: name,
+        chips: ['raw sample fallback'],
+      };
+    }
+    function buildRawDrumSampleLeaf(address, opts) {
+      const name = String(address && address.sample ? address.sample : '').trim();
+      if (!name) return null;
+      const options = opts || {};
+      const groupLabel = String(options.groupLabel || address.sampleGroupLabel || address.sampleGroup || 'sample group');
+      return {
+        id: name,
+        label: name,
+        kind: 'sample',
+        accent: 'rock',
+        detail: options.detail || `${groupLabel} · chopped one-shot · raw sample ${name}`,
+        count: 1,
+        insert: `sample ${name}`,
+        insertPlan: { resolved: false, voice: 'sample', sample: name },
+        rawInsert: `sample ${name}`,
+        rawSample: name,
+        chips: options.chips || [groupLabel, 'raw sample', 'no drum cell'],
+      };
+    }
+
+    function buildCommandSampleNodeFromPlan(sample, plan) {
+      const name = String(sample && sample.name ? sample.name : sample || '').trim();
+      const address = normalizeDrumKitAddress({
+        ...(sample && typeof sample === 'object' ? sample : {}),
+        name,
+      });
+      if (address && plan && plan.resolved) address.insertPlan = plan;
+      return buildExactDrumSampleLeaf(address || { resolved: false, sample: name, insertPlan: plan || { resolved: false, voice: 'sample', sample: name } });
+    }
+    function drumFamilyOrderKey(family, cell) {
+      const order = ['kick / bass drum', 'snare', 'hi-hat', 'ride cymbal', 'crash cymbal', 'toms', 'other / unresolved'];
+      const i = order.indexOf(String(family || ''));
+      return i < 0 ? 999 : i;
+    }
+    function buildDrumKitFamilyNode(family) {
+      const children = family.addresses
+        .slice()
+        .sort((a, b) => String(a.sample).localeCompare(String(b.sample), undefined, { numeric: true, sensitivity: 'base' }))
+        .map((address) => buildExactDrumSampleLeaf(address))
+        .filter(Boolean);
+      const resolved = family.addresses.some((address) => address && address.resolved);
+      const firstResolved = family.addresses.find((address) => address && address.resolved);
+      return {
+        id: family.id,
+        label: family.label,
+        kind: 'folder',
+        accent: 'rock',
+        detail: resolved && firstResolved ? `${firstResolved.kitLabel || 'rock kit'} · drum/cymbal family · cell ${firstResolved.cell}` : 'raw fallback only',
+        info: resolved && firstResolved
+          ? `These samples share the ${firstResolved.familyLabel || firstResolved.family} surface and insert with cell ${firstResolved.cell}.`
+          : 'These samples are not safely mapped to a drum cell; leaves insert as raw samples.',
+        count: family.addresses.length,
+        chips: resolved && firstResolved ? [`cell ${firstResolved.cell}`, firstResolved.subfamily || 'exact addressed'] : ['not guessed'],
+        children,
+      };
+    }
+    function drumKitFamilyNodesForAddresses(addresses) {
+      const families = new Map();
+      const list = Array.isArray(addresses) ? addresses.filter(Boolean) : [];
+      for (const address of list) {
+        const id = address.resolved ? (address.family || address.familyLabel || address.cell || 'other') : 'other-unresolved';
+        const label = address.resolved ? (address.familyLabel || address.family || id) : 'other / unresolved';
+        if (!families.has(id)) families.set(id, { id, label, cell: address.cell || '', addresses: [] });
+        families.get(id).addresses.push(address);
+      }
+      return Array.from(families.values())
+        .sort((a, b) => drumFamilyOrderKey(a.label, a.cell) - drumFamilyOrderKey(b.label, b.cell) || String(a.label).localeCompare(String(b.label)))
+        .map((family) => buildDrumKitFamilyNode(family));
+    }
+    function drumKitSampleGroupOrderKey(group) {
+      const raw = String(group || '').toLowerCase();
+      const order = ['bk', 'bd', 'kd', 'kick', 'sn', 'sd', 'rs', 'rim', 'ch', 'hh', 'oh', 'rd', 'rb', 'cr', 'cy', 'tom', 'tm', 'lt', 'mt', 'ht', 'ft', 'other'];
+      const i = order.indexOf(raw);
+      return i < 0 ? 900 : i;
+    }
+    function drumKitSampleGroupNodesForAddresses(addresses) {
+      const groups = new Map();
+      const list = Array.isArray(addresses) ? addresses.filter(Boolean) : [];
+
+      // This level is a prefix/sample-set chooser, not a full-kit preset clone.
+      // BK contains only bk-* samples; ROCK contains only rock-* samples; SN
+      // contains only sn-* samples, etc. Do not hydrate any one tile with the
+      // complete rock-kit address map.
+      for (const address of list) {
+        const id = address.sampleGroup || (address.resolved ? address.cell : 'other') || 'other';
+        const label = address.sampleGroupLabel || (id === 'other' ? 'other / unresolved' : String(id).toUpperCase());
+        if (!groups.has(id)) {
+          groups.set(id, {
+            id: `sample-group-${id}`,
+            rawId: id,
+            label,
+            kit: address.kit || 'rock',
+            kitLabel: address.kitLabel || 'rock kit',
+            corpus: address.corpus || 'drum-kits',
+            addresses: [],
+          });
+        }
+        groups.get(id).addresses.push(address);
+      }
+
+      return Array.from(groups.values())
+        .sort((a, b) => drumKitSampleGroupOrderKey(a.rawId) - drumKitSampleGroupOrderKey(b.rawId) || String(a.label).localeCompare(String(b.label), undefined, { numeric: true, sensitivity: 'base' }))
+        .map((group) => {
+          const groupAddresses = group.addresses.slice();
+          const isBreakcoreGroup = String(group.rawId || '').toLowerCase() === 'bk';
+          if (isBreakcoreGroup) {
+            const children = groupAddresses
+              .slice()
+              .sort((a, b) => String(a.sample).localeCompare(String(b.sample), undefined, { numeric: true, sensitivity: 'base' }))
+              .map((address) => buildRawDrumSampleLeaf(address, {
+                groupLabel: group.label,
+                detail: `${group.label} kit · breakcore/chopped phrase · raw sample ${address.sample}`,
+                chips: [group.label, 'phrase chop', 'raw sample'],
+              }))
+              .filter(Boolean);
+            return {
+              id: `kit-${group.rawId || group.id}`,
+              rawId: group.rawId,
+              label: group.label,
+              kind: 'folder',
+              accent: 'rock',
+              detail: `${group.label} kit · chopped-and-screwed sample set · opens directly to samples`,
+              info: 'BK is a breakcore/chop set, not a mapped drum-lane kit. Pick a sample directly; the card inserts a raw sample row instead of inventing a kick/snare/hat cell.',
+              count: groupAddresses.length,
+              chips: ['direct samples', 'no drum cells', 'raw insert'],
+              children,
+            };
+          }
+          const familyNodes = drumKitFamilyNodesForAddresses(groupAddresses);
+          const resolved = groupAddresses.some((address) => address && address.resolved);
+          const firstResolved = groupAddresses.find((address) => address && address.resolved);
+          return {
+            id: `kit-${group.rawId || group.id}`,
+            rawId: group.rawId,
+            label: group.label,
+            kind: 'folder',
+            accent: 'rock',
+            detail: resolved && firstResolved
+              ? `${group.label} kit · ${group.kitLabel} sample group · ${groupAddresses.length} samples`
+              : `${group.label} kit · unresolved raw sample group`,
+            info: resolved && firstResolved
+              ? `${group.label} samples are routed through their resolved drum/cymbal family before you choose an exact one-shot.`
+              : `${group.label} samples are unresolved; choosing a leaf inserts a raw sample row rather than guessed kit grammar.`,
+            count: groupAddresses.length,
+            chips: familyNodes.map((node) => node.label).slice(0, 7),
+            children: familyNodes,
+          };
+        });
+    }
+    function buildDrumKitTree(addresses) {
+      const list = Array.isArray(addresses) ? addresses.filter(Boolean) : [];
+      const total = list.length;
+
+      // DRUM KITS should present real selectable sample-set tiles at this
+      // level. A tile must never be populated with another tile's samples:
+      // BK -> only bk-* leaves, ROCK -> only rock-* leaves, SN -> only sn-* leaves.
+      const kitGroupNodes = drumKitSampleGroupNodesForAddresses(list);
+
+      return {
+        id: 'drum-kits',
+        label: 'drum kits',
+        kind: 'library',
+        accent: 'rock',
+        detail: 'kit corpus · exact addressed drum/cymbal samples',
+        info: 'Choose a kit/sample-set tile. BK opens directly to chopped samples; mapped sets continue through drum/cymbal families before leaves.',
+        count: total,
+        chips: kitGroupNodes.map((node) => node.label).slice(0, 8),
+        children: kitGroupNodes,
+      };
+    }
+    function buildSampleVoiceLibraries() {
+      const libraries = [];
+      if (!samplesGroupsCache && window.SampleVoice && typeof window.SampleVoice.groups === 'function') {
+        try { samplesGroupsCache = window.SampleVoice.groups(); } catch (_) {}
+      }
+      const groups = Array.isArray(samplesGroupsCache) ? samplesGroupsCache : [];
+      const allSamples = [];
+      for (const group of groups) {
+        const samples = Array.isArray(group.samples) ? group.samples : [];
+        for (const sample of samples) {
+          allSamples.push({
+            name: String(sample),
+            groupId: String(group.id || group.label || 'samples'),
+            groupLabel: String(group.label || group.id || 'samples'),
+          });
+        }
+      }
+      const rockSamples = allSamples.filter((sample) => /rock|smd|drum|kit|808|wa808|tr808|bk|breakcore/i.test(`${sample.groupId} ${sample.groupLabel} ${sample.name}`));
+      if (rockSamples.length) {
+        const addresses = rockSamples
+          .map((sample) => normalizeDrumKitAddress(sample))
+          .filter(Boolean);
+        const drumKitTree = buildDrumKitTree(addresses);
+        if (drumKitTree && drumKitTree.count > 0) libraries.push(drumKitTree);
+      }
+      const nonRockGroups = groups.filter((group) => {
+        const raw = `${group.id || ''} ${group.label || ''}`.toLowerCase();
+        return !/rock|smd|drum|kit|808|wa808|tr808|bk|breakcore/.test(raw);
+      });
+      for (const group of nonRockGroups) {
+        const samples = Array.isArray(group.samples) ? group.samples : [];
+        if (!samples.length) continue;
+        const id = String(group.id || group.label || 'archive').replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
+        const isLocal = id.includes('local');
+        libraries.push({
+          id,
+          label: group.label || group.id || 'archive samples',
+          kind: 'library',
+          accent: isLocal ? 'local' : 'archive',
+          detail: isLocal ? 'linked local folder · raw samples' : 'archive sample group · raw samples',
+          count: samples.length,
+          chips: [`${samples.length} files`],
+          children: samples.slice(0, 96).map((name) => ({
+            id: String(name),
+            label: String(name),
+            kind: 'sample',
+            accent: isLocal ? 'local' : 'archive',
+            detail: `${group.label || group.id || 'sample group'} · raw sample`,
+            count: 1,
+            insert: `sample ${name}`,
+            rawInsert: `sample ${name}`,
+            rawSample: String(name),
+            chips: ['raw sample id'],
+          })),
+        });
+      }
+      return libraries;
+    }
+    async function buildCommandSampleLibraries() {
+      const runtimeLibraries = buildSampleVoiceLibraries();
+      const instrumentResults = await Promise.all(COMMAND_INSTRUMENT_MANIFESTS.map(async (spec) => {
+        const result = await fetchFirstJsonQuiet(spec.urls || spec.url);
+        if (!result || !result.json) {
+          return {
+            id: spec.id,
+            label: spec.label,
+            kind: 'library',
+            accent: spec.accent,
+            detail: `${spec.detail} · manifest missing`,
+            count: 0,
+            missing: true,
+            chips: ['manifest missing'],
+            children: [],
+          };
+        }
+        return buildInstrumentLibraryFromManifest(spec, result.json, result.url);
+      }));
+      const libraries = [
+        ...runtimeLibraries,
+        ...instrumentResults,
+      ];
+      return libraries.sort((a, b) => {
+        const order = ['archive', 'local', 'drum-kits', 'rock', 'piano', 'violin', 'cello', 'marimba', 'vibraphone', 'voice'];
+        const ai = order.indexOf(a.id);
+        const bi = order.indexOf(b.id);
+        if (ai >= 0 || bi >= 0) return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+        return String(a.label).localeCompare(String(b.label));
+      });
+    }
+    function ensureCommandSampleLibraries() {
+      if (commandSampleLibraryState.libraries) return Promise.resolve(commandSampleLibraryState.libraries);
+      if (!commandSampleLibraryState.loading) {
+        commandSampleLibraryState.loading = buildCommandSampleLibraries()
+          .then((libs) => {
+            commandSampleLibraryState.libraries = libs;
+            commandSampleLibraryState.loading = null;
+            return libs;
+          })
+          .catch((err) => {
+            console.warn('[repl] sample library browser failed:', err);
+            commandSampleLibraryState.libraries = buildSampleVoiceLibraries();
+            commandSampleLibraryState.loading = null;
+            return commandSampleLibraryState.libraries;
+          });
+      }
+      return commandSampleLibraryState.loading;
+    }
+    function commandCurrentSampleNode() {
+      const libs = commandSampleLibraryState.libraries || [];
+      return commandNodeByPath(libs, commandBrowserState.samplePath);
+    }
+    function commandVisibleSampleChildren() {
+      const libs = commandSampleLibraryState.libraries || [];
+      const q = String(commandSearchQuery || '').trim().toLowerCase();
+      if (q) {
+        const flat = [];
+        function walk(node, path) {
+          if (!node) return;
+          const hay = [
+            node.id,
+            node.label,
+            node.detail,
+            node.rawSample,
+            node.insert,
+            node.rawInsert,
+            Array.isArray(node.chips) ? node.chips.join(' ') : '',
+            path.join(' '),
+          ].join(' ').toLowerCase();
+          if (q.split(/\s+/).filter(Boolean).every((part) => hay.includes(part))) {
+            flat.push({ ...node, _path: path.slice() });
+          }
+          for (const child of node.children || []) walk(child, path.concat(child.id));
+        }
+        for (const lib of libs) walk(lib, [lib.id]);
+        return flat.slice(0, 80);
+      }
+      const node = commandCurrentSampleNode();
+      return Array.isArray(node && node.children) ? node.children : libs;
+    }
+    function commandSampleBreadcrumbParts() {
+      const libs = commandSampleLibraryState.libraries || [];
+      const parts = [{ id: '', label: 'samples', path: [] }];
+      let children = libs;
+      const path = [];
+      for (const segment of commandBrowserState.samplePath) {
+        const node = children.find((item) => item.id === segment);
+        if (!node) break;
+        path.push(segment);
+        parts.push({ id: node.id, label: node.label || node.id, path: path.slice() });
+        children = Array.isArray(node.children) ? node.children : [];
+      }
+      return parts;
+    }
+    function commandSampleSurfaceInfoText() {
+      const node = commandCurrentSampleNode();
+      if (commandSearchQuery) return 'Search is flattening the library. Matching folders still navigate; matching sample leaves insert or audition directly.';
+      if (!commandBrowserState.samplePath.length) {
+        return 'Select a library surface. Instruments are pitch/technique aware; drum kits are sample-set aware; archive/local leaves can be auditioned directly.';
+      }
+      if (node && node.info) return String(node.info);
+      if (node && node.kind === 'library') {
+        return `${node.label || 'This library'} is a top-level sample surface. Open a folder to narrow the address before choosing a leaf.`;
+      }
+      if (node && Array.isArray(node.children) && node.children.length) {
+        return `${node.label || 'This folder'} narrows the sample address. Folder cards keep browsing; leaf cards insert the exact row and expose the audition button.`;
+      }
+      if (node && node.kind === 'sample') {
+        return `${node.label || 'This sample'} is an exact leaf. Click the card to insert it; click the speaker to audition without changing the patch.`;
+      }
+      return 'Browse downward until a card becomes an exact sample leaf; only leaves insert playable sample rows.';
+    }
+
+    function commandSampleSummaryText() {
+      const libs = commandSampleLibraryState.libraries || [];
+      const q = String(commandSearchQuery || '').trim();
+      if (!libs.length && commandSampleLibraryState.loading) return 'LOADING SAMPLE LIBRARIES';
+      const visible = commandVisibleSampleChildren();
+      if (q) return `${visible.length} MATCH${visible.length === 1 ? '' : 'ES'} · FILTERED SAMPLE LIBRARY`;
+      const node = commandCurrentSampleNode();
+      if (!commandBrowserState.samplePath.length) {
+        const files = libs.reduce((sum, lib) => sum + commandSampleCount(lib), 0);
+        return `${libs.length} LIBRAR${libs.length === 1 ? 'Y' : 'IES'} · ${files} FILE${files === 1 ? '' : 'S'}`;
+      }
+      const count = commandSampleCount(node);
+      return `${String(node.label || 'samples').toUpperCase()} · ${count} FILE${count === 1 ? '' : 'S'}`;
+    }
+    function commandManifestAssetBase(baseUrl) {
+      try {
+        return new URL('.', new URL(baseUrl || './', window.location.href)).toString();
+      } catch (_) {
+        return window.location.href;
+      }
+    }
+    function absoluteCommandSampleUrl(url, baseUrl) {
+      if (!url) return '';
+      try {
+        if (/^(blob:|data:|https?:|file:)/i.test(String(url))) {
+          return String(url);
+        }
+        // Important: manifest-relative audio paths like "audio/arco/..."
+        // must resolve relative to the manifest directory, not to
+        // ".../manifest.full.json/audio/...".
+        return new URL(url, commandManifestAssetBase(baseUrl)).toString();
+      } catch (_) {
+        return '';
+      }
+    }
+    function commandSampleRawName(node) {
+      if (!node) return '';
+      if (node.rawSample) return String(node.rawSample);
+      const rawInsert = String(node.rawInsert || node.insert || '').trim();
+      const m = rawInsert.match(/^sample\s+(.+)$/i);
+      return m ? m[1].trim() : '';
+    }
+    async function auditionCommandRawSample(node, audioCtx, masterBus) {
+      const name = commandSampleRawName(node);
+      if (!name || !window.SampleVoice || typeof window.SampleVoice.playSample !== 'function') return false;
+      if (typeof window.SampleVoice.ready === 'function') {
+        try { await window.SampleVoice.ready(); } catch (_) {}
+      }
+      if (typeof window.SampleVoice.has === 'function') {
+        try {
+          if (!window.SampleVoice.has(name)) return false;
+        } catch (_) {
+          return false;
+        }
+      }
+      try {
+        return window.SampleVoice.playSample({
+          audioCtx,
+          masterBus,
+          time: audioCtx.currentTime + 0.01,
+          name,
+          gain: 0.72,
+          pan: 0,
+          rate: 1,
+          rateMul: 1,
+          start: 0,
+          crush: 0,
+          resolution: 0,
+          gateDuration: null,
+        }) === true;
+      } catch (err) {
+        console.warn('[repl] raw sample audition failed:', err, { node, name });
+        return false;
+      }
+    }
+    async function auditionCommandSample(node, button) {
+      const url = absoluteCommandSampleUrl(node && node.url, node && node.baseUrl);
+      const rawName = commandSampleRawName(node);
+      if (!url && !rawName) {
+        showWarning('no directly auditionable URL for this sample');
+        return;
+      }
+      let audioCtx = null;
+      let masterBus = null;
+      try {
+        if (window.StringVoice && typeof window.StringVoice.ensureAudio === 'function') {
+          audioCtx = window.StringVoice.ensureAudio();
+        }
+        if (!audioCtx) {
+          const Ctor = window.AudioContext || window.webkitAudioContext;
+          if (Ctor) audioCtx = new Ctor();
+        }
+        if (!audioCtx) {
+          showWarning('this browser does not support Web Audio');
+          return;
+        }
+        if (audioCtx.state === 'suspended' && typeof audioCtx.resume === 'function') {
+          await audioCtx.resume();
+        }
+        if (window.StringVoice && typeof window.StringVoice.resume === 'function') {
+          try { window.StringVoice.resume(); } catch (_) {}
+        }
+        if (window.StringVoice && typeof window.StringVoice.getMasterBus === 'function') {
+          try { masterBus = window.StringVoice.getMasterBus(); } catch (_) {}
+        }
+        if (!masterBus || typeof masterBus.connect !== 'function') {
+          masterBus = audioCtx.destination;
+        }
+        if (button) button.classList.add('is-loading');
+        if (commandSampleLibraryState.auditionSource) {
+          try { commandSampleLibraryState.auditionSource.stop(); } catch (_) {}
+          commandSampleLibraryState.auditionSource = null;
+        }
+        if (!url) {
+          const didPlayRaw = await auditionCommandRawSample(node, audioCtx, masterBus);
+          if (!didPlayRaw) showWarning(`sample audition failed: ${rawName || 'sample'}`);
+          return;
+        }
+        let buffer = commandSampleLibraryState.auditionBuffers.get(url);
+        if (!buffer) {
+          const r = await fetch(url, { credentials: 'omit' });
+          if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+          const bytes = await r.arrayBuffer();
+          buffer = await audioCtx.decodeAudioData(bytes.slice(0));
+          commandSampleLibraryState.auditionBuffers.set(url, buffer);
+        }
+        const src = audioCtx.createBufferSource();
+        const gain = audioCtx.createGain();
+        src.buffer = buffer;
+        gain.gain.value = 0.72;
+        src.connect(gain);
+        gain.connect(masterBus);
+        src.onended = () => {
+          if (commandSampleLibraryState.auditionSource === src) {
+            commandSampleLibraryState.auditionSource = null;
+          }
+        };
+        commandSampleLibraryState.auditionSource = src;
+        src.start(audioCtx.currentTime + 0.01);
+      } catch (err) {
+        const didPlayRaw = await auditionCommandRawSample(node, audioCtx, masterBus);
+        if (didPlayRaw) return;
+        console.warn('[repl] sample audition failed:', err, { node, url });
+        showWarning(`sample audition failed: ${node && node.label ? node.label : 'sample'}`);
+      } finally {
+        if (button) button.classList.remove('is-loading');
+      }
+    }
+    function renderCommandSampleBrowser() {
+      if (!commandPopoverList) return;
+      const libs = commandSampleLibraryState.libraries || [];
+      const visible = commandVisibleSampleChildren();
+      commandPopoverList.innerHTML = '';
+      const shell = document.createElement('div');
+      shell.className = 'command-sample-browser';
+      const breadcrumb = document.createElement('div');
+      breadcrumb.className = 'command-sample-breadcrumb';
+      if (commandBrowserState.samplePath.length > 0) {
+        const back = document.createElement('button');
+        back.type = 'button';
+        back.className = 'command-sample-back';
+        back.textContent = '← back';
+        back.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          commandBrowserState.samplePath.pop();
+          activeCommandFocusIndex = 0;
+          renderCommandPalette();
+        });
+        breadcrumb.appendChild(back);
+      }
+      for (const part of commandSampleBreadcrumbParts()) {
+        const crumb = document.createElement('button');
+        crumb.type = 'button';
+        crumb.className = 'command-sample-crumb';
+        crumb.textContent = part.label;
+        if (part.path.join('/') === commandBrowserState.samplePath.join('/')) {
+          crumb.disabled = true;
+        } else {
+          crumb.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            commandBrowserState.samplePath = part.path.slice();
+            activeCommandFocusIndex = 0;
+            renderCommandPalette();
+          });
+        }
+        breadcrumb.appendChild(crumb);
+      }
+      shell.appendChild(breadcrumb);
+      const summary = document.createElement('div');
+      summary.className = 'command-sample-summary';
+      summary.textContent = commandSampleSummaryText();
+      shell.appendChild(summary);
+      const info = document.createElement('div');
+      info.className = 'reference-section-note';
+      info.textContent = commandSampleSurfaceInfoText();
+      shell.appendChild(info);
+      if (!libs.length && commandSampleLibraryState.loading) {
+        const loading = document.createElement('div');
+        loading.className = 'example-popover-empty';
+        loading.textContent = 'loading sample libraries...';
+        shell.appendChild(loading);
+        commandPopoverList.appendChild(shell);
+        return;
+      }
+      if (!visible.length) {
+        const empty = document.createElement('div');
+        empty.className = 'example-popover-empty';
+        empty.textContent = commandSearchQuery
+          ? `no sample libraries match "${commandSearchQuery}"`
+          : 'no sample libraries found';
+        shell.appendChild(empty);
+        commandPopoverList.appendChild(shell);
+        return;
+      }
+      const grid = document.createElement('div');
+      grid.className = 'command-sample-grid';
+      visible.forEach((node, idx) => {
+        const isFolder = Array.isArray(node.children) && node.children.length > 0;
+        const card = document.createElement('div');
+        card.setAttribute('role', 'button');
+        card.tabIndex = 0;
+        card.className = [
+          'command-sample-card',
+          node.missing ? 'is-missing' : '',
+          node.loading ? 'is-loading' : '',
+        ].filter(Boolean).join(' ');
+        card.dataset.kind = isFolder ? (node.kind === 'library' ? 'library' : 'folder') : 'sample';
+        card.dataset.accent = node.accent || 'archive';
+        card.dataset.index = String(idx);
+        const count = commandSampleCount(node);
+        const chips = Array.isArray(node.chips) ? node.chips.slice(0, 7) : [];
+        const actionSide = isFolder ? '' : [
+          '<span class="command-sample-card-side">',
+          '<span class="command-sample-action-stack">',
+          `<button
+            type="button"
+            class="cs-mute-toggle command-sample-audition"
+            ${(node.url || commandSampleRawName(node)) ? '' : 'disabled'}
+            aria-label="Audition sample"
+          >
+            <svg class="cs-mute-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"></path>
+            </svg>
+          </button>`,
+          '</span>',
+          '</span>',
+        ].join('');
+        card.innerHTML = [
+          '<span class="command-sample-card-main">',
+          '<span class="command-sample-card-title">',
+          commandEscapeHtml(String(node.label || node.id || 'sample').toLowerCase()),
+          '</span>',
+          '<span class="command-sample-card-detail">',
+          commandEscapeHtml(node.detail || (isFolder ? 'sample folder' : 'exact sample')),
+          '</span>',
+          '<span class="command-sample-card-count">',
+          commandEscapeHtml(`${count} ${count === 1 ? 'sample' : 'samples'}`),
+          '</span>',
+          chips.length ? '<span class="command-sample-card-chips">' + chips.map((chip) => `<span class="command-sample-chip">${commandEscapeHtml(chip)}</span>`).join('') + '</span>' : '',
+          '</span>',
+          actionSide,
+        ].join('');
+        card.addEventListener('click', (e) => {
+          if (e.target && e.target.closest && e.target.closest('.command-sample-audition, .command-sample-raw')) return;
+          activeCommandFocusIndex = idx;
+          if (isFolder) {
+            const nextPath = node._path
+              ? node._path.slice()
+              : commandBrowserState.samplePath.concat(node.id);
+            commandBrowserState.samplePath = nextPath;
+            renderCommandPalette();
+            return;
+          }
+          if (node.insert) {
+            insertCommandSelection({ ...node, group: 'samples' }, node.insert);
+            closeCommandPopover();
+            if (editorAPI) editorAPI.focus();
+          }
+        });
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            moveCommandFocus(1);
+          }
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            moveCommandFocus(-1);
+          }
+          if (e.key === 'Home') {
+            e.preventDefault();
+            focusCommandItem(0);
+          }
+          if (e.key === 'End') {
+            e.preventDefault();
+            focusCommandItem(commandItemButtons().length - 1);
+          }
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            card.click();
+          }
+        });
+        const audition = card.querySelector('.command-sample-audition');
+        if (audition) {
+          audition.addEventListener('mousedown', (e) => e.preventDefault());
+          audition.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            auditionCommandSample(node, audition);
+          });
+        }
+        grid.appendChild(card);
+      });
+      shell.appendChild(grid);
+      commandPopoverList.appendChild(shell);
+    }
+
+    function commandMatchesQuery(entry, query) {
+      const q = String(query || '').trim().toLowerCase();
+      if (!q) return true;
+
+      const hay = [
+        entry.id,
+        entry.group,
+        entry.kind,
+        entry.label,
+        entry.detail,
+        entry.insert,
+        entry.params,
+      ].join(' ').toLowerCase();
+
+      return q.split(/\s+/).filter(Boolean).every((part) => hay.includes(part));
+    }
+
+    function visibleCommandGroups() {
+      const query = commandSearchQuery;
+      const entries = commandEntries().filter((entry) => commandMatchesQuery(entry, query));
+      const sampleLibraryCount = commandSampleLibraryState.libraries
+        ? commandSampleLibraryState.libraries.length
+        : 0;
+      return COMMAND_GROUPS
+        .map((group) => {
+          if (group.id === 'samples') {
+            return {
+              ...group,
+              entries: Array.from({ length: sampleLibraryCount }, (_, i) => ({ id: `sample-library-${i}` })),
+              sampleLibraryCount,
+            };
+          }
+          return {
+            ...group,
+            entries: entries
+              .filter((entry) => entry.group === group.id)
+              .sort((a, b) => contextWeightForCommand(b) - contextWeightForCommand(a)),
+          };
+        })
+        .filter((group) => group.id === 'samples' || group.entries.length > 0 || !query);
+    }
+
+    function totalVisibleCommands(groups) {
+      return (groups || []).reduce((sum, group) => {
+        if (group && group.id === 'samples') {
+          return sum + (group.sampleLibraryCount || 0);
+        }
+        return sum + (group.entries ? group.entries.length : 0);
+      }, 0);
+    }
+
+
+    function commandItemButtons() {
+      if (!commandPopoverList) return [];
+      return Array.from(commandPopoverList.querySelectorAll('.example-popover-item, .command-sample-card'));
+    }
+
+
+    function focusCommandItem(index) {
+      const items = commandItemButtons();
+      if (!items.length) return;
+      const next = Math.max(0, Math.min(items.length - 1, Number(index) || 0));
+      activeCommandFocusIndex = next;
+      items[next].focus();
+    }
+
+    function moveCommandFocus(delta) {
+      const items = commandItemButtons();
+      if (!items.length) return;
+
+      const current = items.indexOf(document.activeElement);
+      const base = current >= 0 ? current : activeCommandFocusIndex;
+      const next = (base + delta + items.length) % items.length;
+      focusCommandItem(next);
+    }
+
+    function commandActionKind(entry) {
+      if (!entry) return 'insert';
+      if (entry.action) return entry.action;
+      if (entry.run) return 'run';
+      if (entry.copy) return 'copy';
+      return 'insert';
+    }
+
+    function executeCommand(entry) {
+      if (!entry) return;
+
+      const action = commandActionKind(entry);
+
+      if (entry.run && (action === 'run' || action === 'open')) {
+        closeCommandPopover();
+        try { entry.run(); } catch (err) { console.warn('[repl] command failed', err); }
+        return;
+      }
+
+      if (entry.copy) {
+        const text = String(entry.copy || '');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).catch(() => {});
+        }
+        closeCommandPopover();
+        if (editorAPI) editorAPI.focus();
+        return;
+      }
+
+      if (entry.insert) {
+        insertCommandSelection(entry, entry.insert);
+        closeCommandPopover();
+        if (editorAPI) editorAPI.focus();
+      }
+    }
+
+    function renderCommandPalette() {
+      if (!commandPopoverTabs || !commandPopoverList) return;
+      ensureCommandPaletteLayoutStyles();
+
+      const groups = visibleCommandGroups();
+      const total = totalVisibleCommands(groups);
+
+      if (commandPopoverCount) {
+        commandPopoverCount.textContent = `${total} COMMAND${total === 1 ? '' : 'S'}`;
+      }
+
+      if (!groups.length) {
+        commandPopoverTabs.innerHTML = '';
+        commandPopoverList.innerHTML = '<div class="example-popover-empty">No command cards match this filter.</div>';
+        return;
+      }
+
+      if (!groups.some((group) => group.id === activeCommandGroupId)) {
+        activeCommandGroupId = groups[0].id;
+        activeCommandFocusIndex = 0;
+      }
+
+      commandPopoverTabs.innerHTML = '';
+
+      for (const group of groups) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = [
+          'example-popover-tab',
+          `command-kind-${group.id === 'docs' ? 'docs' : group.id.replace(/s$/, '')}`,
+          group.id === activeCommandGroupId ? 'is-active' : '',
+        ].filter(Boolean).join(' ');
+        btn.setAttribute('role', 'tab');
+        btn.setAttribute('aria-selected', group.id === activeCommandGroupId ? 'true' : 'false');
+        btn.innerHTML = [
+          '<span class="example-popover-tab-main">',
+          commandEscapeHtml(group.label || group.id),
+          '</span>',
+          '<span class="example-popover-tab-count">',
+          commandEscapeHtml(group.id === 'samples' ? (group.sampleLibraryCount || '...') : group.entries.length),
+          '</span>',
+        ].join('');
+
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            activeCommandGroupId = group.id;
+            activeCommandFocusIndex = 0;
+            if (group.id === 'samples') {
+              commandBrowserState.mode = 'samples';
+              ensureCommandSampleLibraries().then(() => {
+                if (!commandPopover || commandPopover.hidden) return;
+                renderCommandPalette();
+              });
+            } else {
+              commandBrowserState.mode = 'commands';
+            }
+            renderCommandPalette();
+          });
+
+
+        btn.addEventListener('keydown', (e) => {
+          const tabs = Array.from(commandPopoverTabs.querySelectorAll('.example-popover-tab'));
+          const idx = tabs.indexOf(document.activeElement);
+
+          if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            const next = tabs[(idx + 1 + tabs.length) % tabs.length];
+            if (next) next.focus();
+          }
+
+          if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+            e.preventDefault();
+            const next = tabs[(idx - 1 + tabs.length) % tabs.length];
+            if (next) next.focus();
+          }
+
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            btn.click();
+          }
+        });
+
+        commandPopoverTabs.appendChild(btn);
+      }
+
+      commandPopoverList.innerHTML = '';
+
+      const active = groups.find((group) => group.id === activeCommandGroupId);
+      if (!active) return;
+        
+        if (active.id === 'samples') {
+          commandBrowserState.mode = 'samples';
+          if (!commandSampleLibraryState.libraries) {
+            ensureCommandSampleLibraries().then(() => {
+              if (!commandPopover || commandPopover.hidden) return;
+              renderCommandPalette();
+            });
+          }
+          renderCommandSampleBrowser();
+          return;
+        }
+        commandBrowserState.mode = 'commands';
+
+
+      const section = document.createElement('div');
+      section.className = `example-popover-section-label command-kind-${active.id === 'docs' ? 'docs' : active.id.replace(/s$/, '')}`;
+      section.textContent = active.label || active.id;
+      commandPopoverList.appendChild(section);
+
+      const info = document.createElement('div');
+      info.className = 'reference-section-note command-surface-note';
+      info.textContent = commandSurfaceCopy(active.id);
+      commandPopoverList.appendChild(info);
+
+      active.entries.forEach((entry, idx) => {
+        const action = commandActionKind(entry);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = [
+          'example-popover-item',
+          'command-card-compact',
+          `command-card-${active.id}`,
+          `command-kind-${entry.kind || 'syntax'}`,
+          idx === activeCommandFocusIndex ? 'is-current' : '',
+        ].filter(Boolean).join(' ');
+        btn.dataset.commandId = entry.id;
+        btn.dataset.commandIndex = String(idx);
+        btn.dataset.actionKind = action;
+
+        const snippet = entry.insert
+          ? `<span class="command-popover-snippet">${commandEscapeHtml(entry.insert)}</span>`
+          : '';
+
+        const params = entry.params
+          ? `<span class="command-popover-paramline">${commandEscapeHtml(entry.params)}</span>`
+          : '';
+
+          btn.innerHTML = [
+            '<span class="example-popover-num">',
+            '<span class="command-popover-rail-label">',
+            commandEscapeHtml(String(entry.kind || 'cmd').toUpperCase()),
+            '</span>',
+            '</span>',
+            '<span class="example-popover-copy">',
+            '<span class="example-popover-label">',
+          commandEscapeHtml(normalizeCommandText(entry.label).toLowerCase()),
+          '</span>',
+          '<span class="example-popover-detail">',
+          commandEscapeHtml(normalizeCommandText(entry.detail)),
+          '</span>',
+          snippet,
+          params,
+          '</span>',
+          '<span class="example-popover-stamp" aria-hidden="true"></span>',
+        ].join('');
+
+        btn.addEventListener('click', () => {
+          activeCommandFocusIndex = idx;
+          executeCommand(entry);
+        });
+
+        btn.addEventListener('keydown', (e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            moveCommandFocus(1);
+          }
+
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            moveCommandFocus(-1);
+          }
+
+          if (e.key === 'Home') {
+            e.preventDefault();
+            focusCommandItem(0);
+          }
+
+          if (e.key === 'End') {
+            e.preventDefault();
+            focusCommandItem(commandItemButtons().length - 1);
+          }
+
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            btn.click();
+          }
+        });
+
+        commandPopoverList.appendChild(btn);
+      });
+    }
+
+    function openCommandPopover() {
+      if (!commandPopover || !samplesToggleBtn) return;
+
+      if (window.SampleVoice && window.SampleVoice.ready) {
+        window.SampleVoice.ready().then(() => {
+          samplesGroupsCache = null;
+          commandSampleEntriesHydrated = false;
+          if (!commandPopover.hidden) renderCommandPalette();
+        }).catch(() => {});
+      }
+
+      if (commandPopoverSearch) {
+        commandSearchQuery = commandPopoverSearch.value || '';
+      }
+        
+        if (activeCommandGroupId !== 'samples') {
+          commandBrowserState.mode = 'commands';
+        }
+
+      if (commandContextVoice()) {
+        const ctx = commandContextVoice();
+        if (['marimba', 'vibraphone', 'voice', 'violin', 'cello'].includes(ctx)) {
+          activeCommandGroupId = 'params';
+        }
+      }
+        
+        ensureCommandSampleLibraries().then(() => {
+          if (!commandPopover || commandPopover.hidden) return;
+          renderCommandPalette();
+        }).catch(() => {});
+
+
+      renderCommandPalette();
+
+      commandPopover.style.left = '';
+      commandPopover.style.top = '';
+      commandPopover.hidden = false;
+      document.body.classList.add('command-popover-open');
+      samplesToggleBtn.setAttribute('aria-expanded', 'true');
+
+      requestAnimationFrame(() => {
+        if (commandPopoverSearch) {
+          commandPopoverSearch.focus();
+          commandPopoverSearch.select();
+        }
+      });
+    }
+
+    function closeCommandPopover() {
+      if (!commandPopover || !samplesToggleBtn) return;
+      commandPopover.hidden = true;
+      document.body.classList.remove('command-popover-open');
+      samplesToggleBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleCommandPopover() {
+      if (!commandPopover) return;
+      if (commandPopover.hidden) openCommandPopover();
+      else closeCommandPopover();
+    }
+
   function toggleSamplesPanel(forceState) {
     if (!samplesPanel || !samplesToggleBtn) return;
     const wasHidden = samplesPanel.hasAttribute('hidden');
@@ -4224,9 +8890,104 @@
     }
   }
 
-  if (samplesToggleBtn) {
-    samplesToggleBtn.addEventListener('click', () => toggleSamplesPanel());
-  }
+    if (samplesToggleBtn) {
+      samplesToggleBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleCommandPopover();
+      });
+
+      samplesToggleBtn.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openCommandPopover();
+          requestAnimationFrame(() => {
+            if (commandPopoverSearch) commandPopoverSearch.focus();
+            else focusCommandItem(activeCommandFocusIndex);
+          });
+        }
+      });
+    }
+    if (commandPopover) {
+      commandPopover.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+    }
+
+    if (commandPopoverSearch) {
+      commandPopoverSearch.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+
+      commandPopoverSearch.addEventListener('input', () => {
+          commandSearchQuery = commandPopoverSearch.value || '';
+          activeCommandFocusIndex = 0;
+          // Query mode flattens sample matches across the hierarchy. Clearing search
+          // returns to the current breadcrumb folder rather than blowing away the path.
+          renderCommandPalette();
+      });
+
+      commandPopoverSearch.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeCommandPopover();
+          if (editorAPI) editorAPI.focus();
+        }
+
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          focusCommandItem(0);
+        }
+
+        if (e.key === 'Enter') {
+          const first = commandItemButtons()[0];
+          if (first) {
+            e.preventDefault();
+            first.click();
+          }
+        }
+
+        if (e.key === 'Tab') {
+          const tabs = commandPopoverTabs
+            ? Array.from(commandPopoverTabs.querySelectorAll('.example-popover-tab'))
+            : [];
+          if (tabs.length) {
+            e.preventDefault();
+            tabs[0].focus();
+          }
+        }
+      });
+    }
+
+    document.addEventListener('click', (e) => {
+      if (!commandPopover || commandPopover.hidden) return;
+      if (commandPopover.contains(e.target)) return;
+      if (samplesToggleBtn && samplesToggleBtn.contains(e.target)) return;
+      closeCommandPopover();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      const key = String(e.key || '').toLowerCase();
+
+      if ((e.metaKey || e.ctrlKey) && key === 'k') {
+        e.preventDefault();
+        toggleCommandPopover();
+        return;
+      }
+
+      if (!commandPopover || commandPopover.hidden) return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeCommandPopover();
+        if (editorAPI) editorAPI.focus();
+      }
+
+      if (e.key === 'ArrowDown' && document.activeElement === samplesToggleBtn) {
+        e.preventDefault();
+        focusCommandItem(activeCommandFocusIndex);
+      }
+    });
   if (samplesGroupsEl) {
     // Preserve editor caret when clicking sample pills.
     samplesGroupsEl.addEventListener('mousedown', (e) => {
@@ -4302,13 +9063,13 @@
       parent: editorMount,
       initialText: '',
       blockMuteLines: editorMuteLinesSnapshot(),
-      onChange: () => {
-        // Reserved for future autosave/diagnostics hooks. The CM linter
-        // already runs on doc changes; we don't hard-evaluate here.
-        const text = editorAPI ? editorAPI.getValue() : '';
-        if (findExplicitPatchTitle(text)) loadedExampleLabel = '';
-        refreshPatchTitle();
-      },
+        onChange: () => {
+          // CM linter already runs on doc changes; do not hard-evaluate here.
+          const text = editorAPI ? editorAPI.getValue() : '';
+          if (findExplicitPatchTitle(text)) loadedExampleLabel = '';
+          refreshPatchTitle();
+          schedulePatchHashPersist();
+        },
       onCommand: {
         play: evaluateAndRun,
         safePlay,
@@ -4316,7 +9077,11 @@
         share: shareCurrent,
         toggleIO: toggleInputPanel,
       },
-      onToggleBlockMute: ({ lineNumber }) => {
+      onToggleBlockMute: ({ lineNumber, lineNumbers, desiredMuted }) => {
+        if (Array.isArray(lineNumbers) && lineNumbers.length > 1) {
+          setBlockMuteFromEditor(lineNumbers, Boolean(desiredMuted));
+          return;
+        }
         toggleBlockMuteFromEditor(lineNumber);
       },
       getSampleNames: () => (
@@ -4348,10 +9113,23 @@
     if (window.SampleVoice) {
       window.SampleVoice.loadManifest(SAMPLES_MANIFEST_URL).catch(() => {});
     }
+    if (window.PianoVoice && typeof window.PianoVoice.loadManifest === 'function') {
+      window.PianoVoice.loadManifest().catch(() => {});
+    }
+    if (window.ViolinVoice && typeof window.ViolinVoice.loadManifest === 'function') {
+      window.ViolinVoice.loadManifest().catch(() => {});
+    }
     initLocalSamplesFromSavedHandle();
-    const loaded = await loadFromHash();
-    if (!loaded) await loadDefaultExample();
-    // Pre-render the transport panel from a parse of the loaded text so
+        const loaded = await loadFromHash();
+        if (!loaded) await loadDefaultExample();
+
+        // Treat the boot-loaded patch/default as the current clean state. The URL
+        // should not be rewritten until the user actually edits or clicks share.
+        patchLinkState.lastSavedCode = editorAPI ? editorAPI.getValue() : '';
+        patchLinkState.lastSavedTitle = getPatchTitleForShare();
+        refreshPatchTitle();
+
+        // Pre-render the transport panel from a parse of the loaded text so
     // the slot dots are visible before the user hits play.
     const initialText = editorAPI ? editorAPI.getValue() : '';
     const parsed = window.ReplDSL.parse(initialText);

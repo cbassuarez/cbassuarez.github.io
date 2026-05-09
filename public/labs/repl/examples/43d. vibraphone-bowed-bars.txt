@@ -1,0 +1,23 @@
+tempo 54
+meter 4/4
+
+vibes C4 ~ ~ . | G4 ~ ~ . | D4 ~ ~ . | A4 ~ ~ .
+articulation bow
+bowpressure .45
+pedal 1
+motor .15
+depth .1
+body .72
+sympathetic .55
+release .85
+human .04
+pan -.12
+
+vibes E5 . G5 . B5 . D6 .
+articulation dampen
+pedal .2
+damp .72
+force mp
+body .3
+human .05
+pan .24

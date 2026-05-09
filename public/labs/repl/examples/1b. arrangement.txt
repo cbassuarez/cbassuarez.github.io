@@ -1,0 +1,93 @@
+// title: arrangement — start and stop blocks across time
+//
+// `enter` and `exit` schedule when a block plays, measured from the moment of
+// `eval reset`. Without them, blocks play from the start until you stop.
+// With them, you build form: one voice enters at bar 4, another exits at
+// bar 16, and the rest write themselves. This is the first step in
+// composing pieces with sections instead of just textures.
+//
+// SYNTAX     enter <count> bars|beats        (default: enter 0 bars)
+//            exit  <count> bars|beats        (default: never exit)
+// UNITS      bars and beats — same units as `every`. In 4/4, 8 beats = 2 bars.
+// SEMANTICS  Each block plays its pattern starting at slot 0 the moment it
+//            enters. Outside its window the block is silent and the cursor
+//            is paused, so the pattern always opens on its first slot.
+// COMPOSING  Each block is one clip. To replay a phrase later, copy the
+//            block and give it a new window.
+//
+// This patch builds in three movements over ~36 bars. eval reset, listen
+// straight through, then read the comments and tweak.
+
+tempo  96
+meter  4/4
+tuning kirnberger-3
+eval   reset
+
+// 1) STAGGERED ENTRY — voices come in 4 bars apart over a drone bed.
+//    The drone has no enter/exit, so it underpins everything.
+
+drone   D2   ~    F2   ~
+gain    0.32
+decay   6
+tone    dark
+space   0.32
+pan     center
+
+pluck   *4   .    A4   .
+gain    0.42
+decay   0.6
+tone    bright
+pan     left center right center
+enter   4 bars
+exit    20 bars
+
+sine    F4   ~    A4   ~
+gain    0.18
+pan     right
+enter   8 bars
+// no exit — the sine pad keeps going once it joins.
+
+// 2) HAND-OFF — phrase A plays bars 12..24, phrase B takes over 24..36.
+//    Two blocks of the same voice, abutting at bar 24, sound like one
+//    continuous string line that changes phrase mid-piece.
+
+string  C3   E3   G3   B3
+decay   3
+gain    0.42
+body    metal
+space   0.18
+pan     center
+enter   12 bars
+exit    24 bars
+
+string  D3   F3   A3   C4
+decay   3
+gain    0.42
+body    glass
+space   0.28
+pan     center
+enter   24 bars
+exit    36 bars
+
+// 3) DRUM ARC — drums enter at bar 16, hold for 16 bars, drop out at 32.
+//    `every 4 bars` punctuates the window: the 2-bar pattern fires at bars
+//    16, 20, 24, 28 — leaving 2 bars of breath between hits. enter/exit
+//    define the section; every shapes the rhythm inside it.
+
+drum    k    .    s    h   |   k    .    s    *
+kit     breakcore
+variance 0.6
+gain    0.42
+pan     center
+enter   16 bars
+exit    32 bars
+every   4 bars
+
+// TWEAK IDEAS
+//   - swap `enter 4 bars` for `enter 16 beats` — same instant, beat-counted
+//     (16 quarter-notes in 4/4 = 4 bars).
+//   - delete `exit 24 bars` from the first string — both phrases sound
+//     simultaneously from bar 24 on. instant counterpoint.
+//   - shift the drum window to `enter 24 bars exit 36 bars` — drums land
+//     under string phrase B instead of phrase A.
+//   - change tempo to 120 and re-eval — bar counts stay; wall-clock shrinks.

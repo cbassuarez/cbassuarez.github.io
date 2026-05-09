@@ -43,3 +43,31 @@ Each entry in `manifest.json` is a one-shot audio file fetched on demand by
 These are one-shots played through the same compressor + master bus as the
 string voice. Stereo and high sample rates buy almost nothing audibly through
 that chain and double the bandwidth cost.
+
+## Importing Wave Alchemy 808 Tape locally
+
+Do not commit the raw Wave Alchemy files into this repo unless you have explicit
+redistribution permission. For a local/dev REPL bank, put the downloaded pack at:
+
+```sh
+/Users/seb/Downloads/wa_808_tape
+```
+
+Then run from `/public/labs/repl`:
+
+```sh
+node scripts/import-wa-808-tape.mjs
+```
+
+By default this copies/converts files to `../../audio/wa-808`, writes URLs under
+`/audio/wa-808`, and adds a manifest kit with the same drum grammar as other
+kits:
+
+```txt
+drum k h s h | k o s c
+kit 808
+variance .35
+```
+
+Use `--source`, `--out`, and `--url-prefix` to override paths. Use `--ogg` to
+convert everything through ffmpeg.

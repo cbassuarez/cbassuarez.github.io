@@ -1,0 +1,21 @@
+// title: BK phrases over 808
+// BK is chopped phrase material, not a one-shot drum kit.
+
+tempo 142
+meter 4/4
+
+sample bk-01 . bk-04 .
+rate 1 1 0.5 1
+gain 0.78
+space 0.18
+
+drum k h s h | k h s o
+kit 808
+variance 0.22
+gain 0.74
+
+drum . h . h | . o . c
+kit 808
+variance 0.12
+gain 0.46
+pan 0.18

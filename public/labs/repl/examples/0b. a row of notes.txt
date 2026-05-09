@@ -1,0 +1,21 @@
+// title: a row of notes
+//
+// type this on the empty line below:
+//
+//     sine A4 C5 E5 G5
+//
+// press cmd-enter. you should hear four notes step through evenly,
+// then the last one (G5) holds. (the pattern plays once. add `tempo`
+// later to make it loop — see 0e.)
+//
+// try more notes — each gets less time:
+//     sine A4 B4 C5 D5 E5 F5 G5 A5
+//
+// try fewer — each rings longer:
+//     sine A4 C5
+//
+// next: load 0c. rests and ties
+//
+// type below ↓
+
+

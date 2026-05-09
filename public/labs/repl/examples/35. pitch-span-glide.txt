@@ -1,16 +1,26 @@
 tempo 180
 meter 3/4
 tuning kirnberger-3
+//tuning type matters here, even though it's a gliss it's still weighted around notes
 
+// this is a 100:99:98 polyrhythm, with shared descending notes between each member
+// this is done through the `>>` command
 // shared >> leader: this top anchor wins for descending ramps
+
+// `>>6* * *`: shared descent (`>>`) from somewhere (`*`) in the sixth octave designation, taking three notes per bar/phrase.
 pluck >>6* * *
 speed 1
 decay 0
+glide 60
+// glide, in seconds, sets how long the ramp is for, irrespective of bar or loop reset
 
+//these two blocks follow the top block because the also have the `>>` operator present.
 pluck >>* * *
 speed .99
 decay 0
+glide 60
 
 pluck >>* * *
 speed .98
 decay 0
+glide 60

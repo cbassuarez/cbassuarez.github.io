@@ -1,0 +1,25 @@
+tempo 66
+meter 4/4
+
+vibes C4 ~ ~ . | G3 ~ . . | D4 ~ ~ . | A3 ~ . .
+articulation sustain
+pedal 1
+damp 0
+motor .45
+depth .35
+body .55
+sympathetic .35
+release .75
+human .035
+pan -.18
+
+vibes C5 . G4 . E4 . C4 . | D5 . A4 . F4 . D4 .
+articulation dampen
+pedal .1
+damp .85
+motor .12
+depth .1
+force f
+body .25
+human .04
+pan .22

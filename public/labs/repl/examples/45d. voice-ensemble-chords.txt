@@ -1,0 +1,26 @@
+tempo 60
+meter 4/4
+
+voice C2+G2+D3+A3 ~ ~ .
+vowel oo
+syllable memory
+carrier saw
+robot .85
+vocoder .55
+formant -.35
+roughness .45
+ensemble .7
+spread .035
+release .7
+gain .52
+
+voice C3+G3+E4 . D3+A3+F4 .
+vowel ah
+syllable signal
+carrier sample
+robot .45
+vocoder .18
+ensemble .5
+spread .025
+pan .18
+gain .35

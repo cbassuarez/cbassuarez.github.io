@@ -1,0 +1,33 @@
+tempo 78
+meter 5/4
+
+cello C2 ~ G2 . D3 | A2 ~ E3 . G2
+articulation arco
+force mf
+bow .44
+wood .7
+vibrato .22
+sympathetic .62
+release .72
+human .04
+pan -.18
+
+cello C3+G3 D3+A3 E3+B3 G3+D4 A3+E4
+articulation arco
+force mp
+bow .36
+wood .55
+vibrato .32
+sympathetic .58
+release .7
+human .06
+pan .08
+
+cello C2 . G2 . D3 | A2 C3 D3 G2 C2
+articulation pizz
+force f
+wood .45
+sympathetic .35
+release .38
+human .08
+pan .24

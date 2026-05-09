@@ -315,7 +315,18 @@
     }
 
     const pool = Array.from(poolByName.entries()).map(([name, weight]) => ({ name, weight }));
-    return { id, label, lanes, pool };
+    const bpmRaw = Number(rawKit.bpm);
+    const bpm = Number.isFinite(bpmRaw) && bpmRaw > 0 ? bpmRaw : null;
+    const rawType = String(rawKit.kitType || rawKit.type || '').trim().toLowerCase();
+    const inferredType = id === '808' || id === 'rock' ? 'one-shot' : (id === 'breakcore' || id === 'bk' ? 'phrase' : 'one-shot');
+    const kitType = rawType === 'phrase' || rawType === 'chopped' || rawType === 'chop'
+      ? 'phrase'
+      : (rawType === 'one-shot' || rawType === 'oneshot' || rawType === 'drum-kit' ? 'one-shot' : inferredType);
+    const source = String(rawKit.source || (id === '808' ? 'Wave Alchemy 808 Tape' : '') || '');
+    const lanesMeta = rawKit.lanesMeta && typeof rawKit.lanesMeta === 'object'
+      ? { ...rawKit.lanesMeta }
+      : (rawKit.laneMeta && typeof rawKit.laneMeta === 'object' ? { ...rawKit.laneMeta } : {});
+    return { id, label, lanes, pool, bpm, kitType, source, lanesMeta };
   }
 
   function kits() {
@@ -327,6 +338,8 @@
       out.push({
         id: kit.id,
         label: kit.label,
+        kitType: kit.kitType,
+        source: kit.source || '',
       });
     }
     return out;
@@ -339,8 +352,12 @@
     for (const raw of _manifest.kits) {
       if (!raw) continue;
       const rawId = String(raw.id || '').trim().toLowerCase();
-      if (rawId !== target) continue;
-      return normalizeKit(raw);
+      if (rawId === target) return normalizeKit(raw);
+      if (Array.isArray(raw.aliases)) {
+        for (const alias of raw.aliases) {
+          if (String(alias || '').trim().toLowerCase() === target) return normalizeKit(raw);
+        }
+      }
     }
     return null;
   }
@@ -435,25 +452,42 @@
 
     const time = Number.isFinite(opts.time) ? Math.max(opts.time, audioCtx.currentTime) : audioCtx.currentTime;
 
-    if (!_buffers.has(name)) {
-      // Kick off load; silently miss this event. The scheduler uses this
-      // boolean return value to avoid drawing a sample leaf highlight for a
-      // one-shot that did not actually schedule audio yet.
-      loadBuffer(audioCtx, name);
-      return false;
-    }
+      if (!_buffers.has(name)) {
+        // Kick off load, but do not permanently drop the hit. Acoustic drum kits
+        // with large variance pools otherwise sound "mostly silent" because each
+        // loop may choose a different not-yet-decoded sample.
+        loadBuffer(audioCtx, name).then((buffer) => {
+          if (!buffer) return;
+
+          const retryTime = Math.max(audioCtx.currentTime + 0.025, time);
+          playSample({
+            ...opts,
+            time: retryTime,
+          });
+        });
+
+        return false;
+      }
 
     const buffer = _buffers.get(name);
     if (!buffer) return false;
 
     const src = audioCtx.createBufferSource();
     src.buffer = buffer;
-      const rateVal = clamp(numericParamValue(opts.rate, 1), 0.25, 4);
+      const rateMul = Number.isFinite(Number(opts.rateMul)) && Number(opts.rateMul) > 0
+        ? Number(opts.rateMul)
+        : 1;
+      const userRate = clamp(numericParamValue(opts.rate, 1), 0.25, 4);
+      const rateVal = userRate * rateMul;
       const rateGestureDuration = Number.isFinite(Number(opts.rateGestureDuration)) && Number(opts.rateGestureDuration) > 0
         ? Number(opts.rateGestureDuration)
         : null;
 
-      applyAudioParamValue(src.playbackRate, opts.rate, time, rateGestureDuration, 0.25, 4, rateVal);
+      if (rateMul !== 1) {
+        try { src.playbackRate.value = rateVal; } catch (_) {}
+      } else {
+        applyAudioParamValue(src.playbackRate, opts.rate, time, rateGestureDuration, 0.25, 4, rateVal);
+      }
 
       const gainNode = audioCtx.createGain();
       const targetGain = clamp(numericParamValue(opts.gain, 1), 0, 1.5);
@@ -537,7 +571,33 @@
         return false;
       }
   }
-    
+    function preloadKit(audioCtx, kitId) {
+      if (!audioCtx || typeof kitById !== 'function') return Promise.resolve([]);
+
+      const kit = kitById(kitId);
+      if (!kit) return Promise.resolve([]);
+
+      const names = new Set();
+
+      if (kit.lanes) {
+        for (const lane of ['k', 's', 'h', 'o', 't', 'r', 'c']) {
+          const entries = Array.isArray(kit.lanes[lane]) ? kit.lanes[lane] : [];
+          for (const item of entries) {
+            if (typeof item === 'string') names.add(item);
+            else if (item && item.name) names.add(item.name);
+          }
+        }
+      }
+
+      if (Array.isArray(kit.pool)) {
+        for (const item of kit.pool) {
+          if (typeof item === 'string') names.add(item);
+          else if (item && item.name) names.add(item.name);
+        }
+      }
+
+      return Promise.all(Array.from(names).map((name) => loadBuffer(audioCtx, name)));
+    }
     function stopAll(when) {
       const t = Number.isFinite(when) ? when : 0;
 
@@ -572,6 +632,7 @@
       kitById,
       ready,
       preload,
+        preloadKit,
       expandPrefix,
       setOverlayBank,
       clearOverlayBank,

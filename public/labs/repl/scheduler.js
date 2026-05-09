@@ -20,6 +20,7 @@
 
   const LOOKAHEAD_MS = 100;
   const SCHEDULE_AHEAD_S = 0.12;
+  const MIN_AUDIO_LEAD_S = 0.012;
 
   // Shared continuous-random gesture renderer. `*~` parses to a
   // `param-gesture` with `mode: 'continuous-random'`; voices and the
@@ -87,6 +88,7 @@
       let runtimeEventSeq = 0;
       const pendingEditorPulseTimers = new Set();
       const sharedPitchSpanState = { up: null, down: null };
+      let sharedPitchSpanBoundaryKey = null;
 
       function nextRuntimeEpoch(reason) {
         runtimeEpoch += 1;
@@ -133,6 +135,9 @@
         if (tok.kind === 'rest') return tok.raw ? String(tok.raw) : '.';
         if (tok.kind === 'sustain') return tok.raw ? String(tok.raw) : '~';
         if (tok.kind === 'note' && tok.value) return tok.value.name || String(tok.value.freq || 'note');
+          if (tok.kind === 'chord' && Array.isArray(tok.value)) {
+            return tok.value.map((note) => note && note.name ? note.name : 'note').join('+');
+          }
         if (tok.kind === 'note-random' && tok.value && tok.value.raw) return String(tok.value.raw);
         if (tok.kind === 'note-random') return '*';
         if (tok.kind === 'noise' && tok.value && tok.value.raw) return String(tok.value.raw);
@@ -519,6 +524,7 @@
         if (block._pitchSpanState) return block._pitchSpanState;
         block._pitchSpanState = {
           local: null,
+          localChannels: new Map(),
           activeRef: null,
           lastMidi: null,
           lastBarKey: null,
@@ -540,6 +546,7 @@
       }
 
       function clearSharedPitchSpans(includePersistent) {
+        if (includePersistent) sharedPitchSpanBoundaryKey = null;
         const clearSlot = (dir) => {
           const active = sharedPitchSpanState[dir];
           if (!active) return;
@@ -549,6 +556,13 @@
         };
         clearSlot('up');
         clearSlot('down');
+      }
+
+      function clearSharedPitchSpansForBoundary(key) {
+        const boundaryKey = key == null ? '' : String(key);
+        if (sharedPitchSpanBoundaryKey === boundaryKey) return;
+        sharedPitchSpanBoundaryKey = boundaryKey;
+        clearSharedPitchSpans(false);
       }
 
       function maybeResetPitchSpansAtBoundary(block, absSlotIdx) {
@@ -564,7 +578,7 @@
         if (blockSpanPersistentMode(block)) return;
         state.local = null;
         state.activeRef = null;
-        clearSharedPitchSpans(false);
+        clearSharedPitchSpansForBoundary(key);
       }
 
       function noteObjectFromMidi(midi, block) {
@@ -652,7 +666,7 @@
               pitchClass: null,
               accidental: '',
               octave: oct,
-              frozen: false,
+              frozen: targetSpec.frozen === true,
               raw: targetSpec.raw || `*${Math.round(oct)}`,
             });
             rawMidi = resolved && Number.isFinite(resolved.midi) ? Number(resolved.midi) : null;
@@ -663,7 +677,7 @@
         return wrapDirectionTarget(startMidi, rawMidi, direction);
       }
 
-      function spanDescriptorFromStart(node, tok, block, spanState, params) {
+      function spanDescriptorFromStart(node, tok, block, spanState, params, time) {
         if (!node || !tok || !block || !spanState) return null;
         const plans = ensurePitchSpanPlans(block);
         const plan = plans && plans.get(node);
@@ -678,6 +692,11 @@
         const direction = tok.value && tok.value.direction === 'up' ? 'up' : 'down';
         const endMidi = endSpecToMidi(node, targetSpec, startNote.midi, direction, block);
         if (!Number.isFinite(endMidi)) return null;
+        const glideSpec = glideSpanSpec(params && params.glide);
+        const glideSec = Math.max(0, Number(glideSpec.seconds) || 0);
+        const glideMode = glideSpec.mode || 'hold';
+        const glideReturnSec = Math.max(0, Number(glideSpec.returnSec) || glideSec);
+        const startTime = Number.isFinite(Number(time)) ? Number(time) : audioCtx.currentTime;
 
         const desc = {
           shared: Boolean(tok.value && tok.value.shared),
@@ -689,13 +708,99 @@
           endMidi: Number(endMidi),
           currentMidi: Number(startNote.midi),
           ownerBlockId: block._blockId || null,
-          glideSec: Math.max(0, numericParamValue(params && params.glide, 0)),
+          glideSec,
+          glideMode,
+          glideReturnSec,
+          timeBased: glideSec > 0,
+          startTime,
+          durationSec: glideSec,
+          sequenceOffsetSec: 0,
+          eventStepSec: 0,
         };
         return { descriptor: desc, note: startNote };
       }
 
-      function advancePitchSpanDescriptor(desc, block) {
+      function sharedSpanParticipantCount(direction) {
+        if (!program || !Array.isArray(program.blocks)) return 1;
+        const dir = direction === 'up' ? 'up' : 'down';
+        let count = 0;
+        for (const block of program.blocks) {
+          if (!block || !isPitchedSynthVoice(block.voice)) continue;
+          const leaves = collectBlockLeaves(block);
+          if (leaves.some((leaf) => {
+            const tok = leaf && leaf.token;
+            return tok
+              && tok.kind === 'pitch-span-start'
+              && tok.value
+              && tok.value.shared === true
+              && (tok.value.direction === 'up' ? 'up' : 'down') === dir;
+          })) {
+            count += 1;
+          }
+        }
+        return Math.max(1, count);
+      }
+
+      function sharedSpanEventStepSeconds(block, direction) {
+        const participants = sharedSpanParticipantCount(direction);
+        const barSec = program ? barSeconds(program) : 0;
+        const slotSec = Number.isFinite(barSec) && barSec > 0
+          ? slotDurationFor(block, 0, barSec)
+          : 0;
+        return Number.isFinite(slotSec) && slotSec > 0
+          ? slotSec / participants
+          : 0;
+      }
+
+      function nextSharedPitchSpanOffset(desc) {
+        if (!desc || desc.timeBased !== true) return 0;
+        const step = Number(desc.eventStepSec);
+        if (!Number.isFinite(step) || step <= 0) return 0;
+        const ordinal = Math.max(0, Number(desc.eventOrdinal) || 0);
+        desc.eventOrdinal = ordinal + 1;
+        return ordinal * step;
+      }
+
+      function noteForPitchSpanDescriptor(desc, block, time) {
         if (!desc || !block) return null;
+        const duration = Number(desc.durationSec);
+        const startTime = Number(desc.startTime);
+        if (
+          desc.timeBased === true
+          && Number.isFinite(duration)
+          && duration > 0
+          && Number.isFinite(startTime)
+        ) {
+          const now = Number.isFinite(Number(time)) ? Number(time) : audioCtx.currentTime;
+          const offset = Number.isFinite(Number(desc.sequenceOffsetSec)) ? Number(desc.sequenceOffsetSec) : 0;
+          const elapsed = Math.max(0, now - startTime);
+          const progress = Math.max(elapsed, offset);
+          let ratio = clamp(progress / duration, 0, 1);
+          const mode = String(desc.glideMode || 'hold').toLowerCase();
+          if (mode === 'restart') {
+            const phase = progress % duration;
+            ratio = clamp(phase / duration, 0, 1);
+          } else if (mode === 'return') {
+            const returnSec = Math.max(0.001, Number(desc.glideReturnSec) || duration);
+            const cycle = duration + returnSec;
+            const phase = progress % cycle;
+            ratio = phase <= duration
+              ? clamp(phase / duration, 0, 1)
+              : clamp(1 - ((phase - duration) / returnSec), 0, 1);
+          }
+          const midi = Number(desc.startMidi) + (Number(desc.endMidi) - Number(desc.startMidi)) * ratio;
+          desc.currentMidi = midi;
+          return noteObjectFromMidi(midi, block);
+        }
+
+        return null;
+      }
+
+      function advancePitchSpanDescriptor(desc, block, time) {
+        if (!desc || !block) return null;
+        const timeBasedNote = noteForPitchSpanDescriptor(desc, block, time);
+        if (timeBasedNote) return timeBasedNote;
+
         const total = Math.max(1, Number(desc.totalAdvances) || 1);
         const nextAdv = Math.min(total, Math.max(0, Number(desc.advances) || 0) + 1);
         desc.advances = nextAdv;
@@ -703,6 +808,39 @@
         const midi = desc.startMidi + (desc.endMidi - desc.startMidi) * ratio;
         desc.currentMidi = midi;
         return noteObjectFromMidi(midi, block);
+      }
+
+      function clonePitchSpanDescriptor(desc, overrides) {
+        if (!desc) return null;
+        const o = overrides || {};
+        const startMidi = Number.isFinite(Number(o.startMidi))
+          ? Number(o.startMidi)
+          : Number(desc.startMidi);
+        const endMidi = Number.isFinite(Number(o.endMidi))
+          ? Number(o.endMidi)
+          : Number(desc.endMidi);
+        if (!Number.isFinite(startMidi) || !Number.isFinite(endMidi)) return null;
+
+        return {
+          shared: Boolean(o.shared != null ? o.shared : desc.shared),
+          direction: (o.direction || desc.direction) === 'up' ? 'up' : 'down',
+          persistent: Boolean(o.persistent != null ? o.persistent : desc.persistent),
+          totalAdvances: Math.max(1, Number(o.totalAdvances != null ? o.totalAdvances : desc.totalAdvances) || 1),
+          advances: Math.max(0, Number(o.advances) || 0),
+          startMidi,
+          endMidi,
+          currentMidi: Number.isFinite(Number(o.currentMidi)) ? Number(o.currentMidi) : startMidi,
+          ownerBlockId: o.ownerBlockId != null ? o.ownerBlockId : (desc.ownerBlockId || null),
+          glideSec: Math.max(0, Number(o.glideSec != null ? o.glideSec : desc.glideSec) || 0),
+          glideMode: String(o.glideMode != null ? o.glideMode : (desc.glideMode || 'hold')),
+          glideReturnSec: Math.max(0, Number(o.glideReturnSec != null ? o.glideReturnSec : desc.glideReturnSec) || 0),
+          timeBased: Boolean(o.timeBased != null ? o.timeBased : desc.timeBased),
+          startTime: Number.isFinite(Number(o.startTime)) ? Number(o.startTime) : Number(desc.startTime),
+          durationSec: Math.max(0, Number(o.durationSec != null ? o.durationSec : desc.durationSec) || 0),
+          sequenceOffsetSec: Math.max(0, Number(o.sequenceOffsetSec != null ? o.sequenceOffsetSec : desc.sequenceOffsetSec) || 0),
+          eventStepSec: Math.max(0, Number(o.eventStepSec != null ? o.eventStepSec : desc.eventStepSec) || 0),
+          eventOrdinal: Math.max(0, Number(o.eventOrdinal != null ? o.eventOrdinal : desc.eventOrdinal) || 0),
+        };
       }
       
       function clearNodeRuntimeState(node) {
@@ -777,7 +915,14 @@
         block._paramState = {};
         block._liveModState = {};
         block._triggerState = {};
-        block._speedState = {};
+        // _speedState lives outside _paramState because resolveSpeedAtom
+        // temporarily wraps it via _paramState swap. It MUST have the same
+        // shape as a per-param state ({ last, frozen, drift }) — a bare {}
+        // here would let resolveSpeedAtom's `if (!block._speedState)` guard
+        // pass without re-init, and the next `paramState.drift[key]` access
+        // (e.g., for `speed *&N`) would throw and silently halt the whole
+        // dispatch tick.
+        block._speedState = { last: undefined, frozen: {}, drift: {} };
         block._speedSlotIdx = 0;
         block._speedNextTime = null;
         block._lastDispatchedSlotIdx = 0;
@@ -799,10 +944,64 @@
         }
       }
 
-    function barSeconds(prog) {
-      if (!prog) return 60 / 110 * 4;
-      const beatSeconds = 60 / prog.tempo;
-      return prog.meter.num * beatSeconds;
+      function meterQuarterBeats(meter) {
+        const num = Number(meter && meter.num);
+        const den = Number(meter && meter.den);
+
+        const numerator = Number.isFinite(num) && num > 0 ? num : 4;
+        const denominator = Number.isFinite(den) && den > 0 ? den : 4;
+
+        // Tempo is quarter-note BPM. Meter denominator therefore scales the
+        // bar container:
+        //
+        //   12/8  = 12 * (4 / 8)  = 6 quarter beats
+        //   12/16 = 12 * (4 / 16) = 3 quarter beats
+        //   4/4   = 4 * (4 / 4)  = 4 quarter beats
+        //
+        // Leaf count still subdivides the bar; denominator controls bar length.
+        return numerator * (4 / denominator);
+      }
+
+      function barSeconds(prog) {
+        if (!prog) return (60 / 110) * 4;
+
+        const tempo = Number(prog.tempo);
+        const beatSeconds = 60 / (Number.isFinite(tempo) && tempo > 0 ? tempo : 110);
+
+        return meterQuarterBeats(prog.meter) * beatSeconds;
+      }
+
+    // Resolve a { count, unit } spec (from block.enter / block.exit) to seconds
+    // against the program tempo + meter. Returns null when the spec is missing
+    // or invalid so callers can treat "no boundary" as no constraint.
+    function spanSpecSeconds(spec, prog) {
+      if (!spec || !prog) return null;
+      const count = Number(spec.count);
+      if (!Number.isFinite(count) || count < 0) return null;
+      if (spec.unit === 'bars') return count * barSeconds(prog);
+      if (spec.unit === 'beats') return count * (60 / prog.tempo);
+      return null;
+    }
+
+    // True iff the block's active window contains `time`. Blocks with no
+    // enter/exit are considered always-active. exit is exclusive (a block
+    // with exit 16 bars goes silent the instant we reach bar 16).
+    //
+    // Anchor is the block's _arrangeOrigin (set by every install/update path)
+    // — distinct from the global originTime (which anchors the bar grid).
+    // This lets soft updates restart the arrangement on the next bar without
+    // resetting the bar grid itself: hard `eval reset` cuts voices, soft
+    // eval keeps tails, both replay the arrangement from the top.
+    function blockIsActiveAt(block, time) {
+      if (!block || !program) return true;
+      if (!Number.isFinite(time)) return true;
+      const anchor = Number.isFinite(block._arrangeOrigin) ? block._arrangeOrigin : originTime;
+      const elapsed = time - anchor;
+      const enterSec = spanSpecSeconds(block.enter, program);
+      const exitSec = spanSpecSeconds(block.exit, program);
+      if (Number.isFinite(enterSec) && elapsed < enterSec - 0.000001) return false;
+      if (Number.isFinite(exitSec) && elapsed >= exitSec - 0.000001) return false;
+      return true;
     }
 
       function start() {
@@ -818,7 +1017,16 @@
               block._scheduledThrough = 0;
               clearBlockRuntimeState(block);
               block._speedSlotIdx = 0;
-              block._speedNextTime = originTime;
+              // start() runs on the very first PLAY (when no install has
+              // anchored an arrangement). It must honor enter just like
+              // installProgramAtReset / safeRestart / update — otherwise
+              // every block fires at originTime and the staged build-up
+              // collapses to a simultaneous attack.
+              block._arrangeOrigin = originTime;
+              const enterSec = spanSpecSeconds(block.enter, program);
+              block._speedNextTime = Number.isFinite(enterSec) && enterSec > 0
+                ? block._arrangeOrigin + enterSec
+                : block._arrangeOrigin;
             }
         }
         tick();
@@ -830,6 +1038,24 @@
         if (typeof root.SampleVoice !== 'undefined' && root.SampleVoice.stopAll) {
           root.SampleVoice.stopAll(at);
         }
+
+        if (typeof root.PianoVoice !== 'undefined' && root.PianoVoice.stopAll) {
+          root.PianoVoice.stopAll(at);
+        }
+
+        if (typeof root.ViolinVoice !== 'undefined' && root.ViolinVoice.stopAll) {
+          root.ViolinVoice.stopAll(at);
+        }
+        if (typeof root.CelloVoice !== 'undefined' && root.CelloVoice.stopAll) {
+          root.CelloVoice.stopAll(at);
+        }
+          
+          if (typeof root.MarimbaVoice !== 'undefined' && root.MarimbaVoice.stopAll) {
+            root.MarimbaVoice.stopAll(at);
+          }
+          if (typeof root.VibraphoneVoice !== 'undefined' && root.VibraphoneVoice.stopAll) {
+            root.VibraphoneVoice.stopAll(at);
+          }
 
         if (typeof root.StringVoice !== 'undefined' && root.StringVoice.stopAll) {
           root.StringVoice.stopAll(at);
@@ -902,7 +1128,11 @@
             : (block.tuning || null);
           ensureLeafOffsets(block);
           block._speedSlotIdx = 0;
-          block._speedNextTime = originTime;
+          block._arrangeOrigin = originTime;
+          const enterSec = spanSpecSeconds(block.enter, program);
+          block._speedNextTime = Number.isFinite(enterSec) && enterSec > 0
+            ? block._arrangeOrigin + enterSec
+            : block._arrangeOrigin;
         }
         seedProgramMuteDefaults(program, false);
       }
@@ -948,7 +1178,11 @@
           for (const block of program.blocks) {
             block._scheduledThrough = 0;
             block._speedSlotIdx = 0;
-            block._speedNextTime = originTime;
+            block._arrangeOrigin = originTime;
+            const enterSec = spanSpecSeconds(block.enter, program);
+            block._speedNextTime = Number.isFinite(enterSec) && enterSec > 0
+              ? block._arrangeOrigin + enterSec
+              : block._arrangeOrigin;
             block._lastDispatchedSlotIdx = 0;
             block._lastDispatchedTime = null;
             block._lastDispatchedDuration = null;
@@ -982,6 +1216,14 @@
         clearSharedPitchSpans(true);
         nextRuntimeEpoch('update');
         program = newProgram;
+        // Soft-update arrange origin: anchor enter/exit windows to the next
+        // bar boundary so the new arrangement plays from the top on a
+        // downbeat. Hard `eval reset` (separate path) cuts voices and resets
+        // originTime; soft eval here preserves tails but still replays the
+        // arrangement — the live-coding gesture composers want.
+        const updateArrangeOrigin = running
+          ? nextBarResetTime(audioCtx.currentTime)
+          : originTime;
         // Every block gets a stable identity for the lifetime of this program.
         // The editor uses { epoch, blockId } to reject any pulse whose owning
         // block was replaced by a hot-swap, and to refuse cross-block leaf
@@ -1000,9 +1242,18 @@
             : (block.tuning || null);
           ensureLeafOffsets(block);
           block._speedSlotIdx = 0;
-          block._speedNextTime = running
-            ? Math.max(audioCtx.currentTime, originTime)
-            : originTime;
+          block._arrangeOrigin = updateArrangeOrigin;
+          const enterSec = spanSpecSeconds(block.enter, program);
+          if (Number.isFinite(enterSec) && enterSec > 0) {
+            block._speedNextTime = block._arrangeOrigin + enterSec;
+          } else if (block.enter) {
+            // enter 0 bars / beats — start at arrange origin.
+            block._speedNextTime = block._arrangeOrigin;
+          } else {
+            block._speedNextTime = running
+              ? Math.max(audioCtx.currentTime, originTime)
+              : originTime;
+          }
         }
       seedProgramMuteDefaults(program, false);
       if (running && oldBarSec) {
@@ -1013,6 +1264,20 @@
         originTime = now - elapsedBars * newBarSec;
           for (const block of program.blocks) {
             clearBlockRuntimeState(block);
+            // clearBlockRuntimeState wiped _speedNextTime to null. Restore
+            // the right cursor for each kind of block:
+            // - blocks with an enter directive: re-apply the arrange-origin
+            //   offset so the block fires when its window opens.
+            // - all others: realign to the (possibly re-tempo'd) bar grid.
+            if (block.enter) {
+              block._speedSlotIdx = 0;
+              const enterSec = spanSpecSeconds(block.enter, program);
+              const anchor = Number.isFinite(block._arrangeOrigin) ? block._arrangeOrigin : originTime;
+              block._speedNextTime = (Number.isFinite(enterSec) && enterSec > 0)
+                ? anchor + enterSec
+                : anchor;
+              continue;
+            }
             alignBlockCursorToGrid(block, now, newBarSec);
           }
       }
@@ -2496,8 +2761,50 @@
           return Number.isFinite(from) ? from : fallback;
         }
 
+        if (v && typeof v === 'object' && v.kind === 'glide-span') {
+          const seconds = Number(v.seconds);
+          return Number.isFinite(seconds) ? seconds : fallback;
+        }
+
         const n = Number(v);
         return Number.isFinite(n) ? n : fallback;
+      }
+
+      // Convert a glide-span duration to seconds using the active program's
+      // bar/beat math. Falls back to the legacy `.seconds` field when no
+      // count/unit pair is present (older parsed values).
+      function glideSpanDurationSeconds(count, unit, fallbackSeconds) {
+        const c = Number(count);
+        if (Number.isFinite(c) && c > 0) {
+          const u = String(unit || 'seconds').toLowerCase();
+          if (u === 'bars' && program && Number(program.tempo) > 0) {
+            return c * barSeconds(program);
+          }
+          if (u === 'beats' && program && Number(program.tempo) > 0) {
+            return c * (60 / Number(program.tempo));
+          }
+          return c;
+        }
+        const fb = Number(fallbackSeconds);
+        return Number.isFinite(fb) && fb > 0 ? fb : 0;
+      }
+
+      function glideSpanSpec(value) {
+        if (value && typeof value === 'object' && value.kind === 'glide-span') {
+          const seconds = Math.max(0, glideSpanDurationSeconds(value.count, value.unit, value.seconds));
+          const modeRaw = String(value.mode || 'hold').toLowerCase();
+          const mode = modeRaw === 'restart' || modeRaw === 'return' ? modeRaw : 'hold';
+          const returnSec = mode === 'return'
+            ? Math.max(0, glideSpanDurationSeconds(value.returnCount, value.returnUnit, value.returnSec || seconds))
+            : seconds;
+          return { seconds, mode, returnSec };
+        }
+
+        return {
+          seconds: Math.max(0, numericParamValue(value, 0)),
+          mode: 'hold',
+          returnSec: 0,
+        };
       }
 
 
@@ -2852,6 +3159,23 @@
           case 'pan': return 0;
           case 'gain': return 1;
           case 'rate': return 1;
+          case 'pedal': return 0;
+          case 'una': return 0;
+          case 'lid': return 0.72;
+          case 'sympathetic': return 0.18;
+          case 'release': return 0.35;
+          case 'human': return 0;
+          case 'stretch': return 0;
+          case 'layer': return 'hard';
+          case 'poly': return 64;
+            case 'mallet': return 'yarn';
+            case 'deadstroke': return 0;
+            case 'roll': return 0;
+            case 'spread': return 0.012;
+            case 'motor': return 0;
+            case 'depth': return 0.35;
+            case 'damp': return 0;
+            case 'bowpressure': return 0.45;
             case 'start': return 0;
             case 'speed': return 1;
           case 'monitor': return 1;
@@ -2894,6 +3218,24 @@
             return clamp(value, 0, 1);
           case 'variance':
             return clamp(value, 0, 1);
+          case 'pedal':
+          case 'una':
+          case 'lid':
+          case 'sympathetic':
+          case 'release':
+          case 'human':
+            case 'stretch':
+            case 'deadstroke':
+            case 'roll':
+            case 'spread':
+            case 'motor':
+            case 'depth':
+            case 'damp':
+            case 'bowpressure':
+              return clamp(value, 0, 1);
+
+          case 'poly':
+            return Math.round(clamp(value, 8, 128));
           case 'monitor':
           case 'listen':
           case 'opacity':
@@ -3249,29 +3591,67 @@
           mask: paramForIndex(block, 'mask', eventIndex, 0, time),
           key: paramForIndex(block, 'key', eventIndex, 0, time),
           color: paramForIndex(block, 'color', eventIndex, 0, time),
-          blend: paramForIndex(block, 'blend', eventIndex, 'source-over', time),
+            blend: paramForIndex(block, 'blend', eventIndex, 'source-over', time),
+
+            pedal: paramForIndex(block, 'pedal', eventIndex, 0, time),
+            una: paramForIndex(block, 'una', eventIndex, 0, time),
+            lid: paramForIndex(block, 'lid', eventIndex, 0.72, time),
+            sympathetic: paramForIndex(block, 'sympathetic', eventIndex, 0.18, time),
+            release: paramForIndex(block, 'release', eventIndex, 0.35, time),
+            human: paramForIndex(block, 'human', eventIndex, 0, time),
+            stretch: paramForIndex(block, 'stretch', eventIndex, 0, time),
+            layer: paramForIndex(block, 'layer', eventIndex, 'hard', time),
+            poly: paramForIndex(block, 'poly', eventIndex, 64, time),
+
+            articulation: paramForIndex(block, 'articulation', eventIndex, 'arco', time),
+            sul: paramForIndex(block, 'sul', eventIndex, null, time),
+            vibrato: paramForIndex(block, 'vibrato', eventIndex, 0, time),
+            vibratorate: paramForIndex(block, 'vibratorate', eventIndex, 5.5, time),
+            vibratoonset: paramForIndex(block, 'vibratoonset', eventIndex, 0.18, time),
+            tremolo: paramForIndex(block, 'tremolo', eventIndex, 0, time),
+            tremolorate: paramForIndex(block, 'tremolorate', eventIndex, 9, time),
+            bow: paramForIndex(block, 'bow', eventIndex, 0.45, time),
+            wood: paramForIndex(block, 'wood', eventIndex, 0.35, time),
+
+            mallet: paramForIndex(block, 'mallet', eventIndex, 'yarn', time),
+            deadstroke: paramForIndex(block, 'deadstroke', eventIndex, 0, time),
+            roll: paramForIndex(block, 'roll', eventIndex, 0, time),
+            spread: paramForIndex(block, 'spread', eventIndex, 0.012, time),
+            motor: paramForIndex(block, 'motor', eventIndex, 0, time),
+            depth: paramForIndex(block, 'depth', eventIndex, 0.35, time),
+            damp: paramForIndex(block, 'damp', eventIndex, 0, time),
+            bowpressure: paramForIndex(block, 'bowpressure', eventIndex, 0.45, time),
+            vowel: paramForIndex(block, 'vowel', eventIndex, 'ah', time),
+            syllable: paramForIndex(block, 'syllable', eventIndex, 'ah', time),
+            carrier: paramForIndex(block, 'carrier', eventIndex, 'sample', time),
+            robot: paramForIndex(block, 'robot', eventIndex, 0.35, time),
+            breath: paramForIndex(block, 'breath', eventIndex, 0, time),
+            mouth: paramForIndex(block, 'mouth', eventIndex, 0.5, time),
+            formant: paramForIndex(block, 'formant', eventIndex, 0, time),
+            roughness: paramForIndex(block, 'roughness', eventIndex, 0, time),
+            vocoder: paramForIndex(block, 'vocoder', eventIndex, 0, time),
+            ensemble: paramForIndex(block, 'ensemble', eventIndex, 0, time),
         };
       }
 
-      function speedStateForBlock(block) {
-        if (!block._speedState) {
+      function ensureWellFormedSpeedState(block) {
+        const s = block._speedState;
+        if (!s || typeof s !== 'object' || !s.frozen || !s.drift) {
           block._speedState = {
-            last: undefined,
-            frozen: {},
-            drift: {},
+            last: s && 'last' in s ? s.last : undefined,
+            frozen: s && s.frozen ? s.frozen : {},
+            drift: s && s.drift ? s.drift : {},
           };
         }
+      }
+
+      function speedStateForBlock(block) {
+        ensureWellFormedSpeedState(block);
         return block._speedState;
       }
 
       function resolveSpeedAtom(block, atom, valueIndex, scalar, time) {
-        if (!block._speedState) {
-          block._speedState = {
-            last: undefined,
-            frozen: {},
-            drift: {},
-          };
-        }
+        ensureWellFormedSpeedState(block);
 
         const oldParamState = block._paramState;
         block._paramState = { speed: block._speedState };
@@ -3476,9 +3856,23 @@
         if (tok.kind === 'sample-selector' && tok.value && tok.value.gated === true) return true;
         return false;
       }
+      
+      function voiceEngine() {
+        return root.VoiceVoice || root.RobotVoice || root.VocalVoice || null;
+      }
 
       function isPitchedSynthVoice(voice) {
-        return voice === 'string' || voice === 'sine' || voice === 'osc' || voice === 'pluck' || voice === 'drone';
+        return voice === 'string'
+          || voice === 'sine'
+          || voice === 'osc'
+          || voice === 'pluck'
+          || voice === 'drone'
+          || voice === 'piano'
+          || voice === 'violin'
+          || voice === 'cello'
+          || voice === 'marimba'
+          || voice === 'vibraphone'
+          || voice === 'voice';
       }
 
       function shouldFireLiveTrigger(block, time) {
@@ -3522,7 +3916,7 @@
         const ref = spanState.activeRef;
         if (!ref.shared) return spanState.local || null;
         const dir = ref.direction === 'up' ? 'up' : 'down';
-        return sharedPitchSpanState[dir] || null;
+        return spanState.local || sharedPitchSpanState[dir] || null;
       }
 
       function sharedSpanStartWins(existing, candidate) {
@@ -3537,48 +3931,98 @@
         return candMidi <= existMidi;
       }
 
-      function resolvePitchSpanHit(node, tok, block, spanState, params) {
+      function resolvePitchSpanHit(node, tok, block, spanState, params, time) {
         if (!node || !tok || !block || !spanState) return null;
 
         if (tok.kind === 'pitch-span-start') {
-          const start = spanDescriptorFromStart(node, tok, block, spanState, params);
+          const start = spanDescriptorFromStart(node, tok, block, spanState, params, time);
           if (!start || !start.descriptor || !start.note) return null;
 
           const desc = start.descriptor;
           if (desc.shared) {
             const dir = desc.direction;
             const currentShared = sharedPitchSpanState[dir] || null;
-            const winsLeader = sharedSpanStartWins(currentShared, desc);
+            const activePersistent = currentShared && currentShared.persistent === true;
+            const winsLeader = !activePersistent && sharedSpanStartWins(currentShared, desc);
             spanState.activeRef = { shared: true, direction: dir };
-            spanState.local = null;
 
             if (winsLeader) {
-              sharedPitchSpanState[dir] = desc;
-              return { note: start.note, desc, spanEvent: true };
+              // Shared starts publish a leader template; each block advances its
+              // own clone so simultaneous follower starts don't consume the ramp.
+              const shared = clonePitchSpanDescriptor(desc, {
+                eventStepSec: sharedSpanEventStepSeconds(block, dir),
+                eventOrdinal: 0,
+                sequenceOffsetSec: 0,
+              });
+              sharedPitchSpanState[dir] = shared;
+              desc.eventStepSec = shared ? shared.eventStepSec : 0;
+              desc.sequenceOffsetSec = nextSharedPitchSpanOffset(shared);
+              spanState.local = desc;
+              const note = noteForPitchSpanDescriptor(desc, block, time) || start.note;
+              return { note, desc, spanEvent: true };
             }
 
             if (!currentShared) return null;
-            const note = advancePitchSpanDescriptor(currentShared, block);
+            const joined = clonePitchSpanDescriptor(currentShared, {
+              persistent: desc.persistent,
+              totalAdvances: desc.totalAdvances,
+              ownerBlockId: desc.ownerBlockId,
+              glideSec: desc.glideSec,
+            });
+            if (!joined) return null;
+            joined.sequenceOffsetSec = nextSharedPitchSpanOffset(currentShared);
+            spanState.local = joined;
+            const note = noteForPitchSpanDescriptor(joined, block, time) || noteObjectFromMidi(joined.startMidi, block);
             if (!note) return null;
-            return { note, desc: currentShared, spanEvent: true, closeSpan: false };
-          } else {
-            spanState.activeRef = { shared: false, direction: desc.direction };
-            spanState.local = desc;
-            return { note: start.note, desc, spanEvent: true };
-          }
-        }
+            return { note, desc: joined, spanEvent: true, closeSpan: false };
+	          } else {
+	            const dir = desc.direction;
+	            const channels = spanState.localChannels && typeof spanState.localChannels.get === 'function'
+	              ? spanState.localChannels
+	              : null;
+	            const currentLocal = channels ? (channels.get(node) || null) : null;
+	            if (currentLocal && currentLocal.persistent === true) {
+	              spanState.activeRef = { shared: false, direction: currentLocal.direction };
+	              spanState.local = currentLocal;
+	              const note = noteForPitchSpanDescriptor(currentLocal, block, time)
+	                || noteObjectFromMidi(currentLocal.currentMidi, block)
+	                || noteObjectFromMidi(currentLocal.startMidi, block);
+	              if (!note) return null;
+	              return { note, desc: currentLocal, spanEvent: true };
+	            }
+
+	            if (channels && desc.persistent === true) {
+	              channels.set(node, desc);
+	            }
+
+	            spanState.activeRef = { shared: false, direction: dir };
+	            spanState.local = desc;
+	            const note = noteForPitchSpanDescriptor(desc, block, time) || start.note;
+	            return { note, desc, spanEvent: true };
+	          }
+	        }
 
         const desc = resolveActiveSpanDescriptorForToken(block, spanState);
         if (!desc) return null;
 
         if (tok.kind === 'note-random' && tok.pitchSpanStep === true) {
-          const note = advancePitchSpanDescriptor(desc, block);
+          if (desc.shared === true && desc.timeBased === true) {
+            const dir = desc.direction === 'up' ? 'up' : 'down';
+            const shared = sharedPitchSpanState[dir] || null;
+            if (shared) desc.sequenceOffsetSec = nextSharedPitchSpanOffset(shared);
+          }
+          const note = advancePitchSpanDescriptor(desc, block, time);
           if (!note) return null;
           return { note, desc, spanEvent: true, closeSpan: false };
         }
 
         if (tok.kind === 'pitch-span-end') {
-          const note = advancePitchSpanDescriptor(desc, block);
+          if (desc.shared === true && desc.timeBased === true) {
+            const dir = desc.direction === 'up' ? 'up' : 'down';
+            const shared = sharedPitchSpanState[dir] || null;
+            if (shared) desc.sequenceOffsetSec = nextSharedPitchSpanOffset(shared);
+          }
+          const note = advancePitchSpanDescriptor(desc, block, time);
           if (!note) return null;
           return { note, desc, spanEvent: true, closeSpan: true };
         }
@@ -3586,11 +4030,11 @@
         return null;
       }
 
-      function advancePitchSpanCarry(block, spanState) {
+      function advancePitchSpanCarry(block, spanState, time) {
         if (!block || !spanState) return;
         const desc = resolveActiveSpanDescriptorForToken(block, spanState);
         if (!desc) return;
-        advancePitchSpanDescriptor(desc, block);
+        advancePitchSpanDescriptor(desc, block, time);
       }
 
       function finalizeSpanStateAfterEvent(spanState, event, note) {
@@ -3599,14 +4043,32 @@
           spanState.lastMidi = Number(note.midi);
           event.desc.currentMidi = Number(note.midi);
         }
-        if (event.closeSpan) {
-          if (spanState.activeRef && spanState.activeRef.shared) {
-            const dir = spanState.activeRef.direction === 'up' ? 'up' : 'down';
-            if (sharedPitchSpanState[dir] === event.desc) sharedPitchSpanState[dir] = null;
-          }
-          spanState.local = null;
-          spanState.activeRef = null;
-        }
+	        if (event.closeSpan) {
+	          if (event.desc && event.desc.persistent === true) {
+	            spanState.local = null;
+	            spanState.activeRef = null;
+	            return;
+	          }
+	          spanState.local = null;
+	          spanState.activeRef = null;
+	        }
+      }
+      
+      function tiedGateDurationFromToken(block, tok, leafDuration, fallbackGateDuration) {
+          if (!block || (block.voice !== 'violin' && block.voice !== 'cello' && block.voice !== 'marimba' && block.voice !== 'vibraphone' && block.voice !== 'voice')) return fallbackGateDuration;
+        if (!tok || (tok.kind !== 'note' && tok.kind !== 'chord')) return fallbackGateDuration;
+
+        const base = Number.isFinite(Number(leafDuration)) && Number(leafDuration) > 0
+          ? Number(leafDuration)
+          : Number(fallbackGateDuration);
+
+        if (!Number.isFinite(base) || base <= 0) return fallbackGateDuration;
+
+        const span = Number.isFinite(Number(tok.tieSpanLeafCount))
+          ? Math.max(1, Math.round(Number(tok.tieSpanLeafCount)))
+          : 1;
+
+        return base * span;
       }
 
       function dispatchSlotTree(node, time, duration, ctx) {
@@ -3668,35 +4130,169 @@
             return;
           }
 
-          if (tok.kind === 'rest' || tok.kind === 'sustain') {
-            if (tok.pitchSpanCarry === true && isPitchedSynthVoice(ctx.voice)) {
-              const spanState = ensureBlockPitchSpanRuntime(ctx.block);
-              advancePitchSpanCarry(ctx.block, spanState);
-            }
-            emitLeafPulse(ctx.block, time, {
-              leafIndex: eventIndex,
-              leafCount: ctx.leafTotal,
-              leafPath,
-              slotIndex: ctx.slotIndex,
-              sourceLeafIndex,
-              state: tok.kind === 'sustain' ? 'held' : 'rest',
-              token: tokenLabel || '~',
-              duration,
-              intensity: tok.kind === 'sustain' ? 0.12 : 0.08,
-            });
-            if ((ctx.voice === 'video' || ctx.voice === 'video-gen') && typeof root.VideoVoice !== 'undefined' && root.VideoVoice.commitLeaf) {
-              root.VideoVoice.commitLeaf({
-                blockId: ctx.block && ctx.block._blockId,
-                voice: ctx.voice,
-                state: tok.kind === 'sustain' ? 'held' : 'rest',
-                token: tokenLabel || (tok.kind === 'sustain' ? '~' : '.'),
-                time,
-                sourceLeafIndex,
+            if (tok.kind === 'rest' || tok.kind === 'sustain') {
+              if (tok.pitchSpanCarry === true && isPitchedSynthVoice(ctx.voice)) {
+                const spanState = ensureBlockPitchSpanRuntime(ctx.block);
+                advancePitchSpanCarry(ctx.block, spanState, time);
+              }
+
+              emitLeafPulse(ctx.block, time, {
                 leafIndex: eventIndex,
+                leafCount: ctx.leafTotal,
+                leafPath,
+                slotIndex: ctx.slotIndex,
+                sourceLeafIndex,
+                state: tok.kind === 'sustain' ? 'held' : 'rest',
+                token: tok.kind === 'sustain' ? '~' : '.',
+                duration,
+                intensity: tok.kind === 'sustain' ? 0.12 : 0.08,
               });
+
+                if (ctx.voice === 'voice' && voiceEngine()) {
+                  const engine = voiceEngine();
+                  const blockId = ctx.block && ctx.block._blockId;
+
+                  if (tok.kind === 'sustain') {
+                    // visual hold only; the original voice note/chord owns
+                    // the tied machine-mouth duration through tieSpanLeafCount.
+                  }
+
+                  if (tok.kind === 'rest' && engine.releaseLastForBlock) {
+                    engine.releaseLastForBlock({
+                      audioCtx,
+                      blockId,
+                      time,
+                    });
+                  }
+
+                  emitEditorPulse({
+                    kind: 'voice',
+                    line: blockLine(ctx.block),
+                    voice: ctx.voice,
+                    intensity: tok.kind === 'sustain' ? 0.12 : 0.08,
+                  });
+
+                  return;
+                }
+
+
+              if (ctx.voice === 'cello' && typeof root.CelloVoice !== 'undefined') {
+                const blockId = ctx.block && ctx.block._blockId;
+
+                if (tok.kind === 'sustain') {
+                  // visual hold only; the original cello note/chord owns the tied duration
+                }
+
+                if (tok.kind === 'rest' && root.CelloVoice.releaseLastForBlock) {
+                  root.CelloVoice.releaseLastForBlock({ audioCtx, blockId, time });
+                }
+
+                emitEditorPulse({
+                  kind: 'voice',
+                  line: blockLine(ctx.block),
+                  voice: ctx.voice,
+                  intensity: tok.kind === 'sustain' ? 0.12 : 0.08,
+                });
+
+                return;
+              }
+
+                if (ctx.voice === 'marimba' && typeof root.MarimbaVoice !== 'undefined') {
+                  const blockId = ctx.block && ctx.block._blockId;
+
+                  if (tok.kind === 'sustain') {
+                    // No audio call here.
+                    //
+                    // Marimba ties are already folded into the original strike via
+                    // tok.tieSpanLeafCount. Calling extend on every "~" makes tied
+                    // marimba behave like little hidden events instead of a single
+                    // ringing bar / roll gesture.
+                  }
+
+                  if (tok.kind === 'rest' && root.MarimbaVoice.releaseLastForBlock) {
+                    root.MarimbaVoice.releaseLastForBlock({
+                      audioCtx,
+                      blockId,
+                      time,
+                    });
+                  }
+
+                  emitEditorPulse({
+                    kind: 'voice',
+                    line: blockLine(ctx.block),
+                    voice: ctx.voice,
+                    intensity: tok.kind === 'sustain' ? 0.12 : 0.08,
+                  });
+
+                  return;
+                }
+
+              if (ctx.voice === 'vibraphone' && typeof root.VibraphoneVoice !== 'undefined') {
+                const blockId = ctx.block && ctx.block._blockId;
+
+                if (tok.kind === 'sustain') {
+                  // visual hold only; the original vibraphone note/chord owns
+                  // the tied duration through tieSpanLeafCount.
+                }
+
+                if (tok.kind === 'rest' && root.VibraphoneVoice.releaseLastForBlock) {
+                  root.VibraphoneVoice.releaseLastForBlock({
+                    audioCtx,
+                    blockId,
+                    time,
+                  });
+                }
+
+                emitEditorPulse({
+                  kind: 'voice',
+                  line: blockLine(ctx.block),
+                  voice: ctx.voice,
+                  intensity: tok.kind === 'sustain' ? 0.12 : 0.08,
+                });
+
+                return;
+              }
+
+              if (ctx.voice === 'voice' && typeof root.VoiceVoice !== 'undefined') {
+                const blockId = ctx.block && ctx.block._blockId;
+
+                if (tok.kind === 'sustain') {
+                  // visual hold only; the original machine-voice note/chord owns
+                  // the tied breath duration through tieSpanLeafCount.
+                }
+
+                if (tok.kind === 'rest' && root.VoiceVoice.releaseLastForBlock) {
+                  root.VoiceVoice.releaseLastForBlock({
+                    audioCtx,
+                    blockId,
+                    time,
+                  });
+                }
+
+                emitEditorPulse({
+                  kind: 'voice',
+                  line: blockLine(ctx.block),
+                  voice: ctx.voice,
+                  intensity: tok.kind === 'sustain' ? 0.12 : 0.08,
+                });
+
+                return;
+              }
+
+              if ((ctx.voice === 'video' || ctx.voice === 'video-gen') && typeof root.VideoVoice !== 'undefined' && root.VideoVoice.commitLeaf) {
+                root.VideoVoice.commitLeaf({
+                  blockId: ctx.block && ctx.block._blockId,
+                  voice: ctx.voice,
+                  state: tok.kind === 'sustain' ? 'held' : 'rest',
+                  token: tokenLabel || (tok.kind === 'sustain' ? '~' : '.'),
+                  time,
+                  sourceLeafIndex,
+                  leafIndex: eventIndex,
+                });
+              }
+
+              return;
             }
-            return;
-          }
 
             const baseParams = resolveParamsForEvent(ctx.block, eventIndex, time);
             const effects = resolveEffectsForEvent(ctx.block, eventIndex, time);
@@ -3725,10 +4321,13 @@
             const eventBus = outputBusForBlock(ctx.block, time, attractorMod, effects);
 
             const gated = tokenIsGated(tok);
-            const gateDuration = gated
+            const baseGateDuration = gated
               ? duration * (Number.isFinite(params.gateMul) ? params.gateMul : 1)
               : null;
 
+            const gateDuration = (ctx.voice === 'violin' || ctx.voice === 'cello' || ctx.voice === 'marimba' || ctx.voice === 'vibraphone' || ctx.voice === 'voice')
+              ? tiedGateDurationFromToken(ctx.block, tok, duration, baseGateDuration)
+              : baseGateDuration;
             const panGestureDuration = gestureDurationForEvent('pan', params.pan, ctx.voice, params, gateDuration, duration);
             const rateGestureDuration = gestureDurationForEvent('rate', params.rate, ctx.voice, params, gateDuration, duration);
 
@@ -3764,27 +4363,75 @@
               return;
             }
 
-            if (isPitchedSynthVoice(ctx.voice)) {
+if (isPitchedSynthVoice(ctx.voice)) {
               const isStringVoice = ctx.voice === 'string';
               const isSineVoice = ctx.voice === 'sine' || ctx.voice === 'osc';
               const isPluckVoice = ctx.voice === 'pluck';
               const isDroneVoice = ctx.voice === 'drone';
+                const isPianoVoice = ctx.voice === 'piano';
+                const isViolinVoice = ctx.voice === 'violin';
+                const isCelloVoice = ctx.voice === 'cello';
+                const isMarimbaVoice = ctx.voice === 'marimba';
+                const isVibraphoneVoice = ctx.voice === 'vibraphone';
+                const isVoiceVoice = ctx.voice === 'voice';
               if (isStringVoice && typeof root.StringVoice === 'undefined') return;
               if (isSineVoice && typeof root.SineVoice === 'undefined') return;
               if (isPluckVoice && typeof root.PluckVoice === 'undefined') return;
               if (isDroneVoice && typeof root.DroneVoice === 'undefined') return;
+              if (isPianoVoice && typeof root.PianoVoice === 'undefined') return;
+              if (isViolinVoice && typeof root.ViolinVoice === 'undefined') return;
+              if (isCelloVoice && typeof root.CelloVoice === 'undefined') return;
+                if (isMarimbaVoice && typeof root.MarimbaVoice === 'undefined') {
+                  console.warn('[repl] marimba event reached scheduler, but root.MarimbaVoice is undefined', {
+                    voice: ctx.voice,
+                    token: tok,
+                    block: ctx.block,
+                  });
+                  return;
+                }
+                if (isVibraphoneVoice && typeof root.VibraphoneVoice === 'undefined') {
+                  console.warn('[repl] vibraphone event reached scheduler, but root.VibraphoneVoice is undefined', {
+                    voice: ctx.voice,
+                    token: tok,
+                    block: ctx.block,
+                  });
+                  return;
+                }
 
-              let note = null;
-              const spanState = ensureBlockPitchSpanRuntime(ctx.block);
-              let spanEvent = null;
+    if (isVoiceVoice && !voiceEngine()) {
+      console.warn('[repl] voice event reached scheduler, but no voice engine is registered', {
+        voice: ctx.voice,
+        token: tok,
+        block: ctx.block,
+        VoiceVoice: root.VoiceVoice,
+        RobotVoice: root.RobotVoice,
+        VocalVoice: root.VocalVoice,
+      });
+      return;
+    }
+
+                let note = null;
+                let chordNotes = null;
+                const spanState = ensureBlockPitchSpanRuntime(ctx.block);
+                let spanEvent = null;
 
               if (
                 tok.kind === 'pitch-span-start'
                 || tok.kind === 'pitch-span-end'
                 || (tok.kind === 'note-random' && tok.pitchSpanStep === true)
               ) {
-                spanEvent = resolvePitchSpanHit(node, tok, ctx.block, spanState, params);
+                spanEvent = resolvePitchSpanHit(node, tok, ctx.block, spanState, params, time);
                 note = spanEvent && spanEvent.note ? spanEvent.note : null;
+              } else if (tok.kind === 'chord') {
+                if ((isViolinVoice || isCelloVoice || isMarimbaVoice || isVibraphoneVoice || isVoiceVoice) && Array.isArray(tok.value)) {
+                  chordNotes = tok.value
+                    .map((base) => {
+                      const midi = base && Number.isFinite(Number(base.midi)) ? Number(base.midi) : null;
+                      const tunedFreq = midi != null ? midiToFreq(midi, ctx.block) : (base && Number(base.freq));
+                      return base && Number.isFinite(tunedFreq) ? { ...base, midi, freq: tunedFreq } : null;
+                    })
+                    .filter(Boolean);
+                }
               } else if (tok.kind === 'note') {
                 const base = tok.value || null;
                 const midi = base && Number.isFinite(Number(base.midi)) ? Number(base.midi) : null;
@@ -3797,17 +4444,286 @@
                 note = resolveRandomPitch(node, tok.value);
               }
 
-              if (!note || !Number.isFinite(note.freq)) {
-                if (spanEvent && spanEvent.closeSpan) {
-                  finalizeSpanStateAfterEvent(spanState, spanEvent, null);
+                if (isViolinVoice && chordNotes && chordNotes.length >= 2) {
+                  const chordLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
+                  const isHeldChord = tok.sustained === true || tok.raw === '~' || chordNotes.some((n) => n && n.sustained === true);
+
+                  emitPlayedLeafPulse(chordLeafIntensity, isHeldChord ? 'held' : null);
+                  emitEditorPulse({
+                    kind: 'voice',
+                    line: blockLine(ctx.block),
+                    voice: ctx.voice,
+                    intensity: chordLeafIntensity,
+                  });
+
+                  const chordOpts = {
+                    audioCtx,
+                    masterBus: eventBus,
+                    time,
+                    notes: chordNotes,
+                    chordRaw: tok.chordRaw || tok.raw || chordNotes.map((n) => n.name || 'note').join('+'),
+                    force: params.force,
+                    decay: params.decay,
+                    crush: params.crush,
+                    resolution: params.resolution,
+                    tone: params.tone,
+                    harm: params.harm,
+                    octave: params.octave,
+                    pan: params.pan,
+                    gain: params.gain,
+                    pedal: params.pedal,
+                    una: params.una,
+                    lid: params.lid,
+                    sympathetic: params.sympathetic,
+                    release: params.release,
+                    human: params.human,
+                    stretch: params.stretch,
+                    layer: params.layer,
+                    poly: params.poly,
+                    articulation: params.articulation,
+                    string: params.sul,
+                    vibrato: params.vibrato,
+                    vibratoRate: params.vibratorate,
+                    vibratoOnset: params.vibratoonset,
+                    tremolo: params.tremolo,
+                    tremoloRate: params.tremolorate,
+                    bow: params.bow,
+                    wood: params.wood,
+                      mallet: params.mallet,
+                      resonance: params.resonance,
+                      body: params.body,
+                      deadstroke: params.deadstroke,
+                      roll: params.roll,
+                      spread: params.spread,
+                    gateDuration,
+                    eventDuration: duration,
+                    panGestureDuration,
+                    blockId: ctx.block && ctx.block._blockId,
+                  };
+
+                    if (root.ViolinVoice.playViolinChord) {
+                      root.ViolinVoice.playViolinChord(chordOpts);
+                    }
+
+                  return;
                 }
-                return;
-              }
+
+
+                if (isCelloVoice && chordNotes && chordNotes.length >= 2) {
+                  const chordLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
+
+                  emitPlayedLeafPulse(chordLeafIntensity);
+                  emitEditorPulse({
+                    kind: 'voice',
+                    line: blockLine(ctx.block),
+                    voice: ctx.voice,
+                    intensity: chordLeafIntensity,
+                  });
+
+                  const chordOpts = {
+                    audioCtx,
+                    masterBus: eventBus,
+                    time,
+                    notes: chordNotes,
+                    chordRaw: tok.raw || chordNotes.map((n) => n.name || 'note').join('+'),
+                    force: params.force,
+                    decay: params.decay,
+                    crush: params.crush,
+                    resolution: params.resolution,
+                    tone: params.tone,
+                    harm: params.harm,
+                    octave: params.octave,
+                    pan: params.pan,
+                    gain: params.gain,
+                    sympathetic: effects.sympathetic,
+                    release: params.release,
+                    human: params.human,
+                    poly: params.poly,
+                    articulation: params.articulation,
+                    string: params.sul,
+                    vibrato: params.vibrato,
+                    vibratoRate: params.vibratorate,
+                    vibratoOnset: params.vibratoonset,
+                    tremolo: params.tremolo,
+                    tremoloRate: params.tremolorate,
+                    bow: params.bow,
+                    wood: params.wood,
+                    gateDuration,
+                    eventDuration: duration,
+                    panGestureDuration,
+                    blockId: ctx.block && ctx.block._blockId,
+                  };
+
+                  if (root.CelloVoice.playCelloChord) root.CelloVoice.playCelloChord(chordOpts);
+                  return;
+                }
+                
+                if (isMarimbaVoice && chordNotes && chordNotes.length >= 2) {
+                  const chordLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
+
+                  emitPlayedLeafPulse(chordLeafIntensity);
+                  emitEditorPulse({
+                    kind: 'voice',
+                    line: blockLine(ctx.block),
+                    voice: ctx.voice,
+                    intensity: chordLeafIntensity,
+                  });
+
+                  root.MarimbaVoice.playMarimbaChord({
+                    audioCtx,
+                    masterBus: eventBus,
+                    time,
+                    notes: chordNotes,
+                    chordRaw: tok.raw || chordNotes.map((n) => n.name || 'note').join('+'),
+                    force: params.force,
+                    decay: params.decay,
+                    crush: params.crush,
+                    resolution: params.resolution,
+                    pan: params.pan,
+                    gain: params.gain,
+
+                    mallet: params.mallet,
+                    resonance: effects.resonance,
+                    body: effects.body,
+                    deadstroke: params.deadstroke,
+                    roll: params.roll,
+                    spread: params.spread,
+                    human: params.human,
+                    release: params.release,
+                    poly: params.poly,
+
+                    gateDuration,
+                    eventDuration: duration,
+                    panGestureDuration,
+                    blockId: ctx.block && ctx.block._blockId,
+                  });
+
+                  return;
+                }
+
+                if (isVibraphoneVoice && chordNotes && chordNotes.length >= 2) {
+                  const chordLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
+
+                  emitPlayedLeafPulse(chordLeafIntensity);
+                  emitEditorPulse({
+                    kind: 'voice',
+                    line: blockLine(ctx.block),
+                    voice: ctx.voice,
+                    intensity: chordLeafIntensity,
+                  });
+
+                  root.VibraphoneVoice.playVibraphoneChord({
+                    audioCtx,
+                    masterBus: eventBus,
+                    time,
+                    notes: chordNotes,
+                    chordRaw: tok.raw || chordNotes.map((n) => n.name || 'note').join('+'),
+                    force: params.force,
+                    decay: params.decay,
+                    crush: params.crush,
+                    resolution: params.resolution,
+                    pan: params.pan,
+                    gain: params.gain,
+                    articulation: params.articulation,
+                    pedal: params.pedal,
+                    motor: params.motor,
+                    depth: params.depth,
+                    damp: params.damp,
+                    bowpressure: params.bowpressure,
+                      vowel: params.vowel,
+                      syllable: params.syllable,
+                      carrier: params.carrier,
+                      robot: params.robot,
+                      vocoder: params.vocoder,
+                      breath: params.breath,
+                      mouth: params.mouth,
+                      formant: params.formant,
+                      roughness: params.roughness,
+                      ensemble: params.ensemble,
+                    resonance: effects.resonance,
+                    sympathetic: effects.sympathetic,
+                    body: effects.body,
+                    spread: params.spread,
+                    human: params.human,
+                    release: params.release,
+                    poly: params.poly,
+                    gateDuration,
+                    eventDuration: duration,
+                    panGestureDuration,
+                    blockId: ctx.block && ctx.block._blockId,
+                  });
+
+                  return;
+                }
+
+
+    if (isVoiceVoice && chordNotes && chordNotes.length >= 2) {
+      const chordLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
+
+      emitPlayedLeafPulse(chordLeafIntensity);
+      emitEditorPulse({
+        kind: 'voice',
+        line: blockLine(ctx.block),
+        voice: ctx.voice,
+        intensity: chordLeafIntensity,
+      });
+
+      const engine = voiceEngine();
+      const playChord = engine && (engine.playVoiceChord || engine.playRobotVoiceChord || engine.playVocalChord);
+
+      if (!playChord) {
+        console.warn('[repl] voice engine has no chord method', engine);
+        return;
+      }
+
+      playChord.call(engine, {
+        audioCtx,
+        masterBus: eventBus,
+        time,
+        notes: chordNotes,
+        chordRaw: tok.raw || chordNotes.map((n) => n.name || 'note').join('+'),
+        force: params.force,
+        decay: params.decay,
+        crush: params.crush,
+        resolution: params.resolution,
+        pan: params.pan,
+        gain: params.gain,
+        vowel: params.vowel,
+        syllable: params.syllable,
+        carrier: params.carrier,
+        robot: params.robot,
+        vocoder: params.vocoder,
+        breath: params.breath,
+        mouth: params.mouth,
+        formant: params.formant,
+        roughness: params.roughness,
+        ensemble: params.ensemble,
+        resonance: effects.resonance,
+        sympathetic: effects.sympathetic,
+        body: effects.body,
+        spread: params.spread,
+        human: params.human,
+        release: params.release,
+        poly: params.poly,
+        gateDuration,
+        eventDuration: duration,
+        panGestureDuration,
+        blockId: ctx.block && ctx.block._blockId,
+      });
+
+      return;
+    }
 
               let glideFreqStart = null;
               let glideFreqEnd = null;
               let glideSec = 0;
-              if (spanEvent && spanEvent.spanEvent && spanEvent.desc) {
+              if (
+                spanEvent
+                && spanEvent.spanEvent
+                && spanEvent.desc
+                && spanEvent.desc.timeBased !== true
+                && tok.kind !== 'pitch-span-start'
+              ) {
                 const prevMidi = spanState && spanState.lastMidi != null && Number.isFinite(Number(spanState.lastMidi))
                   ? Number(spanState.lastMidi)
                   : null;
@@ -3842,6 +4758,7 @@
                     masterBus: eventBus,
                     time,
                     freq: note.freq,
+                    midi: Number.isFinite(Number(note.midi)) ? Number(note.midi) : null,
                     force: params.force,
                     decay: params.decay,
                     crush: params.crush,
@@ -3851,6 +4768,46 @@
                     octave: params.octave,
                     pan: params.pan,
                     gain: params.gain,
+                    pedal: params.pedal,
+                    una: params.una,
+                    lid: params.lid,
+                    sympathetic: params.sympathetic,
+                    release: params.release,
+                    human: params.human,
+                    stretch: params.stretch,
+                    layer: params.layer,
+                    poly: params.poly,
+                    articulation: params.articulation,
+                    string: params.sul,
+                    vibrato: params.vibrato,
+                    vibratoRate: params.vibratorate,
+                    vibratoOnset: params.vibratoonset,
+                    tremolo: params.tremolo,
+                    tremoloRate: params.tremolorate,
+                    bow: params.bow,
+                    wood: params.wood,
+
+                    mallet: params.mallet,
+                    resonance: effects.resonance,
+                    body: effects.body,
+                    deadstroke: params.deadstroke,
+                    roll: params.roll,
+                    spread: params.spread,
+                    motor: params.motor,
+                    depth: params.depth,
+                    damp: params.damp,
+                    bowpressure: params.bowpressure,
+                    vowel: params.vowel,
+                    syllable: params.syllable,
+                    carrier: params.carrier,
+                    robot: params.robot,
+                    vocoder: params.vocoder,
+                    breath: params.breath,
+                    mouth: params.mouth,
+                    formant: params.formant,
+                    roughness: params.roughness,
+                    ensemble: params.ensemble,
+
                     gateDuration,
                     eventDuration: duration,
                     panGestureDuration,
@@ -3868,6 +4825,42 @@
                   root.PluckVoice.playPluck(voiceOpts);
                 } else if (isDroneVoice && root.DroneVoice.playDrone) {
                   root.DroneVoice.playDrone(voiceOpts);
+                } else if (isPianoVoice && root.PianoVoice.playPiano) {
+                  root.PianoVoice.playPiano(voiceOpts);
+                } else if (isViolinVoice && root.ViolinVoice.playViolin) {
+                  root.ViolinVoice.playViolin(voiceOpts);
+                } else if (isCelloVoice && root.CelloVoice.playCello) {
+                  root.CelloVoice.playCello(voiceOpts);
+                } else if (isMarimbaVoice) {
+                  if (root.MarimbaVoice && root.MarimbaVoice.playMarimba) {
+                    const ok = root.MarimbaVoice.playMarimba(voiceOpts);
+                    if (!ok) {
+                      console.warn('[repl] MarimbaVoice.playMarimba returned false', voiceOpts);
+                    }
+                  } else {
+                    console.warn('[repl] root.MarimbaVoice exists, but playMarimba is missing', root.MarimbaVoice);
+                  }
+                } else if (isVibraphoneVoice) {
+                  if (root.VibraphoneVoice && root.VibraphoneVoice.playVibraphone) {
+                    const ok = root.VibraphoneVoice.playVibraphone(voiceOpts);
+                    if (!ok) {
+                      console.warn('[repl] VibraphoneVoice.playVibraphone returned false', voiceOpts);
+                    }
+                  } else {
+                    console.warn('[repl] root.VibraphoneVoice exists, but playVibraphone is missing', root.VibraphoneVoice);
+                  }
+                } else if (isVoiceVoice) {
+                  const engine = voiceEngine();
+                  const play = engine && (engine.playVoice || engine.playRobotVoice || engine.playVocal);
+
+                  if (play) {
+                    const ok = play.call(engine, voiceOpts);
+                    if (!ok) {
+                      console.warn('[repl] voice engine returned false', voiceOpts);
+                    }
+                  } else {
+                    console.warn('[repl] voice engine exists, but no play method is available', engine);
+                  }
                 }
               return;
             }
@@ -3958,7 +4951,21 @@
                 }
               } else if (ctx.voice === 'drum') {
                 if (tok.kind !== 'drum') return;
-                plan = resolveDrumPlan(node, tok, time, ctx.block, params);
+
+                const kitId = ctx.block && ctx.block.kit && ctx.block.kit.id
+                  ? String(ctx.block.kit.id)
+                  : '';
+
+                if (
+                  kitId
+                  && root.SampleVoice.preloadKit
+                  && ctx.block._preloadedDrumKitId !== kitId
+                ) {
+                  ctx.block._preloadedDrumKitId = kitId;
+                  root.SampleVoice.preloadKit(audioCtx, kitId);
+                }
+
+                plan = resolveDrumPlan(node, tok, time, ctx.block, params, ctx.sampleReservations);
               }
 
               if (!plan) return;
@@ -3967,7 +4974,11 @@
 
               const sampleLeafIntensity = Math.max(0.16, Math.min(1, numericParamValue(params.gain, 1)));
               let emittedSampleLeaf = false;
-              let validSamplePlan = false;
+              // A leaf pulse is a scheduler commitment, not proof that the
+              // sample buffer was already decoded or that playback succeeded.
+              // Keep highlighting stable for planned drum/sample leaves even
+              // when lazy decode/cache state makes audio return false.
+              let validSamplePlan = items.some((item) => item && item.name);
               let scheduledSampleAudio = false;
 
             for (const item of items) {
@@ -3980,6 +4991,7 @@
 
               validSamplePlan = true;
               const gainMul = Number.isFinite(item.gainMul) ? item.gainMul : 1;
+              const rateMul = Number.isFinite(item.rateMul) && item.rateMul > 0 ? item.rateMul : 1;
 
                 const didScheduleSample = root.SampleVoice.playSample({
                   audioCtx,
@@ -3989,6 +5001,7 @@
                   gain: params.gain * gainMul,
                   pan: params.pan,
                   rate: params.rate,
+                  rateMul,
                   start: params.start,
                   crush: params.crush,
                   resolution: params.resolution,
@@ -4011,6 +5024,10 @@
               emitEditorPulse({
                 kind: 'sample',
                 line: blockLine(ctx.block),
+                blockId: ctx.block && ctx.block._blockId ? ctx.block._blockId : null,
+                blockOrdinal: ctx.block && Number.isFinite(Number(ctx.block._blockOrdinal))
+                  ? Number(ctx.block._blockOrdinal)
+                  : null,
                 voice: ctx.voice === 'drum' ? 'drum' : 'sample',
                 intensity: scheduledSampleAudio ? sampleLeafIntensity : Math.max(0.1, sampleLeafIntensity * 0.72),
               });
@@ -4262,7 +5279,65 @@
         return new Set(pool).size;
       }
 
-      function resolveDrumPlan(node, tok, time, block, params) {
+      function uniquePoolNames(pool) {
+        if (!Array.isArray(pool) || pool.length === 0) return [];
+        return Array.from(new Set(pool.filter(Boolean)));
+      }
+
+      function drumReservationKey(kitId, lane, time) {
+        const safeKit = String(kitId || 'kit').toLowerCase();
+        const safeLane = String(lane || '*').toLowerCase();
+        const t = Number(time);
+        const tick = Number.isFinite(t) ? Math.round(t * 1000) : 0;
+        return `${safeKit}:${safeLane}:${tick}`;
+      }
+
+      function drumReservationSet(reservations, kitId, lane, time) {
+        if (!reservations || typeof reservations.get !== 'function') return null;
+        const key = drumReservationKey(kitId, lane, time);
+        let set = reservations.get(key);
+        if (!set) {
+          set = new Set();
+          reservations.set(key, set);
+        }
+        return set;
+      }
+
+      function pickRandomAvoiding(pool, block, avoided) {
+        if (!Array.isArray(pool) || pool.length === 0) return null;
+        if (!avoided || typeof avoided.has !== 'function' || avoided.size === 0) {
+          return pickRandom(pool, block);
+        }
+
+        const unique = uniquePoolNames(pool);
+        if (unique.length <= 1) return pickRandom(pool, block);
+
+        const filtered = pool.filter((name) => name && !avoided.has(name));
+        if (filtered.length > 0) return pickRandom(filtered, block);
+
+        return pickRandom(pool, block);
+      }
+
+      function reserveDrumSample(reservations, kitId, lane, time, name) {
+        if (!name) return;
+        const set = drumReservationSet(reservations, kitId, lane, time);
+        if (set) set.add(name);
+      }
+
+      function drumLaneGainMul(lane) {
+        switch (String(lane || '').toLowerCase()) {
+          case 'k': return 1.55; // kick needs to survive the rest of the kit
+          case 's': return 1.18;
+          case 'h': return 0.68;
+          case 'o': return 0.78;
+          case 't': return 1.05;
+          case 'r': return 0.72;
+          case 'c': return 0.82;
+          default: return 1;
+        }
+      }
+
+      function resolveDrumPlan(node, tok, time, block, params, reservations) {
         if (!tok || tok.kind !== 'drum') return null;
         if (typeof root.SampleVoice === 'undefined' || typeof root.SampleVoice.kitById !== 'function') return null;
 
@@ -4277,6 +5352,11 @@
           reportMissingSample(`drum-kit:${kitId}`);
           return null;
         }
+
+        const programTempo = program && Number(program.tempo) > 0 ? Number(program.tempo) : 0;
+        const rateMul = (kit && Number(kit.bpm) > 0 && programTempo > 0)
+          ? programTempo / Number(kit.bpm)
+          : 1;
 
         const lane = tok.value && tok.value.lane ? String(tok.value.lane).toLowerCase() : '*';
         const frozen = Boolean(tok.value && tok.value.frozen);
@@ -4294,53 +5374,86 @@
           return null;
         }
 
-        const freezeKey = `${kit.id}:${lane}`;
-        if (frozen && node._drumFrozenPick && node._drumFrozenPick.key === freezeKey && node._drumFrozenPick.name) {
-          return [{ name: node._drumFrozenPick.name, gainMul: 1 }];
-        }
+          const laneGainMul = drumLaneGainMul(lane);
+          const reservedNames = drumReservationSet(reservations, kit.id, lane, time);
+          const exactSampleName = block && block.drumSample && block.drumSample.name
+            ? String(block.drumSample.name)
+            : '';
 
-        if (frozen) {
-          const picked = pickRandom(pool, block);
-          if (!picked) {
-            reportMissingSample(`drum-lane:${kit.id}:${lane}`);
-            return null;
+          if (exactSampleName) {
+            const kitPool = expandWeightedPoolNames(Array.isArray(kit.pool) ? kit.pool : []);
+            const sampleExistsInLane = pool.includes(exactSampleName);
+            const sampleExistsInKit = sampleExistsInLane || kitPool.includes(exactSampleName);
+
+            if (sampleExistsInLane && !(reservedNames && reservedNames.has(exactSampleName) && uniqueNameCount(pool) > 1)) {
+              reserveDrumSample(reservations, kit.id, lane, time, exactSampleName);
+              return [{ name: exactSampleName, gainMul: laneGainMul, rateMul }];
+            }
+
+            if (!sampleExistsInKit) {
+              reportMissingSample(`drum-sample:${kit.id}:${exactSampleName}`);
+            }
           }
-          node._drumFrozenPick = { key: freezeKey, name: picked };
-          return [{ name: picked, gainMul: 1 }];
-        }
 
-        if (!node._drumVarianceAnchor) node._drumVarianceAnchor = {};
+          const freezeKey = `${kit.id}:${lane}`;
 
-        const anchorKey = `${kit.id}:${lane}`;
-        let anchor = node._drumVarianceAnchor[anchorKey];
-        if (!anchor) {
-          anchor = pickRandom(pool, block);
+          if (frozen && node._drumFrozenPick && node._drumFrozenPick.key === freezeKey && node._drumFrozenPick.name) {
+            if (!(reservedNames && reservedNames.has(node._drumFrozenPick.name) && uniqueNameCount(pool) > 1)) {
+              reserveDrumSample(reservations, kit.id, lane, time, node._drumFrozenPick.name);
+              return [{ name: node._drumFrozenPick.name, gainMul: laneGainMul, rateMul }];
+            }
+          }
+
+          if (frozen) {
+            const picked = pickRandomAvoiding(pool, block, reservedNames);
+            if (!picked) {
+              reportMissingSample(`drum-lane:${kit.id}:${lane}`);
+              return null;
+            }
+            node._drumFrozenPick = { key: freezeKey, name: picked };
+            reserveDrumSample(reservations, kit.id, lane, time, picked);
+            return [{ name: picked, gainMul: laneGainMul, rateMul }];
+          }
+
+          if (!node._drumVarianceAnchor) node._drumVarianceAnchor = {};
+
+          const anchorKey = `${kit.id}:${lane}`;
+          let anchor = node._drumVarianceAnchor[anchorKey];
           if (!anchor) {
-            reportMissingSample(`drum-lane:${kit.id}:${lane}`);
-            return null;
+            anchor = pickRandomAvoiding(pool, block, reservedNames);
+            if (!anchor) {
+              reportMissingSample(`drum-lane:${kit.id}:${lane}`);
+              return null;
+            }
+            node._drumVarianceAnchor[anchorKey] = anchor;
           }
-          node._drumVarianceAnchor[anchorKey] = anchor;
-        }
 
-        const variance = clamp(numericParamValue(params && params.variance, 1), 0, 1);
-        if (variance <= 0) {
-          return [{ name: anchor, gainMul: 1 }];
-        }
-
-        let picked = anchor;
-        if (variance >= 1 || Math.random() < variance) {
-          picked = pickRandom(pool, block);
-          if (!picked) {
-            reportMissingSample(`drum-lane:${kit.id}:${lane}`);
-            return null;
+          const variance = clamp(numericParamValue(params && params.variance, 1), 0, 1);
+          if (variance <= 0) {
+            let fixed = anchor;
+            if (reservedNames && reservedNames.has(fixed) && uniqueNameCount(pool) > 1) {
+              const alternate = pickRandomAvoiding(pool, block, reservedNames);
+              if (alternate) fixed = alternate;
+            }
+            reserveDrumSample(reservations, kit.id, lane, time, fixed);
+            return [{ name: fixed, gainMul: laneGainMul, rateMul }];
           }
-          if (picked === anchor && uniqueNameCount(pool) > 1) {
-            const reroll = pickRandom(pool, block);
-            if (reroll) picked = reroll;
-          }
-        }
 
-        return [{ name: picked, gainMul: 1 }];
+          let picked = anchor;
+          if (variance >= 1 || Math.random() < variance) {
+            picked = pickRandomAvoiding(pool, block, reservedNames);
+            if (!picked) {
+              reportMissingSample(`drum-lane:${kit.id}:${lane}`);
+              return null;
+            }
+            if (picked === anchor && uniqueNameCount(pool) > 1) {
+              const reroll = pickRandomAvoiding(pool, block, reservedNames);
+              if (reroll) picked = reroll;
+            }
+          }
+
+          reserveDrumSample(reservations, kit.id, lane, time, picked);
+          return [{ name: picked, gainMul: laneGainMul, rateMul }];
       }
 
       function syncInputBlock(block, eventBus, params, time) {
@@ -4414,7 +5527,7 @@
         return true;
       }
 
-      function dispatchTopSlot(block, slotIdx, slotAbsTime, slotDuration, speed, absoluteSlotIdx) {
+      function dispatchTopSlot(block, slotIdx, slotAbsTime, slotDuration, speed, absoluteSlotIdx, sampleReservations) {
         ensureLeafOffsets(block);
         maybeResetPitchSpansAtBoundary(block, absoluteSlotIdx);
 
@@ -4434,6 +5547,19 @@
         });
         if (pos.silent) return;
         if (blockIsMutedAt(block, slotAbsTime)) return;
+
+        // exit gate: enter is honored at install via _speedNextTime offset,
+        // but exit needs an explicit dispatch-time check. Reads block.exit
+        // and the per-block _arrangeOrigin (set in install/safeRestart/update)
+        // so it's tempo-independent — exitSec is always recomputed against
+        // the current program's bar grid.
+        if (block && block.exit && Number.isFinite(block._arrangeOrigin)) {
+          const exitSec = spanSpecSeconds(block.exit, program);
+          if (Number.isFinite(exitSec) && exitSec > 0
+            && (slotAbsTime - block._arrangeOrigin) >= exitSec - 0.000001) {
+            return;
+          }
+        }
 
         const inBlockIdx = pos.inBlockIdx;
         const node = block.slots[inBlockIdx];
@@ -4456,6 +5582,7 @@
           leafPath: [inBlockIdx],
           slotIndex: inBlockIdx,
           speed,
+          sampleReservations: sampleReservations || null,
         });
       }
 
@@ -4475,6 +5602,7 @@
         }
 
         const barSec = barSeconds(program);
+        const sampleReservations = new Map();
 
           for (const block of program.blocks) {
             if (!Number.isFinite(barSec) || barSec <= 0) continue;
@@ -4564,19 +5692,40 @@
             ? speedDuration
             : localSlotSec;
 
+          let dispatchAbsTime = slotAbsTime;
           if (slotAbsTime < nowAbs - 0.002) {
-            nextBlock._speedSlotIdx = slotIdx + 1;
-            nextBlock._speedNextTime = slotAbsTime + eventDuration;
-            nextBlock._scheduledThrough = nextBlock._speedSlotIdx;
-            guard += 1;
-            continue;
+            const lateness = nowAbs - slotAbsTime;
+            const catchUpWindow = Math.max(0.045, Math.min(0.18, eventDuration * 0.75));
+
+            // Do not randomly drop slightly-late leaves. Browser timer jitter,
+            // lazy sample decode, and multiple same-voice drum blocks can push
+            // a committed slot a few ms behind the audio clock; skipping it
+            // makes both audio and editor highlighting appear to miss leaves.
+            // Only discard events that are truly stale. Fresh late events are
+            // nudged onto the immediate audio horizon but keep their original
+            // grid slot identity for row/leaf highlighting and sequencing.
+            if (lateness > catchUpWindow) {
+              nextBlock._speedSlotIdx = slotIdx + 1;
+              nextBlock._speedNextTime = slotAbsTime + eventDuration;
+              nextBlock._scheduledThrough = nextBlock._speedSlotIdx;
+              guard += 1;
+              continue;
+            }
           }
 
+          // Multiple blocks can legitimately share the same grid time. Do not
+          // schedule the later blocks in that same-time group at an already-too-
+          // close Web Audio timestamp after the first block's dispatch work. Keep
+          // the grid slot identity below, but give every committed event in this
+          // tick a small common audio lead so one drum block cannot starve the
+          // next block's playback/highlight pulse.
+          dispatchAbsTime = Math.max(dispatchAbsTime, nowAbs + MIN_AUDIO_LEAD_S);
+
           const absoluteSlotIdx = absSlotForElapsed(nextBlock, (slotAbsTime - originTime) + 0.000001, barSec);
-          applyPendingMuteForBlock(nextBlock, slotAbsTime);
-          dispatchTopSlot(nextBlock, slotIdx, slotAbsTime, eventDuration, speed, absoluteSlotIdx);
+          applyPendingMuteForBlock(nextBlock, dispatchAbsTime);
+          dispatchTopSlot(nextBlock, slotIdx, dispatchAbsTime, eventDuration, speed, absoluteSlotIdx, sampleReservations);
           nextBlock._lastDispatchedSlotIdx = slotIdx;
-          nextBlock._lastDispatchedTime = slotAbsTime;
+          nextBlock._lastDispatchedTime = dispatchAbsTime;
           nextBlock._lastDispatchedDuration = eventDuration;
           nextBlock._speedSlotIdx = slotIdx + 1;
           nextBlock._speedNextTime = slotAbsTime + eventDuration;
@@ -4607,11 +5756,19 @@
       if (!program) return { bar: 0, beat: 0, transport: 0, blockStates: [] };
       const elapsed = Math.max(0, audioCtx.currentTime - originTime);
       const barSec = barSeconds(program);
-      const totalBeats = (elapsed / barSec) * program.meter.num;
-      const bar = Math.floor(elapsed / barSec);
-      const beat = totalBeats - bar * program.meter.num;
-      const beatIndex = program.meter.num > 0 ? Math.floor(beat) % program.meter.num : 0;
-      const beatProgress = beat - Math.floor(beat);
+        const meterUnitsPerBar = Number.isFinite(Number(program.meter && program.meter.num))
+          && Number(program.meter.num) > 0
+          ? Number(program.meter.num)
+          : 4;
+
+        // UI/playhead beat here means notated meter unit, not necessarily a
+        // quarter note. In 12/16 it counts 12 sixteenth units across a shorter
+        // bar; in 12/8 it counts 12 eighth units across a longer bar.
+        const totalMeterUnits = (elapsed / barSec) * meterUnitsPerBar;
+        const bar = Math.floor(elapsed / barSec);
+        const beat = totalMeterUnits - bar * meterUnitsPerBar;
+        const beatIndex = meterUnitsPerBar > 0 ? Math.floor(beat) % meterUnitsPerBar : 0;
+        const beatProgress = beat - Math.floor(beat);
         const blockStates = program.blocks.map((block, i) => {
           const lastIdx = Number.isFinite(block._lastDispatchedSlotIdx)
             ? block._lastDispatchedSlotIdx

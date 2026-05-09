@@ -1,0 +1,18 @@
+// title: polyrhythm switchyard
+// Two drum blocks with different cell counts phase against each other.
+
+tempo 118
+meter 4/4
+
+drum k . h s . h
+kit 808
+variance 0.3
+gain 0.82
+pan -0.08
+
+drum . c . o c
+kit 808
+variance 0.18
+gain 0.64
+pan 0.16
+space 0.2

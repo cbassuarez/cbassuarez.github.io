@@ -1,0 +1,21 @@
+// title: two voices
+//
+// each voice is its own line. write two lines, hear two parts at once.
+//
+// type both lines below:
+//
+//     sine A4 . C5 ~
+//     pluck A2 ~ E3 ~
+//
+// press cmd-enter. you should hear a sine melody on top and a plucked
+// bass below, playing together. (pluck is another voice — short pitched
+// events, like plucking a string.)
+//
+// try swapping pluck → sine on the second line for two sustained tones.
+// try adding a third voice line below the others.
+//
+// next: load 0e. tempo and meter
+//
+// type below ↓
+
+

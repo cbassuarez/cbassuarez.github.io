@@ -1,0 +1,20 @@
+tempo 132
+meter 4/4
+
+drum r h r h | r h r h
+kit rock
+variance .18
+gain .38
+pan .15
+
+drum . s . s | . s . s
+kit rock
+variance .25
+gain .42
+pan -.1
+
+drum k . . k | . k . .
+kit rock
+variance .2
+gain .36
+pan center

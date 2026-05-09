@@ -1,0 +1,8 @@
+tempo 112
+meter 4/4
+
+drum k h s h | k h s h
+kit rock
+variance .15
+gain .5
+pan center

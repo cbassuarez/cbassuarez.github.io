@@ -1,0 +1,43 @@
+// the four strings — same pitch (A4), different timbres. sul G is warm
+// and throaty, sul D rounder, sul A open, sul E thin and bright.
+//
+// re-evaluate and listen for the difference between cells; then mute
+// individual blocks via the gutter to hear each timbre alone.
+
+tempo 60
+meter 4/4
+
+violin   A4   ~    ~    ~
+sul      g
+force    mf
+vibrato  0.45
+bow      0.40
+wood     0.35
+release  0.4
+
+violin   A4   ~    ~    ~
+sul      d
+force    mf
+vibrato  0.45
+bow      0.45
+wood     0.35
+release  0.4
+enter    1 bars
+
+violin   A4   ~    ~    ~
+sul      a
+force    mf
+vibrato  0.45
+bow      0.50
+wood     0.35
+release  0.4
+enter    2 bars
+
+violin   A4   ~    ~    ~
+sul      e
+force    mf
+vibrato  0.45
+bow      0.55
+wood     0.35
+release  0.4
+enter    3 bars

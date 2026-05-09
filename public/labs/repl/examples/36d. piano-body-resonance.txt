@@ -1,0 +1,67 @@
+// piano body resonance — the piano as a room, not a single sample.
+//
+// piano-only surfaces shape the *body* the samples sit inside:
+//   - sympathetic: cross-string vibration. high values let any struck
+//                  string excite the rest of the harp underneath.
+//   - lid:         how openly the box radiates highs. wide = bright.
+//   - una:         the soft pedal. dampens upper partials, softens timbre.
+//   - stretch:     octave stretch. the slight detune real pianos have at
+//                  the extremes — bass slightly flat, treble slightly sharp.
+//   - release:     release tail length. long values let the body keep
+//                  ringing after the dampers should have caught it.
+//
+// three blocks: a low pedal point, a high pad, and a single ghost note
+// way up in the treble. they all share the same body model (lid/sympathetic
+// /stretch) so they ring each other through the simulated harp.
+
+tempo 56
+meter 4/4
+
+// 1. low pedal point — anchored, slow, deeply pedaled, ringing low.
+piano   C2   .    .    .    |   .    .    F2   .    |   A2   .    .    .    |   .    .    E2   .
+force   pp
+layer   xfade
+pedal   0.92
+sympathetic 0.85
+lid     0.95
+una     0.42
+release 0.85
+stretch 0.55
+human   0.10
+
+// 2. quiet treble pad — vibrates sympathetically with the bass below.
+piano   .    .    E5   G5   |   C6   .    .    .    |   .    G5   E5   .    |   C5   .    .    G5
+force   pp
+layer   xfade
+pedal   0.92
+sympathetic 0.95
+lid     0.95
+una     0.65
+release 0.90
+stretch 0.55
+human   0.14
+pan     0.3
+
+// 3. ghost note — a single very-high tone every other bar, exposing the
+//    sympathetic resonance of the harp underneath.
+piano   .    .    .    .    |   E6   .    .    .    |   .    .    .    .    |   .    .    G6   .
+force   pp
+layer   xfade
+pedal   1
+sympathetic 1
+lid     1
+una     0.7
+release 1
+stretch 0.55
+human   0.18
+pan     -0.35
+enter   4 bars
+
+// TWEAK IDEAS
+//   - drop `sympathetic` to 0 on every block — the body collapses to
+//     three isolated samples, no shared ring.
+//   - close the lid: `lid 0.15` everywhere darkens the room.
+//   - turn `stretch` off (`stretch 0`) — the extremes stop sounding
+//     "real" and start sounding mathematically perfect.
+//   - lift `force` to `mf` on block 1 — the bass becomes the loud
+//     event and you hear the treble blocks sympathize with it.

@@ -1,0 +1,146 @@
+// piano études — the masterpiece. a complete patch using every
+// piano-only surface in service of a single piece.
+//
+// SURFACES USED
+//   force    — pp at the bottom, fff at the top of the melody phrase
+//   pedal    — held open on bedrock + glide; modest on bass; coupled to
+//              mic.silence on the bedrock so the room breathes the sustain
+//   una      — soft pedal: high on the body, low on the melody (presence)
+//   lid      — wide on bedrock and glide (radiant), narrower on bass
+//   sympathetic — full on bedrock and glide so the body rings everything
+//   release  — long tails on body/glide, articulate on bass
+//   stretch  — gentle octave stretch on bedrock and melody
+//   layer    — xfade everywhere; random on the comp for a "two-mic" feel
+//   poly     — 64 voices on bedrock so the sympathetic ring doesn't choke
+//   human    — small on the comp, larger on the melody
+//
+// ARRANGEMENT (4/4 at 84 BPM, ≈32 bars total)
+//   bar  1: body bedrock starts and runs throughout
+//   bar  4: stride bass enters
+//   bar  8: comp (third + seventh) enters
+//   bar 12: melody enters; rerolls its `*` choices every 8 bars
+//   bar 16: phase echo enters at 1.01x speed
+//   bar 24: descending pitch-span glide overlays
+//   bar 28: melody and phase echo exit
+//   bar 32: bass and comp exit; body bedrock alone closes the piece
+
+tempo 84
+meter 4/4
+tuning kirnberger-3
+
+// ---------------------------------------------------------------------------
+// 1. BODY BEDROCK — the room. runs the entire piece.
+//    pedal couples to mic.silence: the quieter the room, the wider the
+//    pedal opens. talk into the mic and the sustain closes.
+// ---------------------------------------------------------------------------
+piano   A1   ~    ~    ~    |   E2   ~    ~    ~    |   A1   ~    ~    ~    |   D2   ~    ~    ~
+force   pp
+layer   xfade
+pedal   mic.silence 0.4 1
+sympathetic 0.95
+lid     0.95
+una     0.65
+release 1
+stretch 0.55
+human   0.12
+poly    64
+
+// ---------------------------------------------------------------------------
+// 2. STRIDE BASS — left hand. articulate, modest pedal, steady pulse.
+// ---------------------------------------------------------------------------
+piano   A2   .    E3   .    |   A2   .    E3   .    |   D3   .    A2   .    |   E3   .    B2   .
+force   mp
+layer   xfade
+pedal   0.20
+release 0.30
+human   0.08
+pan     -0.45
+enter   4 bars
+exit    32 bars
+
+// ---------------------------------------------------------------------------
+// 3. COMP — inner voices. third and seventh on the off-beats, layered as
+//    two blocks so they're separate tracker channels.
+// ---------------------------------------------------------------------------
+piano   .    C4   .    .    |   .    C4   .    .    |   .    F4   .    .    |   .    G#4  .    .
+force   mf
+layer   random
+pedal   0.45
+release 0.50
+human   0.10
+enter   8 bars
+exit    32 bars
+
+piano   .    G4   .    .    |   .    G4   .    .    |   .    A4   .    .    |   .    B4   .    .
+force   mf
+layer   random
+pedal   0.45
+release 0.50
+human   0.10
+pan     0.18
+enter   8 bars
+exit    32 bars
+
+// ---------------------------------------------------------------------------
+// 4. MELODY — right hand, lyrical. `*` slots reroll every 8 bars so the
+//    phrase stays familiar but never identical.
+// ---------------------------------------------------------------------------
+piano   E5   *    G5   E5   |   A5   *    F#5  C#5  |   D5   *    F#5  G5   |   A5   .    G5   .
+force   f    mp   mf   mp   |   ff   f    f    mp   |   mf   mp   mf   f    |   ff   _    f    _
+layer   xfade
+pedal   0.32
+release 0.55
+human   0.07
+stretch 0.30
+una     0.20
+pan     0.42
+enter   12 bars
+exit    28 bars
+every   8 bars
+
+// ---------------------------------------------------------------------------
+// 5. PHASE ECHO — same melody, 1% faster. drifts ahead of the right hand,
+//    panned opposite. they rejoin briefly every several bars.
+// ---------------------------------------------------------------------------
+piano   E5   *    G5   E5   |   A5   *    F#5  C#5  |   D5   *    F#5  G5   |   A5   .    G5   .
+speed   1.01
+force   p
+layer   xfade
+pedal   0.30
+release 0.65
+human   0.05
+stretch 0.30
+una     0.40
+pan     -0.42
+enter   16 bars
+exit    28 bars
+every   8 bars
+
+// ---------------------------------------------------------------------------
+// 6. DESCENDING PITCH-SPAN GLIDE — overlays from bar 24. a slow downward
+//    smear from the top, lid wide, sympathetic full, everything ringing.
+// ---------------------------------------------------------------------------
+piano   >>6*  *    *    *
+speed   1
+glide   16
+force   pp
+layer   xfade
+pedal   0.92
+release 0.90
+sympathetic 0.85
+lid     0.95
+una     0.55
+stretch 0.45
+human   0.04
+enter   24 bars
+
+// ---------------------------------------------------------------------------
+// LISTENING NOTES
+//   - cover the mic with your hand: pedal closes, the body stops ringing.
+//     uncover it: the pedal opens back up over a few seconds.
+//   - watch the gutter. each block has its own mute toggle — try muting
+//     the bass alone, then the comp alone, then both: the body bedrock
+//     and the glide are enough to carry the piece.
+//   - hit cmd-shift-enter to re-evaluate without re-rolling the random
+//     melody slots. then hit cmd-enter and the *'s re-roll.
+// ---------------------------------------------------------------------------

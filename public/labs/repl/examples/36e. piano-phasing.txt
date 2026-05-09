@@ -1,0 +1,62 @@
+// piano phasing — Steve Reich style.
+//
+// two identical lines play the same 12-note pattern. one stays at tempo,
+// the other plays at speed 1.01 — 1% faster — so it slowly drifts ahead.
+// over many bars the two voices fall in and out of unison, generating
+// new vertical chord stacks at every meeting point. when they finally
+// re-align (around bar 48 here) the piece resets.
+//
+// `pan -0.55` and `pan 0.55` separate the hands so the phase relationship
+// is also spatial — phasing in time *and* in space.
+//
+// the bedrock at the bottom is one held chord with sympathetic full and
+// pedal locked open: it's the membrane the two phasing voices vibrate
+// against, gluing them into one organism instead of two competitions.
+
+tempo 152
+meter 12/8
+
+// 1. the steady hand — keeps tempo. anchors the listener's clock.
+piano   E4   F#4  B4   C#5  D5   F#5  E5   C#5  B4   F#5  D5   C#5
+speed   1
+force   mf
+layer   xfade
+pedal   0.20
+release 0.35
+human   0.02
+pan     -0.55
+
+// 2. the drifting hand — 1% faster. listen for the moment a chord forms,
+//    then dissolves into another. each "meeting point" is a new harmony.
+piano   E4   F#4  B4   C#5  D5   F#5  E5   C#5  B4   F#5  D5   C#5
+speed   1.01
+force   mf
+layer   xfade
+pedal   0.20
+release 0.35
+human   0.02
+pan     0.55
+
+// 3. resonant pad — held notes underneath, sympathetic full, pedal open.
+//    glues the two phasing hands into a single shimmering body.
+piano   B3   ~    ~    ~    ~    ~    ~    ~    ~    ~    ~    ~
+force   pp
+layer   xfade
+pedal   1
+sympathetic 0.95
+lid     0.95
+una     0.7
+release 1
+stretch 0.45
+human   0.04
+enter   4 bars
+
+// TWEAK IDEAS
+//   - widen the phase: `speed 1.02` doubles the drift rate. the meeting
+//     points come faster but the harmonies feel more frantic.
+//   - try `speed 0.99` instead — same drift magnitude, the second hand
+//     falls behind instead of running ahead.
+//   - remove the pad block. the two hands feel less like one organism
+//     and more like two players who can't quite agree on the tempo.
+//   - try a different Reich pattern: the "Six Pianos" 8-note cell
+//     E B D F# A E F# A — change the note row and the meter to 8/8.

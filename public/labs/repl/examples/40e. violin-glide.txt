@@ -1,0 +1,40 @@
+// portamento — pitch-span glides. >>4* opens a 4-step descending span,
+// glide sets the duration in seconds. classic violin slide between
+// arrival points.
+
+tempo 56
+meter 4/4
+
+// block 1: 4-step descent across one bar.
+violin   >>4*  *    *    *
+glide    4
+force    mf
+vibrato  0.5
+bow      0.45
+wood     0.4
+sympathetic 0.4
+release  0.6
+human    0.04
+
+// block 2: long 8-step ascent over two bars (<<8* opens an ascending span).
+violin   <<8*  *    *    *    *    *    *    *
+glide    16
+force    p
+vibrato  0.4
+bow      0.40
+wood     0.35
+sympathetic 0.5
+release  0.7
+pan      0.4
+enter    1 bars
+
+// block 3: low pedal point underneath, no glide, holds the room together.
+violin   D3   ~    ~    ~    |   ~    ~    ~    ~
+force    pp
+vibrato  0.25
+bow      0.30
+wood     0.7
+sympathetic 0.7
+release  1.0
+pan      -0.4
+enter    2 bars

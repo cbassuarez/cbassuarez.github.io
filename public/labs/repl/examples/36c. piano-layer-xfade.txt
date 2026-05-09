@@ -1,0 +1,41 @@
+// piano layer xfade — hear the pp / mf / ff sample crossfade.
+//
+// the iowa piano ships three velocity layers: pp (whisper), mf (middle),
+// ff (slam). force selects which layer plays. layer mode controls how
+// they blend:
+//   - hard:   one layer at a time, snaps at the pp/mf and mf/ff thresholds.
+//   - xfade:  two adjacent layers crossfade; force is continuous.
+//   - random: per-leaf jitter around the force-mapped layer (room mic feel).
+//
+// the same arpeggio plays twice. block 1 uses xfade and is panned left.
+// block 2 uses hard and is panned right. play them together and listen
+// for the discontinuities in the right ear that aren't in the left.
+
+tempo 88
+meter 4/4
+
+// xfade: continuous dynamics — pp climbs smoothly into fff and back down.
+piano   C4   G4   E5   C5   |   E4   C5   G5   E5   |   G4   E5   C6   G5   |   C5   G5   E6   C6
+force   pp   p    mp   mf   |   mf   f    f    ff   |   ff   fff  fff  ff   |   f    mf   p    pp
+layer   xfade
+pedal   0.18
+release 0.35
+human   0.05
+pan     -0.45
+
+// hard: same notes, same force walk — but the layer snaps at thresholds.
+piano   C4   G4   E5   C5   |   E4   C5   G5   E5   |   G4   E5   C6   G5   |   C5   G5   E6   C6
+force   pp   p    mp   mf   |   mf   f    f    ff   |   ff   fff  fff  ff   |   f    mf   p    pp
+layer   hard
+pedal   0.18
+release 0.35
+human   0.05
+pan     0.45
+
+// TWEAK IDEAS
+//   - swap `layer hard` for `layer random` on block 2 — the upper register
+//     starts to feel like a slightly drunk performer.
+//   - drop `force` to a single value (e.g. `force mf`) and watch the
+//     xfade/hard distinction collapse — it only matters across thresholds.
+//   - bump `human 0.18` to add timing/dynamic jitter; xfade smooths the
+//     velocity wobble while hard makes it lurch.

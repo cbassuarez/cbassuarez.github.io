@@ -1,0 +1,18 @@
+// violin pizzicato — fast attack, natural decay, no loop. pizz on the
+// articulation row swaps the entire attack envelope.
+
+tempo 96
+meter 4/4
+
+violin   D4   .    A4   .    |   F#4  .    A4   .    |   D5   .    A4   .    |   F#4  D4   A4   D4
+articulation pizz
+force    f
+human    0.05
+pan      0.15
+
+// counter-pizz an octave down, alternating cells.
+violin   .    A3   .    D4   |   .    D4   .    A3   |   .    A3   .    D4   |   .    .    A3   .
+articulation pizz
+force    mf
+human    0.10
+pan      -0.25

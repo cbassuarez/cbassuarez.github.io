@@ -1,0 +1,20 @@
+// title: kit switch arrangement
+// 808 and rock are one-shot kits; enter/exit turns them into arrangement layers.
+
+tempo 104
+meter 4/4
+
+drum k h s h | k h s o
+kit 808
+variance 0.28
+gain 0.82
+enter 1
+exit 8
+
+drum k . s h | k h s .
+kit rock
+variance 0.18
+gain 0.76
+space 0.32
+enter 5
+exit 12

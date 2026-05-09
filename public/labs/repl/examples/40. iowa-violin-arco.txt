@@ -1,0 +1,24 @@
+// iowa violin — sustained arco. four-bar legato phrase that demonstrates
+// the loop-sustain (each note holds far longer than the underlying sample)
+// and synthesized force pp/mf/ff from the single ff layer.
+
+tempo 72
+meter 4/4
+
+violin   A4   ~    G4   ~    |   F4   ~    E4   ~    |   D4   ~    E4   ~    |   F4   ~    G4   ~
+force    mf
+vibrato  0.55
+bow      0.45
+release  0.45
+human    0.06
+wood     0.35
+
+// second voice an octave below — open low body of the instrument.
+violin   A3   ~    ~    ~    |   D3   ~    ~    ~    |   D3   ~    ~    ~    |   A3   ~    ~    ~
+force    p
+vibrato  0.35
+bow      0.30
+release  0.65
+wood     0.55
+sympathetic 0.4
+pan      -0.3

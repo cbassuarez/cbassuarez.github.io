@@ -1,0 +1,23 @@
+tempo 72
+meter 4/4
+
+piano C3 E3 G3 B3 | C4 G3 E3 C3
+force mf
+decay 5
+pedal .45
+sympathetic .3
+lid .7
+una 0
+release .35
+human .08
+layer hard
+
+piano C2 . G2 . | D3 . A3 .
+force pp
+pedal .85
+sympathetic .75
+lid .28
+una .55
+release .8
+human .18
+stretch 0

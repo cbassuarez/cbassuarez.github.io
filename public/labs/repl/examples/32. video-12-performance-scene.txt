@@ -36,7 +36,7 @@ feedback 0.3
 displace 0.26
 
 drum k . s h t . r c
-kit 909
+kit breakcore
 variance 0.4
 gain 0.34
 trigger camera.rupture 0.5

@@ -1,0 +1,115 @@
+// violin études — the masterpiece. a complete patch using every
+// violin-only surface in service of a single piece.
+//
+// SURFACES USED
+//   articulation — arco everywhere except the inner pizz pulse
+//   string       — auto everywhere except the warm sulG melody and the
+//                  bright sulE high counter-line
+//   force        — pp on the bedrock, ff on the melody peak
+//   vibrato      — slow on bedrock, full + 6 Hz on melody, off on pizz
+//   tremolo      — bow tremolo on a single counter-line, 10 Hz
+//   bow          — soft (sul tasto) on bedrock, brighter on melody
+//   body         — full on bedrock, modest on melody
+//   sympathetic  — full on bedrock, gentle on melody (open-string ring)
+//   release      — long tails on bedrock, articulate on pizz
+//   glide        — descending pitch-span overlay near the close
+//   poly         — 24 voices on bedrock so resonance doesn't choke
+//
+// ARRANGEMENT (4/4 at 64 BPM, ≈32 bars total)
+//   bar  1: open-string bedrock starts and runs throughout
+//   bar  4: pizz pulse enters underneath
+//   bar  8: warm sulG melody enters
+//   bar 12: bright sulE counter-line enters with bow tremolo
+//   bar 20: pizz exits, melody peaks at ff
+//   bar 24: descending pitch-span glide overlays
+//   bar 28: melody + counter exit
+//   bar 32: bedrock alone closes the piece
+
+tempo 64
+meter 4/4
+tuning equal
+
+// ---------------------------------------------------------------------------
+// 1. OPEN-STRING BEDROCK — the body of the instrument. holds the whole piece.
+// ---------------------------------------------------------------------------
+violin   G3 D4   ~    ~    ~    |   D4 A4   ~    ~    ~    |   G3 D4   ~    ~    ~    |   D4 A4   ~    ~    ~
+force    pp
+vibrato  0.25
+bow      0.30
+wood     0.85
+sympathetic 0.95
+release  1.0
+human    0.05
+poly     24
+
+// ---------------------------------------------------------------------------
+// 2. PIZZ PULSE — left-hand pluck, articulate, modest body.
+// ---------------------------------------------------------------------------
+violin   D4   .    A3   .    |   D4   .    A3   .    |   F4   .    D4   .    |   E4   .    A3   .
+articulation pizz
+force    mp
+human    0.08
+pan      -0.4
+enter    4 bars
+exit     20 bars
+
+// ---------------------------------------------------------------------------
+// 3. WARM SULG MELODY — the line. forced onto the G string for warmth.
+//    `*` slots reroll every 8 bars so the phrase keeps moving.
+// ---------------------------------------------------------------------------
+violin   D4   *    F4   E4   |   A4   *    G4   D4   |   F4   *    A4   G4   |   D5   .    A4   .
+sul      g
+force    mf
+vibrato  0.7
+vibratoRate 6
+bow      0.55
+wood     0.4
+sympathetic 0.5
+release  0.6
+human    0.08
+pan      0.30
+enter    8 bars
+exit     28 bars
+every    8 bars
+
+// ---------------------------------------------------------------------------
+// 4. BRIGHT SULE COUNTER — the upper voice with bow tremolo (10 Hz).
+//    forced onto E for the thin, distant character.
+// ---------------------------------------------------------------------------
+violin   .    G5   .    A5   |   .    A5   .    G5   |   .    F5   .    G5   |   .    A5   D6   ~
+sul      e
+force    p
+vibrato  0.4
+tremolo  0.35
+tremoloRate 10
+bow      0.7
+wood     0.3
+release  0.55
+human    0.06
+pan      -0.30
+enter    12 bars
+exit     28 bars
+
+// ---------------------------------------------------------------------------
+// 5. DESCENDING PITCH-SPAN GLIDE — overlays from bar 24. slow smear from
+//    the top of the range down through the body.
+// ---------------------------------------------------------------------------
+violin   >>8*  *    *    *    *    *    *    *
+glide    14
+force    pp
+vibrato  0.5
+bow      0.40
+wood     0.45
+sympathetic 0.7
+release  0.85
+human    0.04
+enter    24 bars
+
+// ---------------------------------------------------------------------------
+// LISTENING NOTES
+//   - mute the melody alone (gutter dot at line 60): bedrock + counter
+//     hold the piece by themselves.
+//   - mute the bedrock: the body collapses; pizz + melody float in air.
+//   - cmd-shift-enter to re-evaluate without re-rolling the `*` slots;
+//     cmd-enter rerolls them.
+// ---------------------------------------------------------------------------

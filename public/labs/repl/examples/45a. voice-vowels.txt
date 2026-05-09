@@ -1,0 +1,25 @@
+tempo 72
+meter 4/4
+
+voice C3 E3 G3 C4
+vowel ah
+syllable ah
+carrier sample
+robot .35
+mouth .55
+formant 0
+breath .08
+roughness .12
+gain .55
+
+voice C3 E3 G3 C4
+vowel oo
+syllable null
+carrier saw
+robot .45
+mouth .35
+formant -.25
+breath .05
+roughness .18
+pan .18
+gain .34

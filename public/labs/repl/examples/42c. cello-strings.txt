@@ -1,0 +1,50 @@
+tempo 64
+meter 4/4
+
+cello C2 G2 C3 G3
+articulation arco
+sul sulC
+force mf
+bow .42
+wood .8
+vibrato .22
+sympathetic .7
+release .75
+human .04
+pan -.24
+
+cello G2 D3 G3 D4
+articulation arco
+sul sulG
+force mp
+bow .36
+wood .65
+vibrato .28
+sympathetic .55
+release .65
+human .045
+pan -.08
+
+cello D3 A3 D4 A4
+articulation arco
+sul sulD
+force mp
+bow .32
+wood .48
+vibrato .35
+sympathetic .45
+release .55
+human .05
+pan .08
+
+cello A3 E4 A4 E5
+articulation arco
+sul sulA
+force p
+bow .28
+wood .32
+vibrato .42
+sympathetic .32
+release .5
+human .055
+pan .24

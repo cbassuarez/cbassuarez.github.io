@@ -1,0 +1,27 @@
+// body + sympathetic resonance. the wood bands (~280 / ~470 / ~1.3k Hz)
+// give the instrument its boxy character. sympathetic adds narrow peaks
+// at the four open-string fundamentals (G3 D4 A4 E5), so any pitch near
+// one of those rings the open string in sympathy.
+
+tempo 50
+meter 4/4
+
+violin   D4   ~    ~    ~    |   A4   ~    ~    ~    |   E5   ~    ~    ~    |   G3   ~    ~    ~
+force    p
+vibrato  0.3
+bow      0.30
+wood     0.85
+sympathetic 0.95
+release  0.85
+human    0.05
+
+// counter-line on a different string with stronger bow pressure (sul ponticello-ish).
+violin   A3   ~    E4   ~    |   D5   ~    A4   ~    |   B4   ~    G4   ~    |   D4   ~    G3   ~
+force    pp
+bow      0.85
+vibrato  0.4
+wood     0.7
+sympathetic 0.6
+release  0.6
+pan      -0.4
+enter    1 bars

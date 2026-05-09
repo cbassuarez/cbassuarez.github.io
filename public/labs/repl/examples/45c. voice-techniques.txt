@@ -1,0 +1,24 @@
+tempo 84
+meter 4/4
+
+voice C3 . G3 . | D4 . A3 .
+vowel ah
+syllable input
+carrier sine
+robot .2
+roughness .08
+mouth .58
+formant 0
+gain .45
+
+voice C3 . G3 . | D4 . A3 .
+vowel ah
+syllable output
+carrier saw
+robot .75
+vocoder .35
+roughness .38
+mouth .48
+formant -.18
+pan .25
+gain .34

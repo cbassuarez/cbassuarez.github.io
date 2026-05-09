@@ -1,0 +1,40 @@
+tempo 54
+meter 5/4
+
+vox C2+G2+D3 ~ ~ . .
+vowel uh
+syllable null
+carrier square
+robot .9
+vocoder .65
+formant -.45
+mouth .38
+breath .12
+roughness .5
+ensemble .65
+release .8
+gain .48
+
+vox E3+B3+F4 . G3+D4+A4 . .
+vowel ah
+syllable body
+carrier saw
+robot .72
+vocoder .42
+formant -.12
+roughness .32
+spread .045
+human .08
+pan .16
+gain .35
+
+vox C5 . B4 . G4
+vowel ee
+syllable error
+carrier pulse
+robot .95
+vocoder .5
+formant .3
+roughness .62
+pan .32
+gain .26

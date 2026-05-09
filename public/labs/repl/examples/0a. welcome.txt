@@ -1,0 +1,23 @@
+// title: welcome
+//
+// this is a REPL — you write text, press a key, and hear sound. let's
+// do it now.
+//
+// 1. on the empty line below the comments, type:
+//
+//        sine A4
+//
+// 2. press cmd-enter (or click [ evaluate ] up top).
+//    you should hear one steady tone — the note A, medium pitch.
+// 3. press ESC (or click [ stop ]) to silence it.
+// 4. change A4 to C5 and press cmd-enter again. listen for the change.
+//
+// COMMENTS vs CODE
+//   lines starting with // are notes for you. the program ignores them.
+//   only non-comment lines make sound.
+//
+// next: load 0b. a row of notes
+//
+// type below ↓
+
+

@@ -1,0 +1,18 @@
+tempo 150
+meter 4/4
+
+drum k . s h | k k s .
+kit rock
+variance .3
+gain .48
+
+drum (h h h h) (h h h h) (h h h h) (h h h h)
+kit rock
+variance .25
+gain .22
+pan .18
+
+drum . . . . | t t c *!
+kit rock
+variance .9
+gain .42

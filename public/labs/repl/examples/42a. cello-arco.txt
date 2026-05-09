@@ -1,0 +1,16 @@
+tempo 72
+meter 4/4
+
+cello C2 ~ ~ . | G2 ~ . . | D3 ~ ~ . | A2 ~ . .
+articulation arco
+sul sulC
+force mf
+bow .45
+wood .7
+vibrato .25
+vibratorate 4.8
+vibratoonset .22
+sympathetic .65
+release .8
+human .04
+pan -.18

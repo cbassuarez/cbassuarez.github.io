@@ -1,0 +1,29 @@
+tempo 72
+meter 4/4
+
+marimba C3+G3 E3+B3 G3+D4 C4+E4
+mallet yarn
+force mf
+resonance .75
+body .6
+spread .03
+human .08
+pan -.12
+
+marimba C4 ~ ~ .
+mallet cord
+force mp
+roll .55
+resonance .9
+body .5
+deadstroke 0
+human .12
+pan .18
+
+marimba C4 Eb4 Gb4 A4
+mallet rubber
+force ff
+deadstroke .8
+resonance .15
+body .25
+human .05

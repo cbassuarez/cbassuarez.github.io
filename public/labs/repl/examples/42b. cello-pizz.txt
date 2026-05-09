@@ -1,0 +1,20 @@
+tempo 92
+meter 4/4
+
+cello C2 . G2 . | D3 . A2 . | C3 . G2 . | D3 C3 G2 C2
+articulation pizz
+force f
+wood .55
+sympathetic .35
+release .45
+human .06
+pan -.12
+
+cello G3 . D4 . | A3 . E4 . | G3 . D4 . | C4 A3 D4 G3
+articulation pizz
+force mf
+wood .35
+sympathetic .25
+release .35
+human .08
+pan .18

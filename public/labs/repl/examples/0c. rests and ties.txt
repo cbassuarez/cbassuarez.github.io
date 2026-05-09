@@ -1,0 +1,21 @@
+// title: rests and ties
+//
+// two new symbols:
+//   .    REST — silence for that slot
+//   ~    TIE  — hold the previous note into that slot
+//
+// type this:
+//
+//     sine A4 . C5 ~
+//
+// press cmd-enter. you should hear: A4, silence, C5, then C5 holds
+// (the pattern plays once and the last note sustains).
+//
+// try more silence:  sine A4 . . C5
+// try one long tone: sine A4 ~ ~ ~
+//
+// next: load 0d. two voices
+//
+// type below ↓
+
+

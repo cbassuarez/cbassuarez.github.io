@@ -153,6 +153,12 @@
       line-height: 1.35;
     }
 
+    .transport-viz .beat-row[hidden],
+    .transport-viz .coupling-row[hidden],
+    .transport-viz .block-row[hidden] {
+      display: none;
+    }
+
     .transport-viz .beat-row,
     .transport-viz .coupling-row,
     .transport-viz .block-row {
@@ -740,8 +746,33 @@
       user-select: none;
     }
 
-    .patch-title-chip {
+    .patch-identity-row {
+      position: absolute;
+      top: 0;
       left: 0;
+      right: 12.75rem;
+      z-index: 6;
+      display: flex;
+      align-items: stretch;
+      gap: 0.34rem;
+      min-width: 0;
+      max-width: calc(100% - 12.75rem);
+      pointer-events: none;
+    }
+
+    .patch-identity-row > .editor-label-chip,
+    .patch-identity-row > .patches-trigger-chip {
+      position: relative;
+      top: auto;
+      left: auto;
+      right: auto;
+      max-width: none;
+      pointer-events: auto;
+    }
+
+    .patch-title-chip {
+      flex: 1 1 auto;
+      min-width: 0;
       border-right: 2px solid var(--cs-line);
       border-bottom: 2px solid var(--cs-line);
       box-shadow: 4px 4px 0 var(--cs-blue);
@@ -749,9 +780,466 @@
       pointer-events: auto;
     }
 
+    .patch-title-chip-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     .patch-title-chip:focus-visible {
       outline: 2px solid var(--cs-yellow);
       outline-offset: 2px;
+    }
+
+    .patch-title-chip.is-dirty {
+      box-shadow: 4px 4px 0 var(--cs-yellow);
+    }
+
+    .patch-title-chip.is-saved {
+      box-shadow: 4px 4px 0 var(--cs-blue);
+    }
+
+    .patch-title-chip.is-example {
+      box-shadow: 4px 4px 0 var(--cs-red);
+    }
+
+    .patch-title-chip-label,
+    .patch-title-chip-state {
+      pointer-events: none;
+    }
+
+    .patch-title-chip-state {
+      display: inline-block;
+      margin-left: 0.42rem;
+      padding-left: 0.42rem;
+      border-left: 2px solid currentColor;
+      color: var(--cs-yellow);
+    }
+
+    .patch-title-chip.is-saved .patch-title-chip-state {
+      color: var(--cs-white);
+    }
+
+    .patch-title-chip.is-example .patch-title-chip-state {
+      color: var(--cs-yellow);
+    }
+
+    .patch-title-chip.is-editing {
+      width: min(36rem, calc(58% - 0.75rem));
+      max-width: min(36rem, calc(58% - 0.75rem));
+      overflow: visible;
+      padding: 0.22rem 0.42rem;
+    }
+
+    .patch-title-editor {
+      display: inline-grid;
+      grid-template-columns: auto minmax(10rem, 1fr) auto auto;
+      align-items: center;
+      gap: 0.34rem;
+      width: 100%;
+      font: inherit;
+      letter-spacing: inherit;
+    }
+
+    .patch-title-editor[hidden] {
+      display: none !important;
+    }
+
+    .patch-title-prefix {
+      white-space: nowrap;
+    }
+
+    .patch-title-input {
+      min-width: 0;
+      height: 1.08rem;
+      padding: 0 0.22rem;
+      border: 2px solid var(--cs-white);
+      background: var(--cs-line);
+      color: var(--cs-white);
+      font: inherit;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      outline: none;
+    }
+
+    .patch-title-editor button {
+      border: 2px solid var(--cs-white);
+      background: var(--cs-white);
+      color: var(--cs-line);
+      font: inherit;
+      font-size: 0.56rem;
+      line-height: 1;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.18rem 0.28rem;
+      box-shadow: 2px 2px 0 var(--cs-blue);
+    }
+
+    .patch-title-editor button:active {
+      transform: translate(1px, 1px);
+      box-shadow: 1px 1px 0 var(--cs-blue);
+    }
+
+
+    .patches-trigger-chip {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.42rem;
+      min-height: 1.42rem;
+      box-sizing: border-box;
+      border: 0;
+      border-left: 2px solid var(--cs-line);
+      border-bottom: 2px solid var(--cs-line);
+      background: var(--cs-line);
+      color: var(--cs-white);
+      box-shadow: 4px 4px 0 var(--cs-yellow);
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.68rem;
+      font-weight: 900;
+      line-height: 1.1;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      padding: 0.28rem 0.56rem;
+      cursor: pointer;
+    }
+
+    .patches-trigger-chip:hover,
+    .patches-trigger-chip:focus-visible {
+      background: var(--cs-white);
+      color: var(--cs-line);
+      box-shadow: 4px 4px 0 var(--cs-blue);
+      outline: none;
+    }
+
+    .patches-trigger-chip[aria-expanded="true"] {
+      background: var(--cs-line);
+      color: var(--cs-white);
+      box-shadow: 4px 4px 0 var(--cs-blue);
+    }
+
+    .patches-trigger-chip .button-main,
+    .patches-trigger-chip .button-shortcut {
+      display: inline-block;
+      line-height: 1;
+    }
+
+    .patches-trigger-chip .button-shortcut {
+      display: inline-flex;
+      align-items: center;
+      min-height: 0.9rem;
+      padding: 0.08rem 0.22rem;
+      background: var(--cs-white);
+      color: var(--cs-line);
+      opacity: 1;
+      font-size: 0.5rem;
+      letter-spacing: 0.08em;
+    }
+
+    .patches-trigger-chip:hover .button-shortcut,
+    .patches-trigger-chip:focus-visible .button-shortcut,
+    .patches-trigger-chip[aria-expanded="true"] .button-shortcut {
+      background: var(--cs-yellow);
+      color: var(--cs-line);
+    }
+
+    .patch-browser-top-tabs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.42rem;
+      margin: 0.48rem 0 0.52rem;
+      padding-bottom: 0.52rem;
+      border-bottom: 2px solid var(--cs-line, #070707);
+    }
+
+    .patch-browser-top-tab {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 0.5rem;
+      min-height: 2.18rem;
+      border: 2px solid var(--cs-line, #070707);
+      background: #fbfbf7;
+      color: #070707;
+      box-shadow: 3px 3px 0 var(--cs-line, #070707);
+      font-family: "Courier New", Courier, monospace;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0.38rem 0.52rem;
+      cursor: pointer;
+    }
+
+    .patch-browser-top-tab:hover,
+    .patch-browser-top-tab:focus-visible {
+      transform: translate(-1px, -1px);
+      box-shadow: 4px 4px 0 var(--cs-line, #070707);
+      outline: none;
+    }
+
+    .patch-browser-top-tab.is-active {
+      background: #070707;
+      color: #ffffff;
+      box-shadow: 3px 3px 0 var(--cs-yellow, #ffd400);
+    }
+
+    .patch-browser-top-tab-count {
+      border-left: 2px solid currentColor;
+      padding-left: 0.46rem;
+      font-size: 0.68rem;
+    }
+
+    .patch-browser-empty {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.82rem;
+      align-items: center;
+      border: 2px solid var(--cs-line, #070707);
+      background: repeating-linear-gradient(0deg, transparent 0 13px, rgba(7,7,7,0.035) 13px 14px), #fbfbf7;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707);
+      color: #070707;
+      padding: 0.84rem;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+
+    .patch-browser-empty-glyph {
+      display: grid;
+      place-items: center;
+      width: 4.25rem;
+      height: 4.25rem;
+      border: 2px solid var(--cs-line, #070707);
+      background: #fffef8;
+      box-shadow: 3px 3px 0 var(--cs-blue, #0057ff);
+      font-family: "Courier New", Courier, monospace;
+      font-size: 1.35rem;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .patch-browser-empty-copy {
+      margin: 0;
+      font-size: 0.92rem;
+      line-height: 1.22;
+    }
+
+
+    .patch-browser-empty-code {
+      margin: 0.42rem 0 0;
+      padding: 0.36rem 0.46rem;
+      border: 2px solid var(--cs-line, #070707);
+      background: #fffef8;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707);
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.72rem;
+      line-height: 1.22;
+      white-space: pre-wrap;
+    }
+
+    .patch-browser-empty-route {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.42rem;
+      align-items: center;
+      margin-top: 0.5rem;
+    }
+
+    .patch-browser-empty-route-note {
+      display: block;
+      margin-top: 0.44rem;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.68rem;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .patch-browser-empty-copy strong {
+      display: inline-block;
+      padding: 0 0.18rem;
+      background: var(--cs-yellow, #ffd400);
+      border: 1.5px solid var(--cs-line, #070707);
+      box-shadow: 1px 1px 0 var(--cs-line, #070707);
+      font-family: "Courier New", Courier, monospace;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .patch-browser-starter-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.38rem;
+      margin-top: 0.58rem;
+    }
+
+    .patch-browser-starter {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .patch-browser-tutorial-button,
+    .patch-browser-starter button,
+    .saved-patch-actions button,
+    .saved-patch-open,
+    .saved-patch-pin,
+    .saved-patch-library-tools button {
+      border: 2px solid var(--cs-line, #070707);
+      background: #fbfbf7;
+      color: #070707;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707);
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.66rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0.26rem 0.38rem;
+      cursor: pointer;
+    }
+
+    .patch-browser-tutorial-button:hover,
+    .patch-browser-tutorial-button:focus-visible,
+    .patch-browser-starter button:hover,
+    .saved-patch-actions button:hover,
+    .saved-patch-open:hover,
+    .saved-patch-open:focus-visible,
+    .saved-patch-pin:hover,
+    .saved-patch-pin:focus-visible,
+    .saved-patch-library-tools button:hover,
+    .saved-patch-library-tools button:focus-visible {
+      transform: translate(-1px, -1px);
+      box-shadow: 3px 3px 0 var(--cs-line, #070707);
+      outline: none;
+    }
+
+    .saved-patch-library-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.54rem;
+      margin-bottom: 0.54rem;
+      padding-bottom: 0.48rem;
+      border-bottom: 2px solid var(--cs-line, #070707);
+    }
+
+    .saved-patch-library-title {
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.72rem;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .saved-patch-library-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.34rem;
+      justify-content: flex-end;
+    }
+
+    .saved-patch-card {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) max-content;
+      gap: 0.48rem;
+      align-items: stretch;
+      border: 2px solid var(--cs-line, #070707);
+      background: #fffef8;
+      box-shadow: 3px 3px 0 var(--cs-line, #070707);
+      padding: 0.46rem;
+      margin-bottom: 0.54rem;
+    }
+
+    .saved-patch-card.is-pinned {
+      box-shadow: 3px 3px 0 var(--cs-yellow, #ffd400);
+    }
+
+    .saved-patch-pin {
+      align-self: start;
+      min-width: 2.05rem;
+      min-height: 2.05rem;
+      padding: 0;
+      font-size: 0.92rem;
+      line-height: 1;
+    }
+
+    .saved-patch-pin[aria-pressed="true"] {
+      background: #ffd400;
+    }
+
+    .saved-patch-open {
+      display: block;
+      width: 100%;
+      min-width: 0;
+      text-align: left;
+      padding: 0.42rem 0.48rem;
+    }
+
+    .saved-patch-title {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.74rem;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      line-height: 1.1;
+    }
+
+    .saved-patch-meta {
+      display: block;
+      margin-top: 0.18rem;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #555;
+    }
+
+    .saved-patch-preview {
+      display: block;
+      margin-top: 0.22rem;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.68rem;
+      line-height: 1.18;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #333;
+    }
+
+    .saved-patch-actions {
+      display: grid;
+      gap: 0.34rem;
+      align-content: start;
+    }
+
+    .saved-patch-actions button[data-delete-armed="1"] {
+      background: #ffd400;
+    }
+
+    .saved-patch-actions button[data-copy-done="1"] {
+      background: var(--cs-line, #070707);
+      color: #ffffff;
+    }
+
+    @media (max-width: 720px) {
+      .patch-identity-row {
+        right: 8.5rem;
+        max-width: calc(100% - 8.5rem);
+      }
+
+      .patches-trigger-chip {
+        max-width: 42%;
+      }
+
+      .patches-trigger-chip .button-shortcut {
+        display: none;
+      }
     }
 
     .cybernetic-score-chip {
@@ -2283,6 +2771,548 @@ margin-top: var(--editor-label-rail, 0px);
       color: inherit;
       font-variant-numeric: tabular-nums;
     }
+
+      /* neo-brutal score-bank popover */
+      .example-popover {
+        --example-accent: var(--cs-blue);
+        position: fixed;
+        z-index: 1000;
+        left: 50%;
+        top: 50%;
+        width: min(52rem, calc(100vw - 1.5rem));
+        max-height: min(40rem, calc(100vh - 3rem));
+        transform: translate(-50%, -50%);
+        display: flex;
+        flex-direction: column;
+        background: var(--cs-white);
+        color: var(--cs-ink);
+        border: 3px solid var(--cs-line);
+        box-shadow:
+          6px 6px 0 var(--cs-line),
+          10px 10px 0 var(--cs-blue),
+          14px 14px 0 var(--cs-yellow);
+        font: inherit;
+        transform-origin: center center;
+        animation: example-popover-stamp 140ms steps(2, end) both;
+      }
+
+      body.example-popover-open::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 999;
+        background:
+          repeating-linear-gradient(
+            135deg,
+            rgba(7, 7, 7, 0.22) 0,
+            rgba(7, 7, 7, 0.22) 2px,
+            rgba(255, 255, 255, 0.10) 2px,
+            rgba(255, 255, 255, 0.10) 6px
+          ),
+          rgba(7, 7, 7, 0.34);
+        pointer-events: none;
+      }
+      
+
+      #example-popover.example-popover {
+        height: min(40rem, calc(100vh - 3rem));
+      }
+
+      #example-popover .example-popover-body {
+        flex: 1 1 auto;
+      }
+      
+      .example-popover[hidden] {
+        display: none;
+      }
+
+      .example-popover::before {
+        content: "";
+        position: absolute;
+        left: 0.7rem;
+        top: 1.08rem;
+        width: 0.42rem;
+        height: 0.42rem;
+        background: var(--cs-red);
+        box-shadow:
+          0.66rem 0 0 var(--cs-yellow),
+          1.32rem 0 0 var(--cs-blue);
+        pointer-events: none;
+      }
+
+      .example-popover-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.55rem 0.75rem 0.5rem 2.65rem;
+        background: var(--cs-line);
+        color: var(--cs-white);
+        border-bottom: 3px solid var(--cs-line);
+      }
+
+      .example-popover-kicker {
+        font-family: "Times New Roman", Times, serif;
+        font-size: 1.35rem;
+        font-weight: 700;
+        letter-spacing: -0.035em;
+        text-transform: lowercase;
+        line-height: 1;
+      }
+
+      .example-popover-count {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.12rem 0.36rem;
+        background: var(--cs-yellow);
+        color: var(--cs-line);
+        border: 2px solid var(--cs-white);
+        box-shadow: 2px 2px 0 var(--cs-blue);
+        font-size: 0.5rem;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .example-popover-search-shell {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.5rem 0.65rem;
+        border-bottom: 3px solid var(--cs-line);
+        background:
+          repeating-linear-gradient(
+            135deg,
+            rgba(7, 7, 7, 0.04) 0,
+            rgba(7, 7, 7, 0.04) 4px,
+            transparent 4px,
+            transparent 8px
+          ),
+          var(--cs-white);
+        color: var(--cs-line);
+        font-size: 0.58rem;
+        font-weight: 900;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+
+      .example-popover-search {
+        width: 100%;
+        min-width: 0;
+        padding: 0.34rem 0.46rem;
+        background: var(--cs-white);
+        color: var(--cs-line);
+        border: 2px solid var(--cs-line);
+        border-radius: 0;
+        box-shadow: 2px 2px 0 var(--cs-line);
+        font: inherit;
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: none;
+        outline: none;
+      }
+
+      .example-popover-search:focus {
+        box-shadow: 3px 3px 0 var(--cs-blue);
+      }
+
+      .example-popover-body {
+        display: grid;
+        grid-template-columns: minmax(8.8rem, 0.72fr) minmax(16rem, 1.9fr);
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .example-popover-tabs {
+        display: flex;
+        flex-direction: column;
+        gap: 0.42rem;
+        padding: 0.62rem;
+        overflow-y: auto;
+        border-right: 3px solid var(--cs-line);
+        background: #f7f7f3;
+      }
+
+      .example-popover-tab {
+        position: relative;
+        width: 100%;
+        min-height: 2.15rem;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.34rem 0.45rem 0.34rem 0.72rem;
+        background: var(--cs-white) !important;
+        color: var(--cs-ink) !important;
+        border: 2px solid var(--cs-line) !important;
+        border-radius: 0 !important;
+        box-shadow: 2px 2px 0 var(--cs-line) !important;
+        font: inherit;
+        cursor: pointer;
+        text-align: left;
+        transition:
+          transform 70ms steps(2, end),
+          box-shadow 70ms steps(2, end),
+          background-color 80ms steps(2, end),
+          color 80ms steps(2, end);
+      }
+
+      .example-popover-tab::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 0.28rem;
+        background: var(--example-accent);
+        border-right: 2px solid var(--cs-line);
+      }
+
+      .example-popover-tab-main {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.62rem;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .example-popover-count,
+      .example-popover-search-shell,
+      .example-popover-tab-count,
+      .example-popover-num,
+      .example-popover-stamp,
+      .example-popover-item.is-current::after,
+      .example-popover-empty {
+        font-family: "Courier New", Courier, monospace;
+        text-transform: uppercase;
+      }
+      
+      .example-popover-tab-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.55rem;
+        padding: 0.08rem 0.22rem;
+        background: var(--cs-line);
+        color: var(--cs-white);
+        border: 2px solid var(--cs-line);
+        font-size: 0.5rem;
+        font-weight: 900;
+        font-variant-numeric: tabular-nums;
+        line-height: 1;
+      }
+
+      .example-popover-tab:hover,
+      .example-popover-tab:focus {
+        outline: 0;
+        transform: translate(-2px, -2px);
+        box-shadow: 4px 4px 0 var(--cs-line) !important;
+      }
+
+      .example-popover-tab:active {
+        transform: translate(1px, 1px);
+        box-shadow: 1px 1px 0 var(--cs-line) !important;
+      }
+
+      .example-popover-tab.is-active {
+        background: var(--cs-line) !important;
+        color: var(--cs-white) !important;
+      }
+
+      .example-popover-tab.is-active .example-popover-tab-count {
+        background: var(--cs-yellow);
+        color: var(--cs-line);
+        border-color: var(--cs-yellow);
+      }
+
+      .example-popover-list {
+        min-height: 0;
+        overflow-y: auto;
+        padding: 0.62rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.48rem;
+        background:
+          linear-gradient(90deg, rgba(7, 7, 7, 0.035) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(7, 7, 7, 0.028) 1px, transparent 1px),
+          var(--cs-white);
+        background-size: 24px 24px;
+      }
+
+      .example-popover-section-label {
+        display: inline-flex;
+        align-self: flex-start;
+        margin: 0 0 0.12rem;
+        padding: 0.16rem 0.48rem;
+        background: var(--cs-line);
+        color: var(--cs-white);
+        border: 2px solid var(--cs-line);
+        box-shadow: 3px 3px 0 var(--example-accent);
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.55rem;
+        font-weight: 900;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .example-popover-item {
+        --example-accent: var(--cs-blue);
+        position: relative;
+        width: 100%;
+        display: grid;
+        grid-template-columns: 3.45rem minmax(0, 1fr) auto;
+        align-items: stretch;
+        gap: 0;
+        min-height: 3.2rem;
+        margin: 0;
+        padding: 0;
+        background: var(--cs-white) !important;
+        color: var(--cs-ink) !important;
+        border: 2px solid var(--cs-line) !important;
+        border-radius: 0 !important;
+        box-shadow: 2px 2px 0 var(--cs-line) !important;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        overflow: hidden;
+        transition:
+          transform 70ms steps(2, end),
+          box-shadow 70ms steps(2, end),
+          background-color 80ms steps(2, end),
+          color 80ms steps(2, end);
+      }
+
+      .example-popover-item::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 0.38rem;
+        background: var(--example-accent);
+        border-right: 2px solid var(--cs-line);
+      }
+
+      .example-popover-item:hover,
+      .example-popover-item:focus {
+        outline: 0;
+        transform: translate(-2px, -2px);
+        box-shadow: 4px 4px 0 var(--cs-line) !important;
+      }
+
+      .example-popover-item:active {
+        transform: translate(1px, 1px);
+        box-shadow: 1px 1px 0 var(--cs-line) !important;
+      }
+
+      .example-popover-item.is-current {
+        background: var(--cs-yellow) !important;
+        box-shadow: 3px 3px 0 var(--cs-blue) !important;
+        animation: example-card-loaded 320ms steps(2, end) both;
+      }
+
+      .example-popover-item.is-current::after {
+        content: "LOADED";
+        position: absolute;
+        right: 0.5rem;
+        top: 0.42rem;
+        padding: 0.1rem 0.28rem;
+        background: var(--cs-line);
+        color: var(--cs-white);
+        border: 2px solid var(--cs-line);
+        box-shadow: 2px 2px 0 var(--cs-blue);
+        font-size: 0.5rem;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        line-height: 1;
+      }
+
+      .example-popover-num {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding-left: 0.38rem;
+        background: var(--cs-line);
+        color: var(--cs-white);
+        border-right: 2px solid var(--cs-line);
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        font-variant-numeric: tabular-nums;
+        text-transform: uppercase;
+      }
+
+      .example-popover-item.is-current .example-popover-num {
+        background: var(--cs-blue);
+        color: var(--cs-white);
+      }
+
+      .example-popover-copy {
+        min-width: 0;
+        padding: 0.48rem 0.62rem;
+      }
+
+      .example-popover-label {
+        display: block;
+        padding-right: 4.6rem;
+        color: inherit;
+        font-family: "Times New Roman", Times, serif;
+        font-size: 1.08rem;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+        text-transform: lowercase;
+        line-height: 1.02;
+      }
+
+      .example-popover-detail {
+        display: block;
+        margin-top: 0.28rem;
+        color: rgba(7, 7, 7, 0.62);
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.58rem;
+        font-weight: 900;
+        letter-spacing: 0.075em;
+        line-height: 1.25;
+        text-transform: uppercase;
+      }
+
+      .example-popover-stamp {
+        display: flex;
+        align-items: end;
+        justify-content: center;
+        padding: 0.46rem 0.46rem 0.38rem;
+        border-left: 2px solid var(--cs-line);
+        background:
+          repeating-linear-gradient(
+            135deg,
+            transparent 0,
+            transparent 5px,
+            rgba(7, 7, 7, 0.08) 5px,
+            rgba(7, 7, 7, 0.08) 7px
+          ),
+          #fbfbf7;
+        color: var(--cs-line);
+        font-size: 0.5rem;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+      }
+
+      .example-popover-item[data-video="1"] .example-popover-stamp::before {
+        content: "VIDEO";
+      }
+
+      .example-popover-item:not([data-video="1"]) .example-popover-stamp::before {
+        content: "PATCH";
+      }
+
+      .example-popover-empty {
+        padding: 1rem;
+        border: 2px dashed var(--cs-line);
+        background: var(--cs-white);
+        color: rgba(7, 7, 7, 0.72);
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .example-accent-foundations { --example-accent: var(--cs-yellow); }
+      .example-accent-coupling,
+      .example-accent-live-input { --example-accent: var(--cs-blue); }
+      .example-accent-reference { --example-accent: var(--cs-line); }
+      .example-accent-samples,
+      .example-accent-piano { --example-accent: var(--cs-green); }
+      .example-accent-violin { --example-accent: #a04a2a; }
+      .example-accent-cello { --example-accent: #5b3bb8; }
+      .example-accent-marimba { --example-accent: #b87516; }
+      .example-accent-vibraphone,
+      .example-accent-vibes { --example-accent: #00a8d8; }
+      .example-accent-voice,
+      .example-accent-vox { --example-accent: #ba55d3; }
+      .example-accent-drums { --example-accent: var(--cs-red); }
+      .example-accent-video { --example-accent: var(--cs-violet); }
+
+      @keyframes example-popover-stamp {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, calc(-50% - 8px)) scaleY(0.96);
+        }
+        45% {
+          opacity: 1;
+          transform: translate(-50%, -50%) scaleY(1.02);
+        }
+        100% {
+          opacity: 1;
+          transform: translate(-50%, -50%) scaleY(1);
+        }
+      }
+
+      @keyframes example-card-loaded {
+        0% {
+          background: var(--cs-blue);
+          color: var(--cs-white);
+        }
+        55% {
+          background: var(--cs-yellow);
+          color: var(--cs-line);
+        }
+        100% {
+          background: var(--cs-yellow);
+          color: var(--cs-line);
+        }
+      }
+
+      @media (max-width: 760px) {
+          .example-popover {
+            width: calc(100vw - 1rem);
+            max-height: calc(100vh - 1rem);
+          }
+
+        .example-popover-body {
+          grid-template-columns: 1fr;
+        }
+
+        .example-popover-tabs {
+          flex-direction: row;
+          overflow-x: auto;
+          overflow-y: hidden;
+          border-right: 0;
+          border-bottom: 3px solid var(--cs-line);
+        }
+
+        .example-popover-tab {
+          width: auto;
+          min-width: 8.5rem;
+        }
+
+        .example-popover-item {
+          grid-template-columns: 3rem minmax(0, 1fr);
+        }
+
+        .example-popover-stamp {
+          display: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .example-popover,
+        .example-popover-item,
+        .example-popover-tab,
+        .example-popover-item.is-current {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
 
     .docs-content {
       overflow: auto;
@@ -5476,7 +6506,21 @@ margin-top: var(--editor-label-rail, 0px);
         </div>
 
         <div class="editor-wrap">
-          <button id="patch-title-chip" class="editor-label-chip patch-title-chip" type="button" title="Option-click to insert a title metadata line">PATCH / UNTITLED</button>
+          <div class="patch-identity-row">
+            <div id="patch-title-chip" class="editor-label-chip patch-title-chip" role="button" tabindex="0" title="Click to rename/save patch title · Option-click to insert a title metadata line">
+              <span class="patch-title-chip-label">PATCH / UNTITLED</span>
+              <span class="patch-title-chip-state" hidden></span>
+              <form class="patch-title-editor" hidden>
+                <span class="patch-title-prefix">PATCH /</span>
+                <input class="patch-title-input" type="text" autocomplete="off" spellcheck="false" aria-label="Patch title">
+                <button type="submit">save</button>
+                <button type="button" data-title-cancel>cancel</button>
+              </form>
+            </div>
+            <button id="example-trigger" class="patches-trigger-chip" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="example-popover" title="Browse examples and saved patches">
+              <span class="button-main">patches</span><span class="button-shortcut" id="example-current-label">examples / saved</span>
+            </button>
+          </div>
           <div class="editor-label-chip cybernetic-score-chip" aria-hidden="true">CYBERNETIC SCORE</div>
           <div id="editor" class="repl-editor" aria-label="REPL score editor"></div>
         </div>
@@ -5488,57 +6532,38 @@ margin-top: var(--editor-label-rail, 0px);
           <span class="sep">·</span>
           <span class="bracket">[</span> <button id="stop" type="button" title="Esc: stop all currently sounding voices"><span class="button-main">stop</span><span class="button-shortcut">esc</span></button> <span class="bracket">]</span>
           <span class="sep">·</span>
-          <span class="bracket">[</span> <button id="share" type="button" title="copy a shareable patch link"><span class="button-main">share</span><span class="button-shortcut">copy link</span></button> <span class="bracket">]</span>
-          <span class="sep">·</span>
-          <span class="bracket">[</span> <span class="example-field-label" aria-hidden="true">example</span>
-          <select id="example-select">
-            <option value="">load...</option>
-            <option value="default.txt">default</option>
-            <option value="1. literal-vs-coupled.txt">literal vs coupled</option>
-            <option value="2. pitch-organism.txt">pitch organism</option>
-            <option value="2b. sine-noise-voices.txt">sine + noise voices</option>
-            <option value="2c. drone-pluck-pulse.txt">drone + pluck + pulse</option>
-            <option value="2d. drum-kits.txt">drum kits</option>
-            <option value="2e. video-arm-v1.txt" data-video-example="1">video arm v1</option>
-            <option value="3. sample-field.txt">sample field</option>
-            <option value="4. speed-warp.txt">speed warp</option>
-            <option value="5. weather-dew.txt">weather dew</option>
-            <option value="6. quake-rupture.txt">quake rupture</option>
-            <option value="7. tide-breath.txt">tide breath</option>
-            <option value="8. solar-flare.txt">solar flare</option>
-            <option value="9. archive-memory.txt">archive memory</option>
-            <option value="10. notation-reference.txt">notation reference</option>
-            <option value="11. effect-surfaces.txt">effect surfaces</option>
-            <option value="12. weather-body.txt">weather body</option>
-            <option value="13. archive-scar.txt">archive scar</option>
-            <option value="14. fades.txt">fades</option>
-            <option value="15. live-input.txt">live input primer</option>
-            <option value="16. live-input-modulation.txt">live input modulation</option>
-            <option value="17. live-input-as-silent-attractor.txt">silent mic attractor</option>
-            <option value="18. live-input-as-audible-material.txt">audible mic material</option>
-            <option value="19. tab-input-sample-weather.txt">tab input sample weather</option>
-            <option value="20. interface-input-cybernetic-score.txt">interface input cybernetic score</option>
-            <option value="21. video-01-camera-basics.txt" data-video-example="1">video 01 camera basics</option>
-            <option value="22. video-02-camera-pattern-overlay.txt" data-video-example="1">video 02 camera pattern overlay</option>
-            <option value="23. video-03-video-as-input-signals.txt" data-video-example="1">video 03 video as input signals</option>
-            <option value="24. video-04-camera-drives-audio.txt" data-video-example="1">video 04 camera drives audio</option>
-            <option value="25. video-05-audio-drives-video.txt" data-video-example="1">video 05 audio drives video</option>
-            <option value="26. video-06-bidirectional-loop.txt" data-video-example="1">video 06 bidirectional loop</option>
-            <option value="27. video-07-screen-capture-body.txt" data-video-example="1">video 07 screen capture body</option>
-            <option value="28. video-08-file-material.txt" data-video-example="1">video 08 file material</option>
-            <option value="29. video-09-multilayer-composite.txt" data-video-example="1">video 09 multilayer composite</option>
-            <option value="30. video-10-video-gen-basics.txt" data-video-example="1">video 10 video gen basics</option>
-            <option value="31. video-11-gen-to-stage-reuse.txt" data-video-example="1">video 11 gen to stage reuse</option>
-            <option value="32. video-12-performance-scene.txt" data-video-example="1">video 12 performance scene</option>
-            <option value="33. tuning-scopes-and-reference.txt">tuning scopes + reference</option>
-            <option value="34. tuning-performance-organism.txt">tuning performance organism</option>
-            <option value="35. pitch-span-glide.txt">pitch ramps</option>
-
-
-          </select>
+          <span class="bracket">[</span>
+          <button id="share" class="repl-share-control" type="button" title="copy a shareable patch link" aria-label="Copy patch link">
+            <span class="button-main">share</span><span class="button-shortcut">copy link</span>
+          </button>
+          <span id="sharePatchStatus" class="repl-share-status" aria-live="polite"></span>
           <span class="bracket">]</span>
           <span class="sep">·</span>
-          <span class="bracket">[</span> <button id="samples-toggle" type="button" aria-expanded="false"><span class="button-main">samples</span><span class="button-shortcut">open bank</span></button> <span class="bracket">]</span>
+          <span class="bracket">[</span>
+          <button
+            id="clear-patch"
+            class="repl-clear-control"
+            type="button"
+            title="Clear patch · Cmd/Ctrl-Shift-Backspace. Option-click: blank editor."
+            aria-label="Clear patch"
+          >
+            <span class="button-main" aria-hidden="true">×</span>
+            <span class="button-shortcut">clear patch</span>
+          </button>
+          <span class="bracket">]</span>
+          <span class="sep">·</span>
+          <span class="bracket">[</span>
+          <button
+            id="samples-toggle"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            aria-controls="command-popover"
+            title="Cmd/Ctrl-K: open command palette"
+          >
+            <span class="button-main">command</span><span class="button-shortcut">palette</span>
+          </button>
+          <span class="bracket">]</span>
           <span class="sep">·</span>
           <span class="bracket">[</span> <button id="input-toggle" type="button" title="Cmd/Ctrl-I: toggle I/O panel" aria-expanded="false" aria-controls="input-panel"><span class="button-main">i/o</span><span class="button-shortcut">cmd/ctrl i</span></button> <span class="bracket">]</span>
           <span class="sep">·</span>
@@ -5549,6 +6574,58 @@ margin-top: var(--editor-label-rail, 0px);
           <span class="bracket">[</span> <button id="reference-toggle" type="button" aria-expanded="false" aria-controls="reference-panel"><span class="button-main">reference</span><span class="button-shortcut">surface map</span></button> <span class="bracket">]</span>
           <span class="sep">·</span>
           <span class="bracket">[</span> <button id="docs-toggle" type="button" aria-expanded="false" aria-controls="docs-panel"><span class="button-main">docs</span><span class="button-shortcut">manual</span></button> <span class="bracket">]</span>
+        </div>
+
+        <div id="example-popover" class="example-popover" hidden role="dialog" aria-label="patch browser">
+          <div class="example-popover-head">
+            <div class="example-popover-kicker">patch browser / examples + saved hashes</div>
+            <div id="example-popover-count" class="example-popover-count">0 PATCHES</div>
+          </div>
+
+          <div id="patch-browser-top-tabs" class="patch-browser-top-tabs" role="tablist" aria-label="Patch browser sections"></div>
+
+          <label class="example-popover-search-shell">
+            <span>FILTER</span>
+            <input
+              id="example-popover-search"
+              class="example-popover-search"
+              type="search"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="filter examples or saved patches"
+              aria-label="Filter patches"
+            />
+          </label>
+
+          <div class="example-popover-body">
+            <div class="example-popover-tabs" id="example-popover-tabs" role="tablist" aria-label="Example categories"></div>
+            <div class="example-popover-list" id="example-popover-list" role="tabpanel" tabindex="-1"></div>
+          </div>
+        </div>
+        
+        <div id="command-popover" class="example-popover command-popover" hidden role="dialog" aria-label="command palette">
+          <div class="example-popover-head command-popover-head">
+            <div class="example-popover-kicker">command palette / surface index</div>
+            <div id="command-popover-count" class="example-popover-count">0 COMMANDS</div>
+          </div>
+
+          <label class="example-popover-search-shell command-popover-search-shell">
+            <span>FILTER</span>
+            <input
+              id="command-popover-search"
+              class="example-popover-search command-popover-search"
+              type="search"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="type to find voices, samples, params, actions"
+              aria-label="Filter commands"
+            />
+          </label>
+
+          <div class="example-popover-body command-popover-body">
+            <div class="example-popover-tabs command-popover-tabs" id="command-popover-tabs" role="tablist" aria-label="Command categories"></div>
+            <div class="example-popover-list command-popover-list" id="command-popover-list" role="tabpanel" tabindex="-1"></div>
+          </div>
         </div>
 
         <div id="input-panel" class="input-panel" hidden>
@@ -5920,7 +6997,7 @@ margin-top: var(--editor-label-rail, 0px);
       <p><strong>slots</strong></p>
       <p>
         <code>A3 C#4 Bb2 F#5</code> — scientific pitch notation; default <code>A4 = 440 Hz</code> unless overridden by <code>tuning</code>.<br>
-        <code>&gt;6* * * G%</code> / <code>&lt;A* * . * Bb%</code> — pitched span starts and ends (<code>&lt; &gt; &lt;&lt; &gt;&gt;</code> start; <code>%</code> ends). Inside an active span, only <code>*</code>, <code>.</code>, <code>~</code>, and a <code>%</code> end token are legal.<br>
+        <code>&gt;6* * * G%</code> / <code>&gt;&gt;6* * *4</code> / <code>&lt;A* * . * Bb%</code> — pitched span starts and ends (<code>&lt; &gt; &lt;&lt; &gt;&gt;</code> start; <code>%</code> or fixed-octave wildcard tokens like <code>*4</code> end). Inside an active span, only <code>*</code>, <code>.</code>, <code>~</code>, and end tokens like <code>G%</code> or <code>*4</code> are legal.<br>
         <code>.</code> or <code>-</code> — rest. <code>~</code> — extend the previous note.<br>
         <code>sine</code> and <code>osc</code> use the same pitch notation as <code>string</code>, with a simpler oscillator tone for hearing modulation clearly. <code>pluck</code> is a short pitched body, while <code>drone</code> keeps a persistent per-block tone and retunes on committed leaves. <code>noise</code> uses <code>*</code> for a burst and <code>~</code> for a held texture; <code>pulse</code> uses <code>*</code> for clock/click events. <code>drum</code> uses <code>k s h o t r c</code> lane tokens (plus <code>*</code> wildcard), a <code>kit</code> row for mapping, and <code>variance 0..1</code> for lane diversity.<br>
         Sample slots are bare ids from the bank: <code>tub-xither-forge</code>, <code>amp-014</code>, <code>b3-32</code>, <code>snm-021</code>, <code>lux-007</code>.
@@ -5947,7 +7024,7 @@ margin-top: var(--editor-label-rail, 0px);
         <code>decay</code> — seconds (0.4–8). <code>crush</code> — bit depth (<code>off</code>/0 or 4–16; lower is rougher). <code>resolution</code> — filter/EQ detail aperture (0–1).<br>
         <code>pan</code> — <code>left center right</code> or ±1. <code>gain</code> — <code>quiet half full loud</code> or 0–1.5.<br>
         <code>tone</code> — <code>dark bright</code> or 0–1. <code>harm</code> — <code>simple pair triad rich</code>.<br>
-        <code>octave</code> — integer ±2. <code>glide</code> — positive seconds (pitched voices only). With <code>glide</code> present, span state persists across loop/bar resets until Evaluate or Stop.<br>
+        <code>octave</code> — integer ±2. <code>glide</code> — positive seconds (pitched voices only). <code>glide 60</code> descends then holds; <code>glide 60 restart</code> descends then restarts; <code>glide 60 return</code> descends and comes back in 60s; <code>glide 60 return 30</code> (or <code>glide 60 30</code>) comes back in 30s. With <code>glide</code> present, span state persists across loop/bar resets until Evaluate or Stop.<br>
         <code>every</code> — <code>4 bars</code> or <code>8 beats</code>.<br>
         Sample-only: <code>rate</code> — 0.25–4 (pitch shift). <code>start</code> — seconds into the buffer.
       </p>
@@ -6055,7 +7132,7 @@ margin-top: var(--editor-label-rail, 0px);
       </p>
 
       <p>
-        Span operators for pitched voices: <code>&gt;</code>/<code>&lt;</code> are local directional spans, <code>&gt;&gt;</code>/<code>&lt;&lt;</code> share one interleaved span cursor per direction. Shared leader rule: for <code>&gt;&gt;</code>, higher starts win (lower starts join but do not dethrone); for <code>&lt;&lt;</code>, lower starts win. End with <code>G%</code>/<code>Bb%</code>/<code>C#%</code>; if you omit an explicit end, the last <code>*</code> in the run closes implicitly (<code>*1</code> for down spans, <code>*8</code> for up spans).
+        Span operators for pitched voices: <code>&gt;</code>/<code>&lt;</code> are local directional spans, <code>&gt;&gt;</code>/<code>&lt;&lt;</code> share one interleaved span cursor per direction. Shared leader rule: for <code>&gt;&gt;</code>, higher starts win (lower starts join but do not dethrone); for <code>&lt;&lt;</code>, lower starts win. End with <code>G%</code>/<code>Bb%</code>/<code>C#%</code> or fixed-octave wildcard ends like <code>*4</code>; if you omit an explicit end, the last <code>*</code> in the run closes implicitly (<code>*1</code> for down spans, <code>*8</code> for up spans).
       </p>
 
       <pre><code>string >6* * * G% | >6* * * G%
@@ -6195,15 +7272,676 @@ pan   *~</code></pre>
   <script src="./voices/pulse.js?v=20260505r2"></script>
   <script src="./voices/drone.js?v=20260507r3"></script>
   <script src="./voices/sample.js?v=20260505r4"></script>
+  <script src="./voices/piano.js?v=20260508r1"></script>
+  <script src="./voices/marimba.js?v=20260508-marimba-debug-1"></script>
+  <script src="./voices/vibraphone.js?v=20260508r1"></script>
+  <script src="./voices/voice.js?v=20260508-espeak-voice-1"></script>
+  <script src="./voices/violin.js?v=20260508r1"></script>
+  <script src="./voices/cello.js?v=20260508r1"></script>
   <script src="./voices/input.js?v=20260503r1"></script>
   <script src="./voices/video.js?v=20260505v2"></script>
   <script src="./tunings/bank.js?v=20260507r6"></script>
-  <script src="./dsl.js?v=20260507r5"></script>
+  <script src="./dsl.js?v=20260508-vibes1"></script>
   <script src="./attractors.js?v=20260505r8"></script>
-  <script src="./scheduler.js?v=20260507r6"></script>
+  <script src="./scheduler.js?v=20260508-vibes1"></script>
   <script src="./codemirror.bundle.js?v=20260503r1"></script>
-  <script src="./repl-editor.js?v=20260507r5"></script>
-  <script src="./docs.js?v=20260507r9"></script>
-  <script src="./repl.js?v=20260507r6" defer></script>
+  <script src="./repl-editor.js?v=20260508r3"></script>
+  <script src="./docs.js?v=20260508r2"></script>
+  <script src="./repl-patch-codec.js?v=20260509r2"></script>
+  <script src="./repl.js?v=20260509-share2" defer></script>
 </body>
+<style>
+    /* compact neo-brutal utility: clear patch */
+    .repl-clear-control {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      width: 1.95rem;
+      height: 1.95rem;
+      min-width: 1.95rem;
+      min-height: 1.95rem;
+      padding: 0;
+      border: 2px solid var(--cs-line, #070707);
+      background: #fbfbf7;
+      color: #070707;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707);
+      transform: translate(0, 0);
+      overflow: hidden;
+    }
+
+    .repl-clear-control .button-main {
+      display: block;
+      font-family: inherit;
+      font-size: 1.18rem;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: 0;
+      text-transform: none;
+      transform: translateY(-0.02em);
+    }
+
+    .repl-clear-control .button-shortcut {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .repl-clear-control:hover {
+      background: #fff;
+      transform: translate(-1px, -1px);
+      box-shadow: 3px 3px 0 var(--cs-line, #070707);
+    }
+
+    .repl-clear-control:active {
+      transform: translate(0, 0);
+      box-shadow: 1px 1px 0 var(--cs-line, #070707);
+    }
+
+    .repl-clear-control:focus-visible {
+      outline: 2px solid var(--cs-line, #070707);
+      outline-offset: 2px;
+    }
+
+    /* armed: warning state, no animation */
+    .repl-clear-control.is-armed {
+      background:
+        repeating-linear-gradient(
+          135deg,
+          #ffd400 0 4px,
+          #ffd400 4px 8px,
+          #fbfbf7 8px 12px
+        );
+      color: #070707;
+      box-shadow: 2px 2px 0 #b00000;
+    }
+
+    .repl-clear-control.is-armed .button-main {
+      font-size: 0.86rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    .repl-clear-control.is-blank-armed {
+      background:
+        repeating-linear-gradient(
+          135deg,
+          #ffffff 0 4px,
+          #ffffff 4px 8px,
+          #d8d8d8 8px 12px
+        );
+      color: #070707;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707);
+    }
+
+    .repl-clear-control.is-blank-armed .button-main {
+      font-size: 0.86rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    .repl-clear-control.is-cleared {
+      background: #070707;
+      color: #ffffff;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .repl-clear-control {
+        transition: none;
+      }
+    }
+    /* Share-link feedback */
+    #share.repl-share-control {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    #share.repl-share-control.is-copied {
+      filter: brightness(1.25);
+    }
+
+    #share.repl-share-control.is-warn {
+      outline: 1px solid rgba(255, 220, 120, 0.75);
+    }
+
+    #share.repl-share-control.is-error {
+      outline: 1px solid rgba(255, 80, 80, 0.85);
+    }
+
+    .repl-share-status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 1em;
+      margin-left: 0.5rem;
+      font-family: inherit;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0.78;
+    }
+    
+    /* command palette / surface index */
+    .command-popover {
+      --example-accent: var(--cs-violet);
+    }
+
+    body.command-popover-open::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      background:
+        repeating-linear-gradient(
+          135deg,
+          rgba(7, 7, 7, 0.22) 0,
+          rgba(7, 7, 7, 0.22) 2px,
+          rgba(255, 255, 255, 0.10) 2px,
+          rgba(255, 255, 255, 0.10) 6px
+        ),
+        rgba(7, 7, 7, 0.34);
+      pointer-events: none;
+    }
+
+    .command-popover .example-popover-kicker {
+      font-family: "Times New Roman", Times, serif;
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.035em;
+      text-transform: lowercase;
+      line-height: 1;
+    }
+
+    .command-popover-count {
+      white-space: nowrap;
+    }
+
+    .command-popover .example-popover-item {
+      grid-template-columns: 4.25rem minmax(0, 1fr) auto;
+    }
+
+    .command-popover .example-popover-num {
+      font-size: 0.56rem;
+      letter-spacing: 0.1em;
+    }
+
+    .command-popover .example-popover-label {
+      font-family: "Times New Roman", Times, serif;
+      font-size: 1.08rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      text-transform: lowercase;
+      line-height: 1.02;
+    }
+
+    .command-popover .example-popover-detail {
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.58rem;
+      font-weight: 900;
+      letter-spacing: 0.075em;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
+
+    .command-popover .command-popover-snippet {
+      display: block;
+      margin-top: 0.32rem;
+      padding: 0.22rem 0.34rem;
+      background: rgba(255, 255, 255, 0.68);
+      border: 2px solid rgba(7, 7, 7, 0.72);
+      box-shadow: 2px 2px 0 rgba(7, 7, 7, 0.72);
+      color: #070707;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.58rem;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+      line-height: 1.2;
+      white-space: pre-wrap;
+      text-transform: none;
+    }
+
+    .command-popover .command-popover-paramline {
+      display: block;
+      margin-top: 0.28rem;
+      color: rgba(7, 7, 7, 0.68);
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.52rem;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    .command-popover .example-popover-item.is-current::after {
+      content: "READY";
+    }
+
+    .command-popover .command-kind-action { --example-accent: var(--cs-yellow); }
+    .command-popover .command-kind-voice { --example-accent: var(--cs-blue); }
+    .command-popover .command-kind-instrument { --example-accent: var(--cs-green); }
+    .command-popover .command-kind-sample { --example-accent: var(--cs-red); }
+    .command-popover .command-kind-kit { --example-accent: #b87516; }
+    .command-popover .command-kind-param { --example-accent: var(--cs-violet); }
+    .command-popover .command-kind-syntax { --example-accent: var(--cs-line); }
+    .command-popover .command-kind-docs { --example-accent: #00a8d8; }
+    .command-popover .command-kind-video { --example-accent: #ba55d3; }
+    .command-popover .command-kind-live { --example-accent: #0057ff; }
+
+    .command-popover .example-popover-stamp::before {
+      content: "INSERT";
+    }
+
+    .command-popover .example-popover-item[data-action-kind="run"] .example-popover-stamp::before {
+      content: "RUN";
+    }
+
+    .command-popover .example-popover-item[data-action-kind="open"] .example-popover-stamp::before {
+      content: "OPEN";
+    }
+
+    .command-popover .example-popover-item[data-action-kind="copy"] .example-popover-stamp::before {
+      content: "COPY";
+    }
+
+    .command-popover .example-popover-item[data-action-kind="insert"] .example-popover-stamp::before {
+      content: "INSERT";
+    }
+
+    .command-popover .example-popover-empty {
+      font-family: "Courier New", Courier, monospace;
+      text-transform: uppercase;
+    }
+    .samples-panel[hidden] {
+      display: none !important;
+    }
+    /* command palette sample-library browser */
+    .command-sample-browser {
+      display: flex;
+      flex-direction: column;
+      gap: 0.56rem;
+    }
+    .command-sample-breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 0.38rem;
+      flex-wrap: wrap;
+      padding: 0.42rem 0.5rem;
+      border: 2px solid var(--cs-line);
+      background: var(--cs-white);
+      box-shadow: 3px 3px 0 var(--cs-line);
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.56rem;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .command-sample-crumb,
+    .command-sample-back {
+      appearance: none;
+      border: 2px solid var(--cs-line);
+      border-radius: 0;
+      background: var(--cs-white);
+      color: var(--cs-line);
+      box-shadow: 2px 2px 0 var(--cs-line);
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.54rem;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      padding: 0.14rem 0.32rem;
+    }
+    .command-sample-back {
+      background: var(--cs-yellow);
+    }
+    .command-sample-crumb:hover,
+    .command-sample-back:hover,
+    .command-sample-crumb:focus,
+    .command-sample-back:focus {
+      transform: translate(-1px, -1px);
+      box-shadow: 3px 3px 0 var(--cs-line);
+      outline: 0;
+    }
+    .command-sample-crumb[disabled] {
+      cursor: default;
+      background: var(--cs-line);
+      color: var(--cs-white);
+      transform: none;
+      box-shadow: none;
+    }
+    .command-sample-summary {
+      padding: 0.34rem 0.48rem;
+      background: var(--cs-line);
+      color: var(--cs-white);
+      border: 2px solid var(--cs-line);
+      box-shadow: 3px 3px 0 var(--cs-blue);
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.58rem;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .command-sample-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
+      gap: 0.54rem;
+    }
+    .command-sample-card {
+      --example-accent: var(--cs-blue);
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0.5rem;
+      align-items: stretch;
+      min-height: 4.25rem;
+      padding: 0;
+      border: 2px solid var(--cs-line);
+      background: var(--cs-white);
+      color: var(--cs-line);
+      box-shadow: 3px 3px 0 var(--cs-line);
+      text-align: left;
+      cursor: pointer;
+      overflow: hidden;
+      transition:
+        transform 70ms steps(2, end),
+        box-shadow 70ms steps(2, end),
+        background-color 80ms steps(2, end);
+    }
+    .command-sample-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 0.42rem;
+      background: var(--example-accent);
+      border-right: 2px solid var(--cs-line);
+    }
+    .command-sample-card:hover,
+    .command-sample-card:focus {
+      outline: 0;
+      transform: translate(-2px, -2px);
+      box-shadow: 5px 5px 0 var(--cs-line);
+    }
+    .command-sample-card:active {
+      transform: translate(1px, 1px);
+      box-shadow: 1px 1px 0 var(--cs-line);
+    }
+    .command-sample-card-main {
+      min-width: 0;
+      padding: 0.56rem 0.56rem 0.56rem 0.9rem;
+    }
+    .command-sample-card-title {
+      display: block;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 1.14rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      line-height: 1;
+      text-transform: lowercase;
+    }
+    .command-sample-card-detail,
+    .command-sample-card-count,
+    .command-sample-card-chips {
+      display: block;
+      margin-top: 0.26rem;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.55rem;
+      font-weight: 900;
+      letter-spacing: 0.075em;
+      line-height: 1.25;
+      text-transform: uppercase;
+      color: rgba(7, 7, 7, 0.68);
+    }
+    .command-sample-card-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.22rem;
+      margin-top: 0.34rem;
+    }
+    .command-sample-chip {
+      display: inline-flex;
+      border: 2px solid var(--cs-line);
+      background: var(--cs-white);
+      color: var(--cs-line);
+      padding: 0.06rem 0.22rem;
+      box-shadow: 1px 1px 0 var(--cs-line);
+    }
+    .command-sample-card-side {
+      display: flex;
+      align-items: stretch;
+      border-left: 2px solid var(--cs-line);
+      background:
+        repeating-linear-gradient(
+          135deg,
+          transparent 0,
+          transparent 5px,
+          rgba(7, 7, 7, 0.08) 5px,
+          rgba(7, 7, 7, 0.08) 7px
+        ),
+        #fbfbf7;
+    }
+    .command-sample-action-stack {
+      display: flex;
+      flex-direction: column;
+      min-width: 2.9rem;
+    }
+    .command-sample-audition,
+    .command-sample-raw {
+      appearance: none;
+      width: 100%;
+      flex: 1;
+      border: 0;
+      border-bottom: 2px solid var(--cs-line);
+      background: var(--cs-white);
+      color: var(--cs-line);
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.58rem;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .command-sample-audition {
+      background: var(--cs-line);
+      color: var(--cs-white);
+    }
+    .command-sample-audition::before {
+      content: "▶";
+    }
+    .command-sample-raw::before {
+      content: "raw";
+    }
+    .command-sample-audition:hover,
+    .command-sample-raw:hover,
+    .command-sample-audition:focus,
+    .command-sample-raw:focus {
+      background: var(--cs-yellow);
+      color: var(--cs-line);
+      outline: 0;
+    }
+    .command-sample-audition[disabled] {
+      opacity: 0.38;
+      cursor: not-allowed;
+    }
+    .command-sample-card[data-kind="folder"] .command-sample-audition,
+    .command-sample-card[data-kind="library"] .command-sample-audition {
+      display: none;
+    }
+    .command-sample-card[data-kind="folder"] .command-sample-raw,
+    .command-sample-card[data-kind="library"] .command-sample-raw {
+      display: none;
+    }
+    .command-sample-card[data-accent="marimba"] { --example-accent: #b87516; }
+    .command-sample-card[data-accent="vibraphone"] { --example-accent: #00a8d8; }
+    .command-sample-card[data-accent="violin"] { --example-accent: #a04a2a; }
+    .command-sample-card[data-accent="cello"] { --example-accent: #5b3bb8; }
+    .command-sample-card[data-accent="voice"] { --example-accent: #ba55d3; }
+    .command-sample-card[data-accent="rock"],
+    .command-sample-card[data-accent="drums"] { --example-accent: var(--cs-red); }
+    .command-sample-card[data-accent="archive"] { --example-accent: var(--cs-green); }
+    .command-sample-card[data-accent="local"] { --example-accent: var(--cs-blue); }
+
+    /* sample browser: folders are folders, not playable leaves */
+    .command-sample-card[data-kind="library"],
+    .command-sample-card[data-kind="folder"] {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .command-sample-card[data-kind="library"] .command-sample-card-side,
+    .command-sample-card[data-kind="folder"] .command-sample-card-side {
+      display: none !important;
+    }
+    /* exact sample leaves get one editor-style audition button */
+    .command-sample-card[data-kind="sample"] {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .command-sample-card[data-kind="sample"] .command-sample-card-side {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 3.25rem;
+      padding: 0.36rem;
+      border-left: 2px solid var(--cs-line);
+      background:
+        repeating-linear-gradient(
+          135deg,
+          transparent 0,
+          transparent 5px,
+          rgba(7, 7, 7, 0.08) 5px,
+          rgba(7, 7, 7, 0.08) 7px
+        ),
+        #fbfbf7;
+    }
+    .command-sample-action-stack {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+    }
+    /* reuse the editor mute-button visual language */
+    .command-sample-audition.cs-mute-toggle {
+      margin: 0;
+      width: 1.42rem;
+      height: 1.28rem;
+      transform: none;
+    }
+    .command-sample-audition.cs-mute-toggle:hover {
+      transform: translate(-1px, -1px);
+    }
+    .command-sample-audition.cs-mute-toggle:active {
+      transform: translate(0, 0);
+    }
+    .command-sample-audition.cs-mute-toggle.is-loading {
+      background-image: repeating-linear-gradient(135deg, #ffd400 0 4px, #ffffff 4px 8px);
+      color: #070707;
+    }
+    .command-sample-audition.cs-mute-toggle[disabled] {
+      opacity: 0.36;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: 1px 1px 0 var(--cs-line);
+    }
+    /* old raw/audition text-label buttons should not appear */
+    .command-sample-raw {
+      display: none !important;
+    }
+    .command-sample-audition::before,
+    .command-sample-raw::before {
+      content: none !important;
+    }
+
+    /* sample audition v2: use the editor mute-toggle button exactly, without a fat action rail */
+    .command-sample-card[data-kind="sample"] {
+      grid-template-columns: minmax(0, 1fr) 2.18rem;
+      gap: 0;
+    }
+    .command-sample-card[data-kind="sample"] .command-sample-card-side {
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      width: 2.18rem;
+      padding: 0;
+      border-left: 2px solid var(--cs-line);
+      background: #fbfbf7;
+    }
+    .command-sample-card[data-kind="sample"] .command-sample-action-stack {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-width: 0;
+      height: 100%;
+    }
+    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      position: relative !important;
+      flex: 0 0 auto !important;
+      appearance: none !important;
+      margin: 0 !important;
+      width: 1.34rem !important;
+      height: 1.2rem !important;
+      min-width: 0 !important;
+      padding: 0 !important;
+      border: 2px solid var(--cs-line) !important;
+      border-radius: 0 !important;
+      background: var(--cs-white) !important;
+      color: var(--cs-line) !important;
+      box-shadow: 2px 2px 0 var(--cs-line) !important;
+      line-height: 1 !important;
+      cursor: pointer;
+      transform: translateY(-0.04rem) !important;
+      transition: transform 60ms ease, box-shadow 60ms ease, background-color 80ms ease, color 80ms ease;
+    }
+    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle:hover,
+    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle:focus {
+      background: #f6f6f6 !important;
+      color: var(--cs-line) !important;
+      outline: 0;
+      transform: translate(-1px, calc(-0.04rem - 1px)) !important;
+      box-shadow: 3px 3px 0 var(--cs-line) !important;
+    }
+    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle:active {
+      transform: translate(0, -0.04rem) !important;
+      box-shadow: 1px 1px 0 var(--cs-line) !important;
+    }
+    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle.is-loading {
+      background-image: repeating-linear-gradient(135deg, var(--cs-yellow) 0 4px, var(--cs-white) 4px 8px) !important;
+      color: var(--cs-line) !important;
+    }
+    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle[disabled] {
+      opacity: 0.36;
+      cursor: not-allowed;
+      transform: translateY(-0.04rem) !important;
+      box-shadow: 1px 1px 0 var(--cs-line) !important;
+    }
+    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle .cs-mute-icon {
+      display: block;
+      width: 0.86rem;
+      height: 0.86rem;
+      pointer-events: none;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .command-sample-card[data-accent="piano"] { --example-accent: #0a9396; }
+    .command-sample-card.is-loading {
+      opacity: 0.62;
+    }
+    .command-sample-card.is-missing {
+      background: #fbfbf7;
+    }
+    .command-sample-card.is-missing .command-sample-card-title {
+      text-decoration: line-through;
+    }
+    @media (max-width: 760px) {
+      .command-sample-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    </style>
 </html>

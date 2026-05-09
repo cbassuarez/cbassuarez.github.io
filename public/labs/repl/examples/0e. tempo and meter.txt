@@ -1,0 +1,28 @@
+// title: tempo and meter
+//
+// two settings frame the whole patch. they go at the top.
+//   tempo 120    beats per minute  (60 = slow, 200 = fast)
+//   meter 4/4    beats per bar     (4/4 standard, 3/4 waltz, 7/8 odd)
+//
+// type all three lines below:
+//
+//     tempo 120
+//     meter 4/4
+//     sine A4 C5 E5 G5
+//
+// press cmd-enter. you should hear the four notes from 0b, now LOOPING
+// every bar at 120 BPM in 4/4. (declaring tempo turns on the bar grid;
+// without it, the pattern played through once and held.)
+//
+// change tempo to 60 — same notes, half as fast.
+// change tempo to 200 — twice as fast.
+// change meter to 3/4 — notes redistribute across 3 beats per bar.
+//
+// you now know: voices, pitches, rests, ties, layering, tempo, meter.
+// that's enough to write real music.
+//
+// next: load 1. literal-vs-coupled
+//
+// type below ↓
+
+

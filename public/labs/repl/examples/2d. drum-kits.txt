@@ -7,7 +7,7 @@ meter 4/4
 eval reset
 
 drum   k    .    s    h   |   t    .    r    c
-kit    909
+kit    breakcore
 variance 0.25
 speed  1
 gain   0.44
@@ -15,7 +15,7 @@ crush  10
 pan    left center right center
 
 drum   *    .    h    .   |   o    t    *!   c
-kit    tub-grid
+kit    bk
 variance 0.82
 speed  1
 gain   0.36
