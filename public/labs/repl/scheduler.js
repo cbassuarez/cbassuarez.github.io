@@ -163,6 +163,20 @@
 
       function emitBlockPositionPulse(block, time, detail) {
         if (!block) return;
+        // Schedule block-position 5ms earlier than the slot's audio time. The
+        // editor's block-position handler unconditionally wipes any leaf plate
+        // on the owning line ("clear last event so it doesn't read as current
+        // event during silent advances"), so it MUST arrive before the
+        // corresponding leaf-fired pulse. Both events are scheduled for the
+        // same `slotAbsTime`, but the dispatch path between the two emits
+        // (param resolution, attractor, sample plan, playSample) advances
+        // audioCtx.currentTime by 1-3ms, which makes leaf's setTimeout delay
+        // shorter than block-position's. With equal `when` values that flips
+        // the firing order on busy ticks and leaves leaves silently wiped.
+        // The 5ms head-start is enough to absorb in-dispatch audio drift.
+        const POSITION_LEAD_S = 0.005;
+        const t = Number(time);
+        const when = Number.isFinite(t) ? t - POSITION_LEAD_S : time;
         emitEditorPulseAt({
           kind: 'block-position',
           eventId: ++runtimeEventSeq,
@@ -178,7 +192,7 @@
           cycleSlotIndex: detail && Number.isFinite(Number(detail.cycleSlotIndex)) ? Number(detail.cycleSlotIndex) : null,
           cycleLengthSlots: detail && Number.isFinite(Number(detail.cycleLengthSlots)) ? Number(detail.cycleLengthSlots) : null,
           isSilentAdvance: Boolean(detail && detail.isSilentAdvance),
-        }, time);
+        }, when);
       }
 
       function emitLeafPulse(block, time, detail) {
@@ -4965,7 +4979,22 @@ if (isPitchedSynthVoice(ctx.voice)) {
                   root.SampleVoice.preloadKit(audioCtx, kitId);
                 }
 
-                plan = resolveDrumPlan(node, tok, time, ctx.block, params, ctx.sampleReservations);
+                plan = resolveDrumPlan(node, tok, time, ctx.block, params);
+
+                if (root.__REPL_DRUM_DEBUG) {
+                  const lane = tok.value && tok.value.lane ? String(tok.value.lane) : '*';
+                  console.log('[drum-debug] sched-attempt', {
+                    blockOrd: ctx.block && ctx.block._blockOrdinal,
+                    line: blockLine(ctx.block),
+                    slotIdx: ctx.slotIndex,
+                    leafIdx: eventIndex,
+                    lane,
+                    kit: kitId,
+                    plan: Array.isArray(plan) ? plan.map((p) => p && p.name).filter(Boolean) : null,
+                    time: Number(time).toFixed(4),
+                    audioNow: audioCtx.currentTime.toFixed(4),
+                  });
+                }
               }
 
               if (!plan) return;
@@ -5009,6 +5038,17 @@ if (isPitchedSynthVoice(ctx.voice)) {
                   panGestureDuration,
                   rateGestureDuration,
                 }) === true;
+
+                if (root.__REPL_DRUM_DEBUG && ctx.voice === 'drum') {
+                  console.log('[drum-debug] play-result', {
+                    blockOrd: ctx.block && ctx.block._blockOrdinal,
+                    leafIdx: eventIndex,
+                    name: item.name,
+                    didSchedule: didScheduleSample,
+                    time: Number(time).toFixed(4),
+                    audioNow: audioCtx.currentTime.toFixed(4),
+                  });
+                }
 
               if (didScheduleSample) scheduledSampleAudio = true;
             }
@@ -5279,51 +5319,6 @@ if (isPitchedSynthVoice(ctx.voice)) {
         return new Set(pool).size;
       }
 
-      function uniquePoolNames(pool) {
-        if (!Array.isArray(pool) || pool.length === 0) return [];
-        return Array.from(new Set(pool.filter(Boolean)));
-      }
-
-      function drumReservationKey(kitId, lane, time) {
-        const safeKit = String(kitId || 'kit').toLowerCase();
-        const safeLane = String(lane || '*').toLowerCase();
-        const t = Number(time);
-        const tick = Number.isFinite(t) ? Math.round(t * 1000) : 0;
-        return `${safeKit}:${safeLane}:${tick}`;
-      }
-
-      function drumReservationSet(reservations, kitId, lane, time) {
-        if (!reservations || typeof reservations.get !== 'function') return null;
-        const key = drumReservationKey(kitId, lane, time);
-        let set = reservations.get(key);
-        if (!set) {
-          set = new Set();
-          reservations.set(key, set);
-        }
-        return set;
-      }
-
-      function pickRandomAvoiding(pool, block, avoided) {
-        if (!Array.isArray(pool) || pool.length === 0) return null;
-        if (!avoided || typeof avoided.has !== 'function' || avoided.size === 0) {
-          return pickRandom(pool, block);
-        }
-
-        const unique = uniquePoolNames(pool);
-        if (unique.length <= 1) return pickRandom(pool, block);
-
-        const filtered = pool.filter((name) => name && !avoided.has(name));
-        if (filtered.length > 0) return pickRandom(filtered, block);
-
-        return pickRandom(pool, block);
-      }
-
-      function reserveDrumSample(reservations, kitId, lane, time, name) {
-        if (!name) return;
-        const set = drumReservationSet(reservations, kitId, lane, time);
-        if (set) set.add(name);
-      }
-
       function drumLaneGainMul(lane) {
         switch (String(lane || '').toLowerCase()) {
           case 'k': return 1.55; // kick needs to survive the rest of the kit
@@ -5337,7 +5332,7 @@ if (isPitchedSynthVoice(ctx.voice)) {
         }
       }
 
-      function resolveDrumPlan(node, tok, time, block, params, reservations) {
+      function resolveDrumPlan(node, tok, time, block, params) {
         if (!tok || tok.kind !== 'drum') return null;
         if (typeof root.SampleVoice === 'undefined' || typeof root.SampleVoice.kitById !== 'function') return null;
 
@@ -5375,7 +5370,6 @@ if (isPitchedSynthVoice(ctx.voice)) {
         }
 
           const laneGainMul = drumLaneGainMul(lane);
-          const reservedNames = drumReservationSet(reservations, kit.id, lane, time);
           const exactSampleName = block && block.drumSample && block.drumSample.name
             ? String(block.drumSample.name)
             : '';
@@ -5383,35 +5377,36 @@ if (isPitchedSynthVoice(ctx.voice)) {
           if (exactSampleName) {
             const kitPool = expandWeightedPoolNames(Array.isArray(kit.pool) ? kit.pool : []);
             const sampleExistsInLane = pool.includes(exactSampleName);
-            const sampleExistsInKit = sampleExistsInLane || kitPool.includes(exactSampleName);
-
-            if (sampleExistsInLane && !(reservedNames && reservedNames.has(exactSampleName) && uniqueNameCount(pool) > 1)) {
-              reserveDrumSample(reservations, kit.id, lane, time, exactSampleName);
-              return [{ name: exactSampleName, gainMul: laneGainMul, rateMul }];
-            }
-
+            const sampleExistsInKit = sampleExistsInLane
+              || kitPool.includes(exactSampleName)
+              || (root.SampleVoice && typeof root.SampleVoice.has === 'function' && root.SampleVoice.has(exactSampleName));
             if (!sampleExistsInKit) {
               reportMissingSample(`drum-sample:${kit.id}:${exactSampleName}`);
+              return null;
+            }
+
+            // `pick <sample-id>` is an exact sample pin for its compatible
+            // lane, not a whole-kit override. A picked kick sample should pin
+            // k/k! hits, while h/s/o/etc. in the same drum block continue to
+            // resolve through their normal lane-local pools and variance.
+            if (sampleExistsInLane) {
+              return [{ name: exactSampleName, gainMul: laneGainMul, rateMul }];
             }
           }
 
           const freezeKey = `${kit.id}:${lane}`;
 
           if (frozen && node._drumFrozenPick && node._drumFrozenPick.key === freezeKey && node._drumFrozenPick.name) {
-            if (!(reservedNames && reservedNames.has(node._drumFrozenPick.name) && uniqueNameCount(pool) > 1)) {
-              reserveDrumSample(reservations, kit.id, lane, time, node._drumFrozenPick.name);
-              return [{ name: node._drumFrozenPick.name, gainMul: laneGainMul, rateMul }];
-            }
+            return [{ name: node._drumFrozenPick.name, gainMul: laneGainMul, rateMul }];
           }
 
           if (frozen) {
-            const picked = pickRandomAvoiding(pool, block, reservedNames);
+            const picked = pickRandom(pool, block);
             if (!picked) {
               reportMissingSample(`drum-lane:${kit.id}:${lane}`);
               return null;
             }
             node._drumFrozenPick = { key: freezeKey, name: picked };
-            reserveDrumSample(reservations, kit.id, lane, time, picked);
             return [{ name: picked, gainMul: laneGainMul, rateMul }];
           }
 
@@ -5420,7 +5415,7 @@ if (isPitchedSynthVoice(ctx.voice)) {
           const anchorKey = `${kit.id}:${lane}`;
           let anchor = node._drumVarianceAnchor[anchorKey];
           if (!anchor) {
-            anchor = pickRandomAvoiding(pool, block, reservedNames);
+            anchor = pickRandom(pool, block);
             if (!anchor) {
               reportMissingSample(`drum-lane:${kit.id}:${lane}`);
               return null;
@@ -5430,29 +5425,22 @@ if (isPitchedSynthVoice(ctx.voice)) {
 
           const variance = clamp(numericParamValue(params && params.variance, 1), 0, 1);
           if (variance <= 0) {
-            let fixed = anchor;
-            if (reservedNames && reservedNames.has(fixed) && uniqueNameCount(pool) > 1) {
-              const alternate = pickRandomAvoiding(pool, block, reservedNames);
-              if (alternate) fixed = alternate;
-            }
-            reserveDrumSample(reservations, kit.id, lane, time, fixed);
-            return [{ name: fixed, gainMul: laneGainMul, rateMul }];
+            return [{ name: anchor, gainMul: laneGainMul, rateMul }];
           }
 
           let picked = anchor;
           if (variance >= 1 || Math.random() < variance) {
-            picked = pickRandomAvoiding(pool, block, reservedNames);
+            picked = pickRandom(pool, block);
             if (!picked) {
               reportMissingSample(`drum-lane:${kit.id}:${lane}`);
               return null;
             }
             if (picked === anchor && uniqueNameCount(pool) > 1) {
-              const reroll = pickRandomAvoiding(pool, block, reservedNames);
+              const reroll = pickRandom(pool, block);
               if (reroll) picked = reroll;
             }
           }
 
-          reserveDrumSample(reservations, kit.id, lane, time, picked);
           return [{ name: picked, gainMul: laneGainMul, rateMul }];
       }
 
@@ -5527,7 +5515,7 @@ if (isPitchedSynthVoice(ctx.voice)) {
         return true;
       }
 
-      function dispatchTopSlot(block, slotIdx, slotAbsTime, slotDuration, speed, absoluteSlotIdx, sampleReservations) {
+      function dispatchTopSlot(block, slotIdx, slotAbsTime, slotDuration, speed, absoluteSlotIdx) {
         ensureLeafOffsets(block);
         maybeResetPitchSpansAtBoundary(block, absoluteSlotIdx);
 
@@ -5582,7 +5570,6 @@ if (isPitchedSynthVoice(ctx.voice)) {
           leafPath: [inBlockIdx],
           slotIndex: inBlockIdx,
           speed,
-          sampleReservations: sampleReservations || null,
         });
       }
 
@@ -5602,7 +5589,6 @@ if (isPitchedSynthVoice(ctx.voice)) {
         }
 
         const barSec = barSeconds(program);
-        const sampleReservations = new Map();
 
           for (const block of program.blocks) {
             if (!Number.isFinite(barSec) || barSec <= 0) continue;
@@ -5723,7 +5709,7 @@ if (isPitchedSynthVoice(ctx.voice)) {
 
           const absoluteSlotIdx = absSlotForElapsed(nextBlock, (slotAbsTime - originTime) + 0.000001, barSec);
           applyPendingMuteForBlock(nextBlock, dispatchAbsTime);
-          dispatchTopSlot(nextBlock, slotIdx, dispatchAbsTime, eventDuration, speed, absoluteSlotIdx, sampleReservations);
+          dispatchTopSlot(nextBlock, slotIdx, dispatchAbsTime, eventDuration, speed, absoluteSlotIdx);
           nextBlock._lastDispatchedSlotIdx = slotIdx;
           nextBlock._lastDispatchedTime = dispatchAbsTime;
           nextBlock._lastDispatchedDuration = eventDuration;

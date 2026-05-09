@@ -446,20 +446,45 @@
     const name = String(opts.name || '');
     const entry = manifestEntry(name);
     if (!entry) {
+      if (root.__REPL_DRUM_DEBUG) {
+        console.log('[drum-debug] playSample:no-entry', { name });
+      }
       if (typeof opts.onMissing === 'function') opts.onMissing(name);
       return false;
     }
 
     const time = Number.isFinite(opts.time) ? Math.max(opts.time, audioCtx.currentTime) : audioCtx.currentTime;
 
+    if (root.__REPL_DRUM_DEBUG) {
+      console.log('[drum-debug] playSample:enter', {
+        name,
+        time: Number(time).toFixed(4),
+        audioNow: audioCtx.currentTime.toFixed(4),
+        hasBuffer: _buffers.has(name),
+        pending: _pending.has(name),
+      });
+    }
+
       if (!_buffers.has(name)) {
         // Kick off load, but do not permanently drop the hit. Acoustic drum kits
         // with large variance pools otherwise sound "mostly silent" because each
         // loop may choose a different not-yet-decoded sample.
         loadBuffer(audioCtx, name).then((buffer) => {
-          if (!buffer) return;
+          if (!buffer) {
+            if (root.__REPL_DRUM_DEBUG) {
+              console.log('[drum-debug] playSample:load-failed', { name });
+            }
+            return;
+          }
 
           const retryTime = Math.max(audioCtx.currentTime + 0.025, time);
+          if (root.__REPL_DRUM_DEBUG) {
+            console.log('[drum-debug] playSample:retry-after-decode', {
+              name,
+              originalTime: Number(time).toFixed(4),
+              retryTime: Number(retryTime).toFixed(4),
+            });
+          }
           playSample({
             ...opts,
             time: retryTime,
@@ -563,11 +588,21 @@
         if (gateDuration != null) {
           src.stop(time + gateDuration + 0.005);
         }
+        if (root.__REPL_DRUM_DEBUG) {
+          console.log('[drum-debug] playSample:started', {
+            name,
+            time: Number(time).toFixed(4),
+            audioNow: audioCtx.currentTime.toFixed(4),
+          });
+        }
         return true;
       } catch (err) {
         _activeSources.delete(src);
         // eslint-disable-next-line no-console
         console.warn('[repl] sample start failed:', name, err);
+        if (root.__REPL_DRUM_DEBUG) {
+          console.log('[drum-debug] playSample:start-threw', { name, err: String(err) });
+        }
         return false;
       }
   }

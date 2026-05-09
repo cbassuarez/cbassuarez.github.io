@@ -1497,8 +1497,19 @@
         // block, regardless of speed/every gating.
         const ownerId = payload.blockId == null ? null : String(payload.blockId);
         if (ownerId) this.lineOwners.set(line, ownerId);
-        this.leafStates.delete(line);
-        this.removeLeafPlate(line);
+        // Only wipe the leaf plate when this block-position represents a slot
+        // that will not fire any leaf — e.g. an `every` silent advance. For
+        // a slot that fires a leaf, the leaf-fired payload overwrites the
+        // leafState entry directly. Wiping unconditionally caused intermittent
+        // missing highlights: when audioCtx.currentTime advances during the
+        // synchronous dispatch path between the block-position emit and the
+        // leaf-fired emit, the leaf-fired setTimeout ends up with a shorter
+        // delay than the block-position setTimeout for the same `time`, so
+        // the leaf fires first and the block-position then erases it.
+        if (payload.isSilentAdvance) {
+          this.leafStates.delete(line);
+          this.removeLeafPlate(line);
+        }
         this.requestRefresh();
         return;
       }

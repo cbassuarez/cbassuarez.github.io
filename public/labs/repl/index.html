@@ -6480,7 +6480,2437 @@ margin-top: var(--editor-label-rail, 0px);
     }
       
 
-  </style>
+
+
+
+    /* ------------------------------------------------------------------
+       Button-strip hierarchy hard reset v4.
+       Structural rule:
+       - top transport strip: runtime + utility only
+       - editor strip: patch title + patches + share + clear + score label
+       This block must remain last in the main stylesheet.
+    ------------------------------------------------------------------ */
+    .controls.transport-strip {
+      display: grid !important;
+      grid-template-columns: 7.25rem minmax(12.25rem, 1.45fr) minmax(7rem, 0.7fr) minmax(6.2rem, 0.62fr) minmax(11rem, 1.05fr) minmax(6rem, 0.58fr) minmax(10.5rem, 1fr) minmax(14rem, 1.55fr) !important;
+      grid-template-rows: 3.25rem 2.72rem !important;
+      grid-auto-flow: row !important;
+      gap: 0.56rem !important;
+      align-items: stretch !important;
+      margin: 0.78rem 0 0.72rem !important;
+      padding: 0.7rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: var(--cs-white, #ffffff) !important;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707) !important;
+      overflow: visible !important;
+      font-family: "Courier New", Courier, monospace !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.08em !important;
+      line-height: 1 !important;
+    }
+
+    .controls.transport-strip .bracket,
+    .controls.transport-strip .sep,
+    .controls.transport-strip::before,
+    .controls.transport-strip::after {
+      display: none !important;
+      content: none !important;
+    }
+
+    .controls.transport-strip .transport-rail {
+      grid-column: 1 !important;
+      grid-row: 1 / 3 !important;
+      display: grid !important;
+      place-items: center !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: var(--cs-line, #070707) !important;
+      color: var(--cs-white, #ffffff) !important;
+      box-shadow: 4px 4px 0 rgba(7, 7, 7, 0.28) !important;
+      font-weight: 900 !important;
+      font-size: 0.72rem !important;
+      letter-spacing: 0.14em !important;
+      text-align: center !important;
+    }
+
+    .controls.transport-strip .transport-button,
+    .controls.transport-strip button.transport-button,
+    .controls.transport-strip #video-toolbar > .transport-button {
+      position: relative !important;
+      display: grid !important;
+      grid-template-rows: minmax(0, 1fr) auto !important;
+      place-items: center !important;
+      width: 100% !important;
+      height: 100% !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      box-sizing: border-box !important;
+      margin: 0 !important;
+      padding: 0.36rem 0.52rem 0.3rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      border-radius: 0 !important;
+      background: var(--cs-white, #ffffff) !important;
+      color: var(--cs-line, #070707) !important;
+      box-shadow: 4px 4px 0 var(--cs-line, #070707) !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-weight: 900 !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.11em !important;
+      cursor: pointer !important;
+      overflow: hidden !important;
+      transform: translate(0, 0) !important;
+      appearance: none !important;
+    }
+
+    .controls.transport-strip .transport-button:hover,
+    .controls.transport-strip .transport-button:focus-visible {
+      transform: translate(-1px, -1px) !important;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707) !important;
+      outline: none !important;
+    }
+
+    .controls.transport-strip .transport-button:focus-visible {
+      outline: 2px solid var(--cs-yellow, #ffd400) !important;
+      outline-offset: 2px !important;
+    }
+
+    .controls.transport-strip .transport-button:active {
+      transform: translate(1px, 1px) !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip .transport-button .button-main {
+      display: block !important;
+      position: relative !important;
+      z-index: 2 !important;
+      font-size: 0.82rem !important;
+      line-height: 1 !important;
+      text-align: center !important;
+      white-space: nowrap !important;
+      color: inherit !important;
+    }
+
+    .controls.transport-strip .transport-button .button-shortcut {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 0.12rem !important;
+      min-height: 0.82rem !important;
+      margin-top: 0.18rem !important;
+      font-size: 0.48rem !important;
+      line-height: 1 !important;
+      letter-spacing: 0.08em !important;
+      text-align: center !important;
+      color: inherit !important;
+    }
+
+    .controls.transport-strip .transport-button kbd {
+      display: inline-grid !important;
+      place-items: center !important;
+      min-width: 0.86rem !important;
+      min-height: 0.78rem !important;
+      padding: 0 0.1rem !important;
+      border: 2px solid currentColor !important;
+      background: transparent !important;
+      font: inherit !important;
+      font-size: 0.48rem !important;
+      line-height: 1 !important;
+    }
+
+    .controls.transport-strip .transport-evaluate {
+      grid-column: 2 / 4 !important;
+      grid-row: 1 !important;
+      padding: 0 !important;
+      background:
+        repeating-linear-gradient(135deg, #ffffff 0 7px, #ffffff 7px 14px, #070707 14px 21px, #070707 21px 28px) !important;
+    }
+
+    .controls.transport-strip .transport-evaluate::before {
+      content: "" !important;
+      position: absolute !important;
+      z-index: 1 !important;
+      inset: 0 23% !important;
+      background: var(--cs-line, #070707) !important;
+      border-left: 2px solid var(--cs-line, #070707) !important;
+      border-right: 2px solid var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip .transport-evaluate .button-main,
+    .controls.transport-strip .transport-evaluate .button-shortcut {
+      color: #ffffff !important;
+    }
+
+    .controls.transport-strip .transport-evaluate .button-shortcut {
+      background: #ffffff !important;
+      color: #070707 !important;
+      padding: 0.1rem 0.18rem !important;
+      border: 2px solid #ffffff !important;
+    }
+
+    .controls.transport-strip .transport-replay {
+      grid-column: 4 !important;
+      grid-row: 1 !important;
+      border-top: 6px solid var(--cs-yellow, #ffd400) !important;
+    }
+
+    .controls.transport-strip .transport-replay .button-shortcut {
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: var(--cs-yellow, #ffd400) !important;
+      color: #070707 !important;
+      padding: 0.1rem 0.22rem !important;
+    }
+
+    .controls.transport-strip .transport-stop {
+      grid-column: 5 !important;
+      grid-row: 1 !important;
+      background: var(--cs-red, #e3342f) !important;
+      color: #ffffff !important;
+      box-shadow: 4px 4px 0 var(--cs-blue, #0057ff) !important;
+    }
+
+    .controls.transport-strip .transport-command {
+      grid-column: 2 / 4 !important;
+      grid-row: 2 !important;
+      border-left: 6px solid var(--cs-yellow, #ffd400) !important;
+    }
+
+    .controls.transport-strip .transport-io {
+      grid-column: 4 !important;
+      grid-row: 2 !important;
+      border-left: 6px solid var(--cs-green, #008f5a) !important;
+    }
+
+    .controls.transport-strip .transport-video-slot {
+      grid-column: 5 !important;
+      grid-row: 2 !important;
+      display: block !important;
+      min-width: 0 !important;
+    }
+
+    .controls.transport-strip .transport-video-slot[hidden] {
+      display: none !important;
+    }
+
+    .controls.transport-strip .transport-video {
+      border-left: 6px solid var(--cs-violet, #6c2cff) !important;
+    }
+
+    .controls.transport-strip .transport-reference {
+      grid-column: 6 / 8 !important;
+      grid-row: 2 !important;
+      border-left: 6px solid var(--cs-yellow, #ffd400) !important;
+    }
+
+    .controls.transport-strip .transport-docs {
+      grid-column: 8 / 9 !important;
+      grid-row: 2 !important;
+    }
+
+    .editor-wrap {
+      --editor-label-rail: 2.08rem !important;
+    }
+
+    .editor-wrap > .repl-editor {
+      height: calc(100% - var(--editor-label-rail)) !important;
+      margin-top: var(--editor-label-rail) !important;
+    }
+
+    .editor-wrap > .patch-identity-row {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 12.5rem !important;
+      z-index: 30 !important;
+      display: grid !important;
+      grid-template-columns: minmax(14rem, 1fr) auto 5.75rem 5.95rem !important;
+      align-items: stretch !important;
+      gap: 0.34rem !important;
+      width: auto !important;
+      max-width: calc(100% - 12.5rem) !important;
+      min-height: var(--editor-label-rail) !important;
+      pointer-events: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row > * {
+      pointer-events: auto !important;
+    }
+
+    .editor-wrap > .patch-identity-row > .editor-label-chip,
+    .editor-wrap > .patch-identity-row > .patches-trigger-chip,
+    .editor-wrap > .patch-identity-row > .patch-doc-action,
+    .editor-wrap > .patch-identity-row > .repl-share-status {
+      position: relative !important;
+      top: auto !important;
+      left: auto !important;
+      right: auto !important;
+      max-width: none !important;
+      box-sizing: border-box !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patch-title-chip {
+      grid-column: 1 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      min-width: 0 !important;
+      width: auto !important;
+      max-width: none !important;
+      min-height: var(--editor-label-rail) !important;
+      height: var(--editor-label-rail) !important;
+      padding: 0.28rem 0.52rem !important;
+      background: var(--cs-line, #070707) !important;
+      color: #ffffff !important;
+      border: 0 !important;
+      border-bottom: 2px solid var(--cs-line, #070707) !important;
+      box-shadow: 4px 4px 0 var(--cs-blue, #0057ff) !important;
+      overflow: hidden !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patch-title-chip.is-dirty {
+      box-shadow: 4px 4px 0 var(--cs-yellow, #ffd400) !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patch-title-chip-label {
+      min-width: 0 !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      white-space: nowrap !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patches-trigger-chip {
+      grid-column: 2 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 0.42rem !important;
+      min-width: 7.7rem !important;
+      min-height: var(--editor-label-rail) !important;
+      height: var(--editor-label-rail) !important;
+      padding: 0.28rem 0.56rem !important;
+      background: var(--cs-line, #070707) !important;
+      color: #ffffff !important;
+      border: 0 !important;
+      border-left: 2px solid var(--cs-line, #070707) !important;
+      border-bottom: 2px solid var(--cs-line, #070707) !important;
+      box-shadow: 4px 4px 0 var(--cs-yellow, #ffd400) !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patches-trigger-chip .button-shortcut {
+      background: #ffffff !important;
+      color: #070707 !important;
+      padding: 0.08rem 0.22rem !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share,
+    .editor-wrap > .patch-identity-row #clear-patch {
+      display: inline-grid !important;
+      grid-template-rows: minmax(0, 1fr) auto !important;
+      place-items: center !important;
+      align-self: stretch !important;
+      justify-self: stretch !important;
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: none !important;
+      height: var(--editor-label-rail) !important;
+      min-height: var(--editor-label-rail) !important;
+      max-height: var(--editor-label-rail) !important;
+      box-sizing: border-box !important;
+      margin: 0 !important;
+      padding: 0.24rem 0.34rem 0.18rem !important;
+      border: 0 !important;
+      border-left: 2px solid var(--cs-line, #070707) !important;
+      border-bottom: 2px solid var(--cs-line, #070707) !important;
+      border-radius: 0 !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-weight: 900 !important;
+      letter-spacing: 0.1em !important;
+      text-transform: uppercase !important;
+      overflow: hidden !important;
+      cursor: pointer !important;
+      transform: translate(0, 0) !important;
+      appearance: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share { grid-column: 3 !important; }
+    .editor-wrap > .patch-identity-row #clear-patch { grid-column: 4 !important; }
+
+    .editor-wrap > .patch-identity-row #share .button-main,
+    .editor-wrap > .patch-identity-row #clear-patch .button-main {
+      display: block !important;
+      font-size: 0.56rem !important;
+      line-height: 1 !important;
+      color: inherit !important;
+      text-align: center !important;
+      white-space: nowrap !important;
+      text-shadow: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share .button-shortcut,
+    .editor-wrap > .patch-identity-row #clear-patch .button-shortcut {
+      display: block !important;
+      margin-top: 0.08rem !important;
+      font-size: 0.4rem !important;
+      line-height: 1 !important;
+      letter-spacing: 0.06em !important;
+      color: inherit !important;
+      white-space: nowrap !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share {
+      background: #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 4px 4px 0 var(--cs-blue, #0057ff) !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share.is-copied {
+      background: var(--cs-blue, #0057ff) !important;
+      color: #ffffff !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share.is-warn {
+      background: var(--cs-yellow, #ffd400) !important;
+      color: #070707 !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share.is-error {
+      background: var(--cs-red, #e3342f) !important;
+      color: #ffffff !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch {
+      background: var(--cs-green, #008f5a) !important;
+      color: #ffffff !important;
+      box-shadow: 4px 4px 0 rgba(7, 7, 7, 0.28) !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch::before,
+    .editor-wrap > .patch-identity-row #clear-patch::after {
+      content: none !important;
+      display: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch.is-armed {
+      background:
+        repeating-linear-gradient(135deg, var(--cs-red, #e3342f) 0 6px, var(--cs-red, #e3342f) 6px 12px, #ffffff 12px 18px, #ffffff 18px 24px) !important;
+      color: #070707 !important;
+      box-shadow: 4px 4px 0 rgba(227, 52, 47, 0.48) !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch.is-armed .button-main,
+    .editor-wrap > .patch-identity-row #clear-patch.is-blank-armed .button-main {
+      display: inline-grid !important;
+      place-items: center !important;
+      min-width: 4.08rem !important;
+      min-height: 0.92rem !important;
+      padding: 0.08rem 0.24rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+      font-size: 0.5rem !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch.is-armed .button-shortcut,
+    .editor-wrap > .patch-identity-row #clear-patch.is-blank-armed .button-shortcut {
+      display: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch.is-blank-armed {
+      background:
+        repeating-linear-gradient(135deg, #d8d8d8 0 6px, #d8d8d8 6px 12px, #ffffff 12px 18px, #ffffff 18px 24px) !important;
+      color: #070707 !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch.is-cleared {
+      background: var(--cs-blue, #0057ff) !important;
+      color: #ffffff !important;
+      box-shadow: 4px 4px 0 rgba(0, 87, 255, 0.36) !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share:hover,
+    .editor-wrap > .patch-identity-row #share:focus-visible,
+    .editor-wrap > .patch-identity-row #clear-patch:hover,
+    .editor-wrap > .patch-identity-row #clear-patch:focus-visible {
+      transform: translate(-1px, -1px) !important;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707) !important;
+      outline: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share:focus-visible,
+    .editor-wrap > .patch-identity-row #clear-patch:focus-visible {
+      outline: 2px solid var(--cs-yellow, #ffd400) !important;
+      outline-offset: 2px !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share:active,
+    .editor-wrap > .patch-identity-row #clear-patch:active {
+      transform: translate(1px, 1px) !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patch-doc-status,
+    .editor-wrap > .patch-identity-row #sharePatchStatus {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      overflow: hidden !important;
+      clip-path: inset(50%) !important;
+      white-space: nowrap !important;
+    }
+
+    .editor-wrap > .cybernetic-score-chip {
+      top: 0 !important;
+      right: 0 !important;
+      left: auto !important;
+      width: 11.85rem !important;
+      max-width: 11.85rem !important;
+      min-height: var(--editor-label-rail) !important;
+      height: var(--editor-label-rail) !important;
+      justify-content: center !important;
+      background: var(--cs-line, #070707) !important;
+      color: #ffffff !important;
+      border-bottom: 2px solid var(--cs-line, #070707) !important;
+      box-shadow: 4px 4px 0 var(--cs-blue, #0057ff) !important;
+    }
+
+    @media (max-width: 72rem) {
+      .controls.transport-strip {
+        grid-template-columns: 6.8rem repeat(4, minmax(0, 1fr)) !important;
+        grid-template-rows: 3rem 2.4rem 2.4rem !important;
+      }
+      .controls.transport-strip .transport-rail { grid-column: 1 !important; grid-row: 1 / 4 !important; }
+      .controls.transport-strip .transport-evaluate { grid-column: 2 / 4 !important; grid-row: 1 !important; }
+      .controls.transport-strip .transport-replay { grid-column: 4 !important; grid-row: 1 !important; }
+      .controls.transport-strip .transport-stop { grid-column: 5 !important; grid-row: 1 !important; }
+      .controls.transport-strip .transport-command { grid-column: 2 / 4 !important; grid-row: 2 !important; }
+      .controls.transport-strip .transport-io { grid-column: 4 !important; grid-row: 2 !important; }
+      .controls.transport-strip .transport-video-slot { grid-column: 5 !important; grid-row: 2 !important; }
+      .controls.transport-strip .transport-reference { grid-column: 2 / 4 !important; grid-row: 3 !important; }
+      .controls.transport-strip .transport-docs { grid-column: 4 / 6 !important; grid-row: 3 !important; }
+      .editor-wrap > .patch-identity-row { right: 0 !important; max-width: 100% !important; }
+      .editor-wrap > .cybernetic-score-chip { display: none !important; }
+    }
+
+    @media (max-width: 52rem) {
+      .controls.transport-strip {
+        grid-template-columns: 1fr 1fr !important;
+        grid-template-rows: auto !important;
+      }
+      .controls.transport-strip .transport-rail,
+      .controls.transport-strip .transport-evaluate,
+      .controls.transport-strip .transport-replay,
+      .controls.transport-strip .transport-stop,
+      .controls.transport-strip .transport-command,
+      .controls.transport-strip .transport-io,
+      .controls.transport-strip .transport-video-slot,
+      .controls.transport-strip .transport-reference,
+      .controls.transport-strip .transport-docs {
+        grid-column: auto !important;
+        grid-row: auto !important;
+      }
+      .controls.transport-strip .transport-rail { min-height: 2.4rem !important; }
+      .editor-wrap { --editor-label-rail: 4.1rem !important; }
+      .editor-wrap > .patch-identity-row {
+        grid-template-columns: minmax(0, 1fr) auto auto auto !important;
+        gap: 0.25rem !important;
+      }
+    }
+
+
+
+    /* ------------------------------------------------------------------
+       Transport strip v5 — dense instrument-panel control cluster.
+       This is intentionally ID-scoped and late in the stylesheet so the
+       transport controls cannot inherit stale generic button geometry.
+       Editor/document strip is untouched.
+    ------------------------------------------------------------------ */
+    .controls.transport-strip {
+      display: grid !important;
+      grid-template-columns: 7.2rem 16rem 7rem 8rem 7rem 12rem minmax(14rem, 1fr) !important;
+      grid-template-rows: 3.15rem 2.65rem !important;
+      grid-auto-flow: row !important;
+      gap: 0.5rem !important;
+      align-items: stretch !important;
+      justify-content: start !important;
+      justify-items: stretch !important;
+      width: auto !important;
+      max-width: 74.5rem !important;
+      min-width: 0 !important;
+      margin: 0.78rem 0 0.72rem !important;
+      padding: 0.62rem !important;
+      box-sizing: border-box !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: var(--cs-white, #ffffff) !important;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707) !important;
+      overflow: visible !important;
+      font-family: "Courier New", Courier, monospace !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.08em !important;
+      line-height: 1 !important;
+    }
+
+    .controls.transport-strip .bracket,
+    .controls.transport-strip .sep,
+    .controls.transport-strip::before,
+    .controls.transport-strip::after {
+      display: none !important;
+      content: none !important;
+    }
+
+    .controls.transport-strip .transport-rail {
+      grid-column: 1 !important;
+      grid-row: 1 / 3 !important;
+      display: grid !important;
+      place-items: center !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      box-sizing: border-box !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: var(--cs-line, #070707) !important;
+      color: var(--cs-white, #ffffff) !important;
+      box-shadow: 4px 4px 0 rgba(7, 7, 7, 0.28) !important;
+      font-weight: 900 !important;
+      font-size: 0.7rem !important;
+      letter-spacing: 0.14em !important;
+      text-align: center !important;
+    }
+
+    .controls.transport-strip #play,
+    .controls.transport-strip #safe-play,
+    .controls.transport-strip #stop,
+    .controls.transport-strip #samples-toggle,
+    .controls.transport-strip #input-toggle,
+    .controls.transport-strip #reference-toggle,
+    .controls.transport-strip #docs-toggle,
+    .controls.transport-strip #video-toggle {
+      position: relative !important;
+      display: grid !important;
+      grid-template-rows: minmax(0, 1fr) auto !important;
+      place-items: center !important;
+      width: 100% !important;
+      height: 100% !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      box-sizing: border-box !important;
+      margin: 0 !important;
+      padding: 0.36rem 0.5rem 0.3rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      border-radius: 0 !important;
+      background: var(--cs-white, #ffffff) !important;
+      color: var(--cs-line, #070707) !important;
+      box-shadow: 4px 4px 0 var(--cs-line, #070707) !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-weight: 900 !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.11em !important;
+      cursor: pointer !important;
+      overflow: hidden !important;
+      transform: translate(0, 0) !important;
+      appearance: none !important;
+    }
+
+    .controls.transport-strip #play:hover,
+    .controls.transport-strip #safe-play:hover,
+    .controls.transport-strip #stop:hover,
+    .controls.transport-strip #samples-toggle:hover,
+    .controls.transport-strip #input-toggle:hover,
+    .controls.transport-strip #reference-toggle:hover,
+    .controls.transport-strip #docs-toggle:hover,
+    .controls.transport-strip #video-toggle:hover,
+    .controls.transport-strip #play:focus-visible,
+    .controls.transport-strip #safe-play:focus-visible,
+    .controls.transport-strip #stop:focus-visible,
+    .controls.transport-strip #samples-toggle:focus-visible,
+    .controls.transport-strip #input-toggle:focus-visible,
+    .controls.transport-strip #reference-toggle:focus-visible,
+    .controls.transport-strip #docs-toggle:focus-visible,
+    .controls.transport-strip #video-toggle:focus-visible {
+      transform: translate(-1px, -1px) !important;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707) !important;
+      outline: none !important;
+    }
+
+    .controls.transport-strip #play:focus-visible,
+    .controls.transport-strip #safe-play:focus-visible,
+    .controls.transport-strip #stop:focus-visible,
+    .controls.transport-strip #samples-toggle:focus-visible,
+    .controls.transport-strip #input-toggle:focus-visible,
+    .controls.transport-strip #reference-toggle:focus-visible,
+    .controls.transport-strip #docs-toggle:focus-visible,
+    .controls.transport-strip #video-toggle:focus-visible {
+      outline: 2px solid var(--cs-yellow, #ffd400) !important;
+      outline-offset: 2px !important;
+    }
+
+    .controls.transport-strip #play:active,
+    .controls.transport-strip #safe-play:active,
+    .controls.transport-strip #stop:active,
+    .controls.transport-strip #samples-toggle:active,
+    .controls.transport-strip #input-toggle:active,
+    .controls.transport-strip #reference-toggle:active,
+    .controls.transport-strip #docs-toggle:active,
+    .controls.transport-strip #video-toggle:active {
+      transform: translate(1px, 1px) !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip #play .button-main,
+    .controls.transport-strip #safe-play .button-main,
+    .controls.transport-strip #stop .button-main,
+    .controls.transport-strip #samples-toggle .button-main,
+    .controls.transport-strip #input-toggle .button-main,
+    .controls.transport-strip #reference-toggle .button-main,
+    .controls.transport-strip #docs-toggle .button-main,
+    .controls.transport-strip #video-toggle .button-main {
+      display: block !important;
+      position: relative !important;
+      z-index: 2 !important;
+      font-size: 0.84rem !important;
+      line-height: 1 !important;
+      text-align: center !important;
+      white-space: nowrap !important;
+      color: inherit !important;
+    }
+
+    .controls.transport-strip #play .button-shortcut,
+    .controls.transport-strip #safe-play .button-shortcut,
+    .controls.transport-strip #stop .button-shortcut,
+    .controls.transport-strip #samples-toggle .button-shortcut,
+    .controls.transport-strip #input-toggle .button-shortcut,
+    .controls.transport-strip #reference-toggle .button-shortcut,
+    .controls.transport-strip #docs-toggle .button-shortcut,
+    .controls.transport-strip #video-toggle .button-shortcut {
+      display: inline-flex !important;
+      position: relative !important;
+      z-index: 2 !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 0.12rem !important;
+      min-height: 0.82rem !important;
+      margin-top: 0.18rem !important;
+      font-size: 0.48rem !important;
+      line-height: 1 !important;
+      letter-spacing: 0.08em !important;
+      text-align: center !important;
+      color: inherit !important;
+    }
+
+    .controls.transport-strip #play kbd,
+    .controls.transport-strip #safe-play kbd {
+      display: inline-grid !important;
+      place-items: center !important;
+      min-width: 0.86rem !important;
+      min-height: 0.78rem !important;
+      padding: 0 0.1rem !important;
+      border: 2px solid currentColor !important;
+      background: transparent !important;
+      font: inherit !important;
+      font-size: 0.48rem !important;
+      line-height: 1 !important;
+    }
+
+    /* EVALUATE — black industrial/hazard module */
+    .controls.transport-strip #play {
+      grid-column: 2 !important;
+      grid-row: 1 !important;
+      padding: 0 !important;
+      background:
+        repeating-linear-gradient(135deg, #ffffff 0 7px, #ffffff 7px 14px, #070707 14px 21px, #070707 21px 28px) !important;
+      color: #ffffff !important;
+    }
+
+    .controls.transport-strip #play::before {
+      content: "" !important;
+      position: absolute !important;
+      z-index: 1 !important;
+      inset: 0 21% !important;
+      background: var(--cs-line, #070707) !important;
+      border-left: 2px solid var(--cs-line, #070707) !important;
+      border-right: 2px solid var(--cs-line, #070707) !important;
+      pointer-events: none !important;
+    }
+
+    .controls.transport-strip #play .button-main,
+    .controls.transport-strip #play .button-shortcut {
+      color: #ffffff !important;
+    }
+
+    .controls.transport-strip #play .button-shortcut {
+      background: #ffffff !important;
+      color: #070707 !important;
+      border: 2px solid #ffffff !important;
+      padding: 0.1rem 0.18rem !important;
+      box-shadow: 2px 2px 0 rgba(255, 212, 0, 0.7) !important;
+    }
+
+    /* COMMAND — Button E: paper/yellow rectangular */
+    .controls.transport-strip #samples-toggle {
+      grid-column: 2 !important;
+      grid-row: 2 !important;
+      border-left: 7px solid var(--cs-yellow, #ffd400) !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+    }
+
+    /* REPLAY — Button E/F hybrid: yellow cap and hard border */
+    .controls.transport-strip #safe-play {
+      grid-column: 3 !important;
+      grid-row: 1 !important;
+      border-top: 7px solid var(--cs-yellow, #ffd400) !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+    }
+
+    .controls.transport-strip #safe-play .button-shortcut {
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: var(--cs-yellow, #ffd400) !important;
+      color: #070707 !important;
+      padding: 0.1rem 0.2rem !important;
+    }
+
+    /* I/O — Button B: green rectangular */
+    .controls.transport-strip #input-toggle {
+      grid-column: 3 !important;
+      grid-row: 2 !important;
+      background: var(--cs-green, #008f5a) !important;
+      color: #ffffff !important;
+      box-shadow: 5px 5px 0 rgba(7, 7, 7, 0.28) !important;
+    }
+
+    /* STOP — Button C: red rounded runtime destructive */
+    .controls.transport-strip #stop {
+      grid-column: 4 !important;
+      grid-row: 1 !important;
+      border-radius: 999px !important;
+      background: var(--cs-red, #e3342f) !important;
+      color: #ffffff !important;
+      box-shadow: 5px 5px 0 rgba(7, 7, 7, 0.28) !important;
+    }
+
+    /* REFERENCE — Button E: paper/yellow rectangular */
+    .controls.transport-strip #reference-toggle {
+      grid-column: 5 / 7 !important;
+      grid-row: 2 !important;
+      border-left: 7px solid var(--cs-yellow, #ffd400) !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+    }
+
+    /* DOCS — Button E: wide paper rectangular */
+    .controls.transport-strip #docs-toggle {
+      grid-column: 7 !important;
+      grid-row: 2 !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+    }
+
+    /* VIDEO stays out of the normal grid unless explicitly visible/debugged. */
+    .controls.transport-strip .transport-video-slot {
+      display: none !important;
+    }
+
+    .controls.transport-strip .transport-video-slot:not([hidden]) {
+      grid-column: 5 !important;
+      grid-row: 1 !important;
+      display: block !important;
+      min-width: 0 !important;
+    }
+
+    .controls.transport-strip #video-toggle {
+      border-left: 7px solid var(--cs-violet, #6c2cff) !important;
+    }
+
+    @media (max-width: 74rem) {
+      .controls.transport-strip {
+        grid-template-columns: 6.8rem minmax(12rem, 1fr) 7rem 8rem !important;
+        grid-template-rows: 3.15rem 2.65rem 2.65rem !important;
+        max-width: none !important;
+      }
+
+      .controls.transport-strip .transport-rail { grid-column: 1 !important; grid-row: 1 / 4 !important; }
+      .controls.transport-strip #play { grid-column: 2 !important; grid-row: 1 !important; }
+      .controls.transport-strip #safe-play { grid-column: 3 !important; grid-row: 1 !important; }
+      .controls.transport-strip #stop { grid-column: 4 !important; grid-row: 1 !important; }
+      .controls.transport-strip #samples-toggle { grid-column: 2 !important; grid-row: 2 !important; }
+      .controls.transport-strip #input-toggle { grid-column: 3 !important; grid-row: 2 !important; }
+      .controls.transport-strip #reference-toggle { grid-column: 2 / 4 !important; grid-row: 3 !important; }
+      .controls.transport-strip #docs-toggle { grid-column: 4 !important; grid-row: 3 !important; }
+    }
+
+    @media (max-width: 52rem) {
+      .controls.transport-strip {
+        grid-template-columns: 1fr 1fr !important;
+        grid-template-rows: auto !important;
+      }
+
+      .controls.transport-strip .transport-rail,
+      .controls.transport-strip #play,
+      .controls.transport-strip #safe-play,
+      .controls.transport-strip #stop,
+      .controls.transport-strip #samples-toggle,
+      .controls.transport-strip #input-toggle,
+      .controls.transport-strip #reference-toggle,
+      .controls.transport-strip #docs-toggle {
+        grid-column: auto !important;
+        grid-row: auto !important;
+        min-height: 2.6rem !important;
+      }
+
+      .controls.transport-strip .transport-rail {
+        min-height: 2.6rem !important;
+      }
+    }
+
+
+    /* ------------------------------------------------------------------
+       Transport strip v6 — full-width instrument panel + restored affordances.
+       Editor/document strip intentionally untouched.
+       - full-width container
+       - reference/docs stacked at far right
+       - ID-scoped hover/active/focus states
+       - visible shortcut/subcopy on every transport control
+    ------------------------------------------------------------------ */
+    .controls.transport-strip {
+      display: grid !important;
+      grid-template-columns: 7.2rem minmax(15rem, 18rem) minmax(6.8rem, 7.6rem) minmax(7.2rem, 8.8rem) minmax(16rem, 1fr) !important;
+      grid-template-rows: 3.15rem 2.65rem !important;
+      grid-auto-flow: row !important;
+      gap: 0.52rem !important;
+      align-items: stretch !important;
+      justify-content: stretch !important;
+      justify-items: stretch !important;
+      width: 100% !important;
+      max-width: none !important;
+      min-width: 0 !important;
+      margin: 0.78rem 0 0.72rem !important;
+      padding: 0.62rem !important;
+      box-sizing: border-box !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: var(--cs-white, #ffffff) !important;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707) !important;
+      overflow: visible !important;
+      font-family: "Courier New", Courier, monospace !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.08em !important;
+      line-height: 1 !important;
+    }
+
+    .controls.transport-strip .bracket,
+    .controls.transport-strip .sep,
+    .controls.transport-strip::before,
+    .controls.transport-strip::after {
+      display: none !important;
+      content: none !important;
+    }
+
+    .controls.transport-strip .transport-rail {
+      grid-column: 1 !important;
+      grid-row: 1 / 3 !important;
+      display: grid !important;
+      place-items: center !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      box-sizing: border-box !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: var(--cs-line, #070707) !important;
+      color: var(--cs-white, #ffffff) !important;
+      box-shadow: 4px 4px 0 rgba(7, 7, 7, 0.28) !important;
+      font-weight: 900 !important;
+      font-size: 0.7rem !important;
+      letter-spacing: 0.14em !important;
+      text-align: center !important;
+    }
+
+    .controls.transport-strip #play,
+    .controls.transport-strip #safe-play,
+    .controls.transport-strip #stop,
+    .controls.transport-strip #samples-toggle,
+    .controls.transport-strip #input-toggle,
+    .controls.transport-strip #reference-toggle,
+    .controls.transport-strip #docs-toggle,
+    .controls.transport-strip #video-toggle {
+      position: relative !important;
+      display: grid !important;
+      grid-template-rows: minmax(0, 1fr) auto !important;
+      place-items: center !important;
+      width: 100% !important;
+      height: 100% !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      box-sizing: border-box !important;
+      margin: 0 !important;
+      padding: 0.34rem 0.54rem 0.3rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      border-radius: 0 !important;
+      background: var(--cs-white, #ffffff) !important;
+      color: var(--cs-line, #070707) !important;
+      box-shadow: 4px 4px 0 var(--cs-line, #070707) !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-weight: 900 !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.11em !important;
+      cursor: pointer !important;
+      overflow: hidden !important;
+      transform: translate(0, 0) !important;
+      appearance: none !important;
+    }
+
+    .controls.transport-strip #play .button-main,
+    .controls.transport-strip #safe-play .button-main,
+    .controls.transport-strip #stop .button-main,
+    .controls.transport-strip #samples-toggle .button-main,
+    .controls.transport-strip #input-toggle .button-main,
+    .controls.transport-strip #reference-toggle .button-main,
+    .controls.transport-strip #docs-toggle .button-main,
+    .controls.transport-strip #video-toggle .button-main {
+      display: block !important;
+      position: relative !important;
+      z-index: 2 !important;
+      font-size: 0.82rem !important;
+      line-height: 1 !important;
+      text-align: center !important;
+      white-space: nowrap !important;
+      color: inherit !important;
+      pointer-events: none !important;
+    }
+
+    .controls.transport-strip #play .button-shortcut,
+    .controls.transport-strip #safe-play .button-shortcut,
+    .controls.transport-strip #stop .button-shortcut,
+    .controls.transport-strip #samples-toggle .button-shortcut,
+    .controls.transport-strip #input-toggle .button-shortcut,
+    .controls.transport-strip #reference-toggle .button-shortcut,
+    .controls.transport-strip #docs-toggle .button-shortcut,
+    .controls.transport-strip #video-toggle .button-shortcut {
+      display: inline-flex !important;
+      position: relative !important;
+      z-index: 2 !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 0.12rem !important;
+      min-height: 0.82rem !important;
+      margin-top: 0.18rem !important;
+      font-size: 0.46rem !important;
+      line-height: 1 !important;
+      letter-spacing: 0.08em !important;
+      text-align: center !important;
+      color: inherit !important;
+      pointer-events: none !important;
+    }
+
+    .controls.transport-strip #play kbd,
+    .controls.transport-strip #safe-play kbd {
+      display: inline-grid !important;
+      place-items: center !important;
+      min-width: 0.84rem !important;
+      min-height: 0.72rem !important;
+      padding: 0 0.1rem !important;
+      border: 2px solid currentColor !important;
+      background: transparent !important;
+      font: inherit !important;
+      font-size: 0.46rem !important;
+      line-height: 1 !important;
+    }
+
+    .controls.transport-strip #play:hover,
+    .controls.transport-strip #safe-play:hover,
+    .controls.transport-strip #stop:hover,
+    .controls.transport-strip #samples-toggle:hover,
+    .controls.transport-strip #input-toggle:hover,
+    .controls.transport-strip #reference-toggle:hover,
+    .controls.transport-strip #docs-toggle:hover,
+    .controls.transport-strip #video-toggle:hover,
+    .controls.transport-strip #play:focus-visible,
+    .controls.transport-strip #safe-play:focus-visible,
+    .controls.transport-strip #stop:focus-visible,
+    .controls.transport-strip #samples-toggle:focus-visible,
+    .controls.transport-strip #input-toggle:focus-visible,
+    .controls.transport-strip #reference-toggle:focus-visible,
+    .controls.transport-strip #docs-toggle:focus-visible,
+    .controls.transport-strip #video-toggle:focus-visible {
+      transform: translate(-1px, -1px) !important;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707) !important;
+      outline: 2px solid var(--cs-yellow, #ffd400) !important;
+      outline-offset: 2px !important;
+    }
+
+    .controls.transport-strip #play:active,
+    .controls.transport-strip #safe-play:active,
+    .controls.transport-strip #stop:active,
+    .controls.transport-strip #samples-toggle:active,
+    .controls.transport-strip #input-toggle:active,
+    .controls.transport-strip #reference-toggle:active,
+    .controls.transport-strip #docs-toggle:active,
+    .controls.transport-strip #video-toggle:active {
+      transform: translate(1px, 1px) !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+    }
+
+    /* EVALUATE — black industrial/hazard module */
+    .controls.transport-strip #play {
+      grid-column: 2 !important;
+      grid-row: 1 !important;
+      padding: 0 !important;
+      background:
+        repeating-linear-gradient(
+          135deg,
+          #ffffff 0 8px,
+          #ffffff 8px 16px,
+          #070707 16px 24px,
+          #070707 24px 32px
+        ) !important;
+      color: #ffffff !important;
+    }
+
+    .controls.transport-strip #play::before {
+      content: "" !important;
+      position: absolute !important;
+      z-index: 1 !important;
+      inset: 0 22% !important;
+      background: var(--cs-line, #070707) !important;
+      border-left: 2px solid var(--cs-line, #070707) !important;
+      border-right: 2px solid var(--cs-line, #070707) !important;
+      pointer-events: none !important;
+    }
+
+    .controls.transport-strip #play .button-main {
+      color: #ffffff !important;
+      font-size: 0.78rem !important;
+    }
+
+    .controls.transport-strip #play .button-shortcut {
+      width: auto !important;
+      min-width: 2.05rem !important;
+      min-height: 0.9rem !important;
+      padding: 0.08rem 0.18rem !important;
+      border: 2px solid #ffffff !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 2px 2px 0 rgba(255, 212, 0, 0.75) !important;
+    }
+
+    .controls.transport-strip #play:hover .button-shortcut,
+    .controls.transport-strip #play:focus-visible .button-shortcut {
+      background: var(--cs-yellow, #ffd400) !important;
+      border-color: var(--cs-yellow, #ffd400) !important;
+      box-shadow: 2px 2px 0 var(--cs-blue, #0057ff) !important;
+    }
+
+    /* COMMAND — Button E: paper/yellow rectangular */
+    .controls.transport-strip #samples-toggle {
+      grid-column: 2 !important;
+      grid-row: 2 !important;
+      border-left: 7px solid var(--cs-yellow, #ffd400) !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+    }
+
+    .controls.transport-strip #samples-toggle:hover,
+    .controls.transport-strip #samples-toggle:focus-visible {
+      background: var(--cs-yellow, #ffd400) !important;
+      color: #070707 !important;
+    }
+
+    /* REPLAY — Button E/F hybrid: yellow cap and hard shortcut */
+    .controls.transport-strip #safe-play {
+      grid-column: 3 !important;
+      grid-row: 1 !important;
+      border-top: 7px solid var(--cs-yellow, #ffd400) !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+    }
+
+    .controls.transport-strip #safe-play .button-shortcut {
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: var(--cs-yellow, #ffd400) !important;
+      color: #070707 !important;
+      padding: 0.1rem 0.2rem !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip #safe-play:hover,
+    .controls.transport-strip #safe-play:focus-visible {
+      background: var(--cs-yellow, #ffd400) !important;
+      color: #070707 !important;
+    }
+
+    /* I/O — Button B: green rectangular */
+    .controls.transport-strip #input-toggle {
+      grid-column: 3 !important;
+      grid-row: 2 !important;
+      background: var(--cs-green, #008f5a) !important;
+      color: #ffffff !important;
+      box-shadow: 5px 5px 0 rgba(7, 7, 7, 0.28) !important;
+    }
+
+    .controls.transport-strip #input-toggle:hover,
+    .controls.transport-strip #input-toggle:focus-visible,
+    .controls.transport-strip #input-toggle[aria-expanded="true"] {
+      background: var(--cs-blue, #0057ff) !important;
+      color: #ffffff !important;
+    }
+
+    .controls.transport-strip #input-toggle .button-shortcut {
+      opacity: 1 !important;
+    }
+
+    /* STOP — Button C: red rounded runtime destructive */
+    .controls.transport-strip #stop {
+      grid-column: 4 !important;
+      grid-row: 1 !important;
+      border-radius: 999px !important;
+      background: var(--cs-red, #e3342f) !important;
+      color: #ffffff !important;
+      box-shadow: 5px 5px 0 rgba(7, 7, 7, 0.28) !important;
+    }
+
+    .controls.transport-strip #stop:hover,
+    .controls.transport-strip #stop:focus-visible {
+      background: #c81f28 !important;
+      color: #ffffff !important;
+    }
+
+    /* REFERENCE / DOCS — stacked Button E controls at far right */
+    .controls.transport-strip #reference-toggle {
+      grid-column: 5 !important;
+      grid-row: 1 !important;
+      border-left: 7px solid var(--cs-yellow, #ffd400) !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+    }
+
+    .controls.transport-strip #docs-toggle {
+      grid-column: 5 !important;
+      grid-row: 2 !important;
+      border-left: 7px solid var(--cs-line, #070707) !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+    }
+
+    .controls.transport-strip #reference-toggle:hover,
+    .controls.transport-strip #reference-toggle:focus-visible,
+    .controls.transport-strip #docs-toggle:hover,
+    .controls.transport-strip #docs-toggle:focus-visible {
+      background: var(--cs-yellow, #ffd400) !important;
+      color: #070707 !important;
+    }
+
+    /* VIDEO stays out of the normal grid unless explicitly visible/debugged. */
+    .controls.transport-strip .transport-video-slot {
+      display: none !important;
+    }
+
+    .controls.transport-strip .transport-video-slot:not([hidden]) {
+      grid-column: 4 !important;
+      grid-row: 2 !important;
+      display: block !important;
+      min-width: 0 !important;
+    }
+
+    .controls.transport-strip #video-toggle {
+      border-left: 7px solid var(--cs-violet, #6c2cff) !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+    }
+
+    @media (max-width: 74rem) {
+      .controls.transport-strip {
+        grid-template-columns: 6.8rem minmax(12rem, 1fr) 7rem 8rem !important;
+        grid-template-rows: 3.15rem 2.65rem 2.65rem 2.65rem !important;
+        max-width: none !important;
+      }
+
+      .controls.transport-strip .transport-rail { grid-column: 1 !important; grid-row: 1 / 5 !important; }
+      .controls.transport-strip #play { grid-column: 2 !important; grid-row: 1 !important; }
+      .controls.transport-strip #safe-play { grid-column: 3 !important; grid-row: 1 !important; }
+      .controls.transport-strip #stop { grid-column: 4 !important; grid-row: 1 !important; }
+      .controls.transport-strip #samples-toggle { grid-column: 2 !important; grid-row: 2 !important; }
+      .controls.transport-strip #input-toggle { grid-column: 3 !important; grid-row: 2 !important; }
+      .controls.transport-strip #reference-toggle { grid-column: 2 / 5 !important; grid-row: 3 !important; }
+      .controls.transport-strip #docs-toggle { grid-column: 2 / 5 !important; grid-row: 4 !important; }
+    }
+
+    @media (max-width: 52rem) {
+      .controls.transport-strip {
+        grid-template-columns: 1fr 1fr !important;
+        grid-template-rows: auto !important;
+      }
+
+      .controls.transport-strip .transport-rail,
+      .controls.transport-strip #play,
+      .controls.transport-strip #safe-play,
+      .controls.transport-strip #stop,
+      .controls.transport-strip #samples-toggle,
+      .controls.transport-strip #input-toggle,
+      .controls.transport-strip #reference-toggle,
+      .controls.transport-strip #docs-toggle {
+        grid-column: auto !important;
+        grid-row: auto !important;
+        min-height: 2.7rem !important;
+      }
+
+      .controls.transport-strip .transport-rail {
+        min-height: 2.7rem !important;
+      }
+    }
+
+
+    /* ------------------------------------------------------------------
+       Evaluate button v7 — readable execution gate.
+       Stripes are side guards; command copy and shortcut stay visible.
+       This intentionally overrides only #play and its children.
+    ------------------------------------------------------------------ */
+    .controls.transport-strip #play {
+      isolation: isolate !important;
+      grid-column: 2 !important;
+      grid-row: 1 !important;
+      display: grid !important;
+      grid-template-rows: minmax(0, 1fr) auto !important;
+      place-items: center !important;
+      align-content: center !important;
+      gap: 0.16rem !important;
+      min-height: 3.15rem !important;
+      padding: 0.42rem clamp(4.3rem, 24%, 5.1rem) 0.38rem !important;
+      border: 3px solid var(--cs-line, #070707) !important;
+      border-radius: 0 !important;
+      background: var(--cs-line, #070707) !important;
+      color: #ffffff !important;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707) !important;
+      overflow: hidden !important;
+      filter: none !important;
+      font-size: inherit !important;
+    }
+
+    .controls.transport-strip #play::before,
+    .controls.transport-strip #play::after {
+      content: "" !important;
+      position: absolute !important;
+      top: 0 !important;
+      bottom: 0 !important;
+      z-index: 1 !important;
+      width: clamp(3.45rem, 22%, 4.75rem) !important;
+      background:
+        repeating-linear-gradient(
+          135deg,
+          #ffffff 0 10px,
+          #ffffff 10px 20px,
+          #070707 20px 30px,
+          #070707 30px 40px
+        ) !important;
+      border: 0 !important;
+      pointer-events: none !important;
+    }
+
+    .controls.transport-strip #play::before {
+      left: 0 !important;
+      border-right: 3px solid var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip #play::after {
+      right: 0 !important;
+      border-left: 3px solid var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip #play .button-main {
+      position: relative !important;
+      z-index: 3 !important;
+      display: block !important;
+      color: #ffffff !important;
+      background: transparent !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-size: clamp(0.86rem, 1.08vw, 1.08rem) !important;
+      line-height: 1 !important;
+      font-weight: 900 !important;
+      letter-spacing: 0.22em !important;
+      text-transform: uppercase !important;
+      text-align: center !important;
+      white-space: nowrap !important;
+      text-shadow: none !important;
+      transform: none !important;
+    }
+
+    .controls.transport-strip #play .button-shortcut {
+      position: relative !important;
+      z-index: 3 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 0.18rem !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      margin: 0.12rem 0 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      background: transparent !important;
+      color: #070707 !important;
+      box-shadow: none !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      transform: none !important;
+    }
+
+    .controls.transport-strip #play .button-shortcut kbd {
+      display: inline-grid !important;
+      place-items: center !important;
+      min-width: 1.05rem !important;
+      min-height: 0.92rem !important;
+      padding: 0.02rem 0.14rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 2px 2px 0 rgba(255, 255, 255, 0.22) !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-size: 0.58rem !important;
+      font-weight: 900 !important;
+      line-height: 1 !important;
+    }
+
+    .controls.transport-strip #play:hover,
+    .controls.transport-strip #play:focus-visible {
+      background: var(--cs-blue, #0057ff) !important;
+      color: #ffffff !important;
+      border-color: var(--cs-line, #070707) !important;
+      outline: 2px solid var(--cs-blue, #0057ff) !important;
+      outline-offset: 3px !important;
+      box-shadow: 5px 5px 0 var(--cs-blue, #0057ff), 9px 9px 0 var(--cs-line, #070707) !important;
+      transform: translate(-1px, -1px) !important;
+      filter: none !important;
+    }
+
+    .controls.transport-strip #play:hover::before,
+    .controls.transport-strip #play:hover::after,
+    .controls.transport-strip #play:focus-visible::before,
+    .controls.transport-strip #play:focus-visible::after {
+      background:
+        repeating-linear-gradient(
+          135deg,
+          #ffffff 0 10px,
+          #ffffff 10px 20px,
+          #070707 20px 30px,
+          #070707 30px 40px
+        ) !important;
+    }
+
+    .controls.transport-strip #play:hover .button-main,
+    .controls.transport-strip #play:focus-visible .button-main {
+      color: #ffffff !important;
+    }
+
+    .controls.transport-strip #play:hover .button-shortcut,
+    .controls.transport-strip #play:focus-visible .button-shortcut {
+      background: transparent !important;
+      border: 0 !important;
+      box-shadow: none !important;
+    }
+
+    .controls.transport-strip #play:hover .button-shortcut kbd,
+    .controls.transport-strip #play:focus-visible .button-shortcut kbd {
+      background: #ffffff !important;
+      color: #070707 !important;
+      border-color: var(--cs-line, #070707) !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip #play:active {
+      transform: translate(2px, 2px) !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+      outline-offset: 1px !important;
+    }
+
+    /* Patch title rename affordance — editable document nameplate.
+       Adds an always-visible edit well without changing title behavior. */
+    .editor-wrap > .patch-identity-row .patch-title-chip {
+      position: relative !important;
+      padding-right: 6.15rem !important;
+      cursor: text !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patch-title-chip::after {
+      content: "✎";
+      position: absolute;
+      top: 50%;
+      right: 0.34rem;
+      transform: translateY(-50%);
+      z-index: 2;
+      display: inline-grid;
+      place-items: center;
+      min-width: 1.42rem;
+      height: calc(var(--editor-label-rail, 1.8rem) - 0.5rem);
+      box-sizing: border-box;
+      padding: 0 0.34rem;
+      border-left: 2px solid var(--cs-white, #ffffff);
+      background: var(--cs-line, #070707);
+      color: var(--cs-yellow, #ffd400);
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.68rem;
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .editor-wrap > .patch-identity-row .patch-title-chip:hover,
+    .editor-wrap > .patch-identity-row .patch-title-chip:focus-visible {
+      box-shadow: 4px 4px 0 var(--cs-blue, #0057ff), 0 3px 0 var(--cs-yellow, #ffd400) inset !important;
+      outline: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patch-title-chip:hover::after,
+    .editor-wrap > .patch-identity-row .patch-title-chip:focus-visible::after {
+      content: "RENAME ✎";
+      min-width: 4.85rem;
+      background: var(--cs-white, #ffffff);
+      color: var(--cs-line, #070707);
+      border: 2px solid var(--cs-line, #070707);
+      box-shadow: 2px 2px 0 var(--cs-yellow, #ffd400);
+    }
+
+    .editor-wrap > .patch-identity-row .patch-title-chip:active {
+      transform: translate(1px, 1px);
+      box-shadow: 2px 2px 0 var(--cs-blue, #0057ff) !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patch-title-chip.is-editing {
+      padding-right: 0.42rem !important;
+      cursor: text !important;
+      box-shadow: 4px 4px 0 var(--cs-yellow, #ffd400) !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patch-title-chip.is-editing::after {
+      content: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patch-title-chip-label {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .editor-wrap > .patch-identity-row .patch-title-chip-state {
+      flex: 0 0 auto;
+    }
+
+
+    @media (max-width: 52rem) {
+      .controls.transport-strip #play {
+        padding-left: clamp(3.2rem, 21%, 4.2rem) !important;
+        padding-right: clamp(3.2rem, 21%, 4.2rem) !important;
+      }
+
+      .controls.transport-strip #play::before,
+      .controls.transport-strip #play::after {
+        width: clamp(2.55rem, 20%, 3.35rem) !important;
+      }
+    }
+
+
+
+    /* Evaluate button side-guard repair — readable execution gate.
+       Keep hazard stripes as integrated left/right guards, not as the
+       content field. Override late transport passes without touching other
+       transport controls. */
+    .controls.transport-strip #play.transport-evaluate {
+      --eval-side: clamp(3.15rem, 22%, 4.8rem);
+      position: relative !important;
+      isolation: isolate !important;
+      display: grid !important;
+      grid-template-columns: 1fr !important;
+      grid-template-rows: auto auto !important;
+      align-content: center !important;
+      justify-items: center !important;
+      row-gap: 0.42rem !important;
+      min-width: 16rem !important;
+      min-height: 4.35rem !important;
+      padding: 0.7rem calc(var(--eval-side) + 0.44rem) 0.66rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      border-radius: 0 !important;
+      background: var(--cs-line, #070707) !important;
+      color: var(--cs-white, #ffffff) !important;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707) !important;
+      transform: translate(0, 0) !important;
+      overflow: hidden !important;
+      filter: none !important;
+    }
+
+    /* ------------------------------------------------------------------
+       FINAL DOCUMENT ACTION BUTTON FAMILY
+       PATCHES / SHARE / CLEAR share one physical rail height and hover
+       semantics. PATCHES opens, SHARE exports, CLEAR destroys.
+    ------------------------------------------------------------------ */
+    .editor-wrap {
+      --editor-label-rail: 2.12rem !important;
+      --doc-action-h: var(--editor-label-rail) !important;
+    }
+
+    .editor-wrap > .patch-identity-row {
+      grid-template-columns: minmax(14rem, 1fr) auto 5.95rem 6.15rem !important;
+      gap: 0.36rem !important;
+      min-height: var(--doc-action-h) !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patch-title-chip,
+    .editor-wrap > .patch-identity-row .patches-trigger-chip,
+    .editor-wrap > .patch-identity-row #share,
+    .editor-wrap > .patch-identity-row #clear-patch {
+      height: var(--doc-action-h) !important;
+      min-height: var(--doc-action-h) !important;
+      max-height: var(--doc-action-h) !important;
+      box-sizing: border-box !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      border-top: 0 !important;
+      border-radius: 0 !important;
+      transform: translate(0, 0) !important;
+      transition: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patches-trigger-chip,
+    .editor-wrap > .patch-identity-row #share,
+    .editor-wrap > .patch-identity-row #clear-patch {
+      display: inline-grid !important;
+      grid-template-columns: minmax(0, 1fr) !important;
+      grid-template-rows: minmax(0, 1fr) auto !important;
+      align-items: center !important;
+      justify-items: center !important;
+      align-self: stretch !important;
+      justify-self: stretch !important;
+      min-width: 0 !important;
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+      padding: 0.26rem 0.5rem 0.22rem !important;
+      overflow: hidden !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-weight: 900 !important;
+      text-transform: uppercase !important;
+      cursor: pointer !important;
+      appearance: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patches-trigger-chip .button-main,
+    .editor-wrap > .patch-identity-row #share .button-main,
+    .editor-wrap > .patch-identity-row #clear-patch .button-main {
+      display: block !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      color: inherit !important;
+      font-size: 0.58rem !important;
+      line-height: 1 !important;
+      letter-spacing: 0.13em !important;
+      text-align: center !important;
+      white-space: nowrap !important;
+      text-shadow: none !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patches-trigger-chip .button-shortcut,
+    .editor-wrap > .patch-identity-row #share .button-shortcut,
+    .editor-wrap > .patch-identity-row #clear-patch .button-shortcut {
+      display: inline-grid !important;
+      place-items: center !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
+      min-height: 0.82rem !important;
+      margin: 0.1rem 0 0 !important;
+      padding: 0.07rem 0.22rem !important;
+      box-sizing: border-box !important;
+      font-size: 0.42rem !important;
+      line-height: 1 !important;
+      letter-spacing: 0.07em !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      opacity: 1 !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patches-trigger-chip {
+      grid-column: 2 !important;
+      min-width: 8.25rem !important;
+      background: var(--cs-line, #070707) !important;
+      color: #ffffff !important;
+      box-shadow: 4px 4px 0 var(--cs-yellow, #ffd400) !important;
+      gap: 0.3rem !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patches-trigger-chip .button-shortcut {
+      background: #ffffff !important;
+      color: #070707 !important;
+      border: 0 !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patches-trigger-chip:hover,
+    .editor-wrap > .patch-identity-row .patches-trigger-chip:focus-visible,
+    .editor-wrap > .patch-identity-row .patches-trigger-chip[aria-expanded="true"] {
+      background: var(--cs-line, #070707) !important;
+      color: #ffffff !important;
+      box-shadow: 5px 5px 0 var(--cs-blue, #0057ff) !important;
+      transform: translate(-1px, -1px) !important;
+      outline: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patches-trigger-chip:hover .button-shortcut,
+    .editor-wrap > .patch-identity-row .patches-trigger-chip:focus-visible .button-shortcut,
+    .editor-wrap > .patch-identity-row .patches-trigger-chip[aria-expanded="true"] .button-shortcut {
+      background: var(--cs-yellow, #ffd400) !important;
+      color: #070707 !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share {
+      grid-column: 3 !important;
+      background:
+        linear-gradient(90deg, var(--cs-blue, #0057ff) 0 0.32rem, transparent 0.32rem),
+        #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 4px 4px 0 var(--cs-blue, #0057ff) !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share .button-shortcut {
+      background: transparent !important;
+      color: #070707 !important;
+      border: 0 !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share:hover,
+    .editor-wrap > .patch-identity-row #share:focus-visible {
+      background:
+        linear-gradient(90deg, var(--cs-blue, #0057ff) 0 0.48rem, rgba(0, 87, 255, 0.12) 0.48rem 100%),
+        #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 5px 5px 0 var(--cs-blue, #0057ff) !important;
+      transform: translate(-1px, -1px) !important;
+      outline: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share.is-copied {
+      background: var(--cs-blue, #0057ff) !important;
+      color: #ffffff !important;
+      box-shadow: 4px 4px 0 var(--cs-line, #070707) !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share.is-copied .button-shortcut {
+      color: #ffffff !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share.is-warn {
+      background: var(--cs-yellow, #ffd400) !important;
+      color: #070707 !important;
+      box-shadow: 4px 4px 0 var(--cs-line, #070707) !important;
+    }
+
+    .editor-wrap > .patch-identity-row #share.is-error {
+      background: var(--cs-red, #e3342f) !important;
+      color: #ffffff !important;
+      box-shadow: 4px 4px 0 var(--cs-line, #070707) !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch {
+      grid-column: 4 !important;
+      background:
+        linear-gradient(90deg, var(--cs-red, #e3342f) 0 0.32rem, transparent 0.32rem),
+        #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 4px 4px 0 var(--cs-red, #e3342f) !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch::before,
+    .editor-wrap > .patch-identity-row #clear-patch::after {
+      content: none !important;
+      display: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch .button-shortcut {
+      background: transparent !important;
+      color: #070707 !important;
+      border: 0 !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch:hover,
+    .editor-wrap > .patch-identity-row #clear-patch:focus-visible {
+      background:
+        linear-gradient(90deg, var(--cs-red, #e3342f) 0 0.5rem, rgba(227, 52, 47, 0.12) 0.5rem 100%),
+        #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 5px 5px 0 var(--cs-red, #e3342f) !important;
+      transform: translate(-1px, -1px) !important;
+      outline: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch.is-armed {
+      background:
+        repeating-linear-gradient(135deg, var(--cs-red, #e3342f) 0 6px, var(--cs-red, #e3342f) 6px 12px, #ffffff 12px 18px, #ffffff 18px 24px) !important;
+      color: #070707 !important;
+      box-shadow: 5px 5px 0 var(--cs-red, #e3342f) !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch.is-blank-armed {
+      background:
+        repeating-linear-gradient(135deg, #d8d8d8 0 6px, #d8d8d8 6px 12px, #ffffff 12px 18px, #ffffff 18px 24px) !important;
+      color: #070707 !important;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707) !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch.is-armed .button-main,
+    .editor-wrap > .patch-identity-row #clear-patch.is-blank-armed .button-main {
+      display: inline-grid !important;
+      place-items: center !important;
+      min-width: 4.2rem !important;
+      min-height: 0.92rem !important;
+      padding: 0.08rem 0.3rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+      font-size: 0.52rem !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch.is-armed .button-shortcut,
+    .editor-wrap > .patch-identity-row #clear-patch.is-blank-armed .button-shortcut {
+      display: none !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch.is-cleared {
+      background: var(--cs-blue, #0057ff) !important;
+      color: #ffffff !important;
+      box-shadow: 4px 4px 0 var(--cs-line, #070707) !important;
+    }
+
+    .editor-wrap > .patch-identity-row #clear-patch.is-cleared .button-shortcut {
+      color: #ffffff !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patches-trigger-chip:focus-visible,
+    .editor-wrap > .patch-identity-row #share:focus-visible,
+    .editor-wrap > .patch-identity-row #clear-patch:focus-visible {
+      outline: 2px solid var(--cs-blue, #0057ff) !important;
+      outline-offset: 2px !important;
+    }
+
+    .editor-wrap > .patch-identity-row .patches-trigger-chip:active,
+    .editor-wrap > .patch-identity-row #share:active,
+    .editor-wrap > .patch-identity-row #clear-patch:active {
+      transform: translate(1px, 1px) !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+    }
+
+
+    .controls.transport-strip #play.transport-evaluate::before,
+    .controls.transport-strip #play.transport-evaluate::after {
+      content: "" !important;
+      position: absolute !important;
+      top: 0 !important;
+      bottom: 0 !important;
+      z-index: 1 !important;
+      width: var(--eval-side) !important;
+      border: 0 !important;
+      background:
+        repeating-linear-gradient(
+          135deg,
+          var(--cs-white, #ffffff) 0 10px,
+          var(--cs-white, #ffffff) 10px 20px,
+          var(--cs-line, #070707) 20px 30px,
+          var(--cs-line, #070707) 30px 40px
+        ) !important;
+      pointer-events: none !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate::before {
+      left: 0 !important;
+      right: auto !important;
+      border-right: 2px solid var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate::after {
+      right: 0 !important;
+      left: auto !important;
+      border-left: 2px solid var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate .button-main,
+    .controls.transport-strip #play.transport-evaluate:hover .button-main,
+    .controls.transport-strip #play.transport-evaluate:focus .button-main,
+    .controls.transport-strip #play.transport-evaluate:focus-visible .button-main {
+      position: relative !important;
+      z-index: 3 !important;
+      display: block !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
+      padding: 0 !important;
+      border: 0 !important;
+      background: transparent !important;
+      color: var(--cs-white, #ffffff) !important;
+      box-shadow: none !important;
+      font-size: clamp(0.9rem, 1.22vw, 1.28rem) !important;
+      line-height: 1 !important;
+      font-weight: 900 !important;
+      letter-spacing: 0.18em !important;
+      text-align: center !important;
+      text-transform: uppercase !important;
+      white-space: nowrap !important;
+      text-shadow: none !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate .button-shortcut,
+    .controls.transport-strip #play.transport-evaluate:hover .button-shortcut,
+    .controls.transport-strip #play.transport-evaluate:focus .button-shortcut,
+    .controls.transport-strip #play.transport-evaluate:focus-visible .button-shortcut {
+      position: relative !important;
+      z-index: 3 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 0.2rem !important;
+      min-height: 1.08rem !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      background: transparent !important;
+      color: var(--cs-line, #070707) !important;
+      box-shadow: none !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      transform: none !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate kbd,
+    .controls.transport-strip #play.transport-evaluate:hover kbd,
+    .controls.transport-strip #play.transport-evaluate:focus kbd,
+    .controls.transport-strip #play.transport-evaluate:focus-visible kbd {
+      display: inline-grid !important;
+      place-items: center !important;
+      min-width: 1.26rem !important;
+      min-height: 1.1rem !important;
+      padding: 0 0.18rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: var(--cs-white, #ffffff) !important;
+      color: var(--cs-line, #070707) !important;
+      box-shadow: 3px 3px 0 rgba(255, 255, 255, 0.22) !important;
+      font: inherit !important;
+      font-size: 0.72rem !important;
+      line-height: 1 !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate:hover,
+    .controls.transport-strip #play.transport-evaluate:focus-visible {
+      background: var(--cs-blue, #0057ff) !important;
+      color: var(--cs-white, #ffffff) !important;
+      border-color: var(--cs-line, #070707) !important;
+      box-shadow: 5px 5px 0 var(--cs-blue, #0057ff), 8px 8px 0 var(--cs-line, #070707) !important;
+      outline: 2px solid var(--cs-blue, #0057ff) !important;
+      outline-offset: 3px !important;
+      transform: translate(-1px, -1px) !important;
+      filter: none !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate:hover::before,
+    .controls.transport-strip #play.transport-evaluate:hover::after,
+    .controls.transport-strip #play.transport-evaluate:focus-visible::before,
+    .controls.transport-strip #play.transport-evaluate:focus-visible::after {
+      background:
+        repeating-linear-gradient(
+          135deg,
+          var(--cs-white, #ffffff) 0 10px,
+          var(--cs-white, #ffffff) 10px 20px,
+          var(--cs-line, #070707) 20px 30px,
+          var(--cs-line, #070707) 30px 40px
+        ) !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate:active {
+      transform: translate(2px, 2px) !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+      outline-offset: 1px !important;
+    }
+
+    @media (max-width: 72rem) {
+      .controls.transport-strip #play.transport-evaluate {
+        --eval-side: clamp(2.35rem, 18%, 3.6rem);
+        min-width: 12rem !important;
+        padding-left: calc(var(--eval-side) + 0.34rem) !important;
+        padding-right: calc(var(--eval-side) + 0.34rem) !important;
+      }
+    }
+
+
+    /* ------------------------------------------------------------------
+       Evaluate button v9 — true integrated side guards, no row overlap.
+       This supersedes v7/v8. It deliberately avoids ::before/::after for
+       the stripe fields so older pseudo-element rules cannot make one side
+       disappear or turn into a center plate.
+    ------------------------------------------------------------------ */
+    .controls.transport-strip #play.transport-evaluate,
+    .controls.transport-strip #play {
+      --eval-guard: clamp(3.2rem, 21%, 4.55rem);
+      --eval-center: var(--cs-line, #070707);
+      grid-column: 2 !important;
+      grid-row: 1 !important;
+      align-self: stretch !important;
+      justify-self: stretch !important;
+      position: relative !important;
+      isolation: isolate !important;
+      box-sizing: border-box !important;
+      display: grid !important;
+      grid-template-columns: 1fr !important;
+      grid-template-rows: auto auto !important;
+      place-items: center !important;
+      align-content: center !important;
+      gap: 0.16rem !important;
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: none !important;
+      height: 100% !important;
+      min-height: 0 !important;
+      max-height: none !important;
+      padding: 0.38rem calc(var(--eval-guard) + 0.42rem) 0.34rem !important;
+      border: 3px solid var(--cs-line, #070707) !important;
+      border-radius: 0 !important;
+      background:
+        linear-gradient(var(--eval-center), var(--eval-center)) center / calc(100% - (var(--eval-guard) * 2)) 100% no-repeat,
+        repeating-linear-gradient(
+          135deg,
+          #ffffff 0 10px,
+          #ffffff 10px 20px,
+          #070707 20px 30px,
+          #070707 30px 40px
+        ) left center / var(--eval-guard) 100% no-repeat,
+        repeating-linear-gradient(
+          135deg,
+          #ffffff 0 10px,
+          #ffffff 10px 20px,
+          #070707 20px 30px,
+          #070707 30px 40px
+        ) right center / var(--eval-guard) 100% no-repeat !important;
+      color: #ffffff !important;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707) !important;
+      transform: translate(0, 0) !important;
+      overflow: hidden !important;
+      filter: none !important;
+      font-size: inherit !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate::before,
+    .controls.transport-strip #play.transport-evaluate::after,
+    .controls.transport-strip #play::before,
+    .controls.transport-strip #play::after {
+      content: none !important;
+      display: none !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate .button-main,
+    .controls.transport-strip #play .button-main {
+      position: relative !important;
+      z-index: 2 !important;
+      display: block !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
+      padding: 0 !important;
+      border: 0 !important;
+      background: transparent !important;
+      color: #ffffff !important;
+      box-shadow: none !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-size: clamp(0.82rem, 1vw, 1.02rem) !important;
+      line-height: 1 !important;
+      font-weight: 900 !important;
+      letter-spacing: 0.22em !important;
+      text-transform: uppercase !important;
+      text-align: center !important;
+      white-space: nowrap !important;
+      text-shadow: none !important;
+      transform: none !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate .button-shortcut,
+    .controls.transport-strip #play .button-shortcut {
+      position: relative !important;
+      z-index: 2 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 0.18rem !important;
+      min-height: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      background: transparent !important;
+      color: #070707 !important;
+      box-shadow: none !important;
+      opacity: 1 !important;
+      transform: none !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate .button-shortcut kbd,
+    .controls.transport-strip #play .button-shortcut kbd {
+      display: inline-grid !important;
+      place-items: center !important;
+      min-width: 1.08rem !important;
+      min-height: 0.92rem !important;
+      padding: 0 0.18rem !important;
+      border: 2px solid #ffffff !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 2px 2px 0 rgba(255, 255, 255, 0.28) !important;
+      font: inherit !important;
+      font-size: 0.56rem !important;
+      line-height: 1 !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate:hover,
+    .controls.transport-strip #play.transport-evaluate:focus-visible,
+    .controls.transport-strip #play:hover,
+    .controls.transport-strip #play:focus-visible {
+      --eval-center: var(--cs-blue, #0057ff);
+      transform: translate(-1px, -1px) !important;
+      box-shadow: 5px 5px 0 var(--cs-blue, #0057ff), 8px 8px 0 var(--cs-line, #070707) !important;
+      outline: 2px solid var(--cs-blue, #0057ff) !important;
+      outline-offset: 2px !important;
+      filter: none !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate:hover .button-shortcut kbd,
+    .controls.transport-strip #play.transport-evaluate:focus-visible .button-shortcut kbd,
+    .controls.transport-strip #play:hover .button-shortcut kbd,
+    .controls.transport-strip #play:focus-visible .button-shortcut kbd {
+      border-color: #ffffff !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate:active,
+    .controls.transport-strip #play:active {
+      transform: translate(2px, 2px) !important;
+      box-shadow: 1px 1px 0 var(--cs-line, #070707) !important;
+      outline-offset: 1px !important;
+    }
+
+    @media (max-width: 74rem) {
+      .controls.transport-strip #play.transport-evaluate,
+      .controls.transport-strip #play {
+        --eval-guard: clamp(2.65rem, 20%, 3.65rem);
+        padding-left: calc(var(--eval-guard) + 0.34rem) !important;
+        padding-right: calc(var(--eval-guard) + 0.34rem) !important;
+      }
+    }
+
+    /* ------------------------------------------------------------------
+       Replay + I/O modal pass — replay stays readable; I/O becomes modal.
+       This is intentionally final and ID-scoped so older transport passes
+       cannot flood REPLAY yellow or keep I/O inline.
+    ------------------------------------------------------------------ */
+    .controls.transport-strip #safe-play.transport-replay,
+    .controls.transport-strip #safe-play {
+      position: relative !important;
+      display: grid !important;
+      grid-template-rows: minmax(0, 1fr) auto !important;
+      align-content: center !important;
+      justify-items: center !important;
+      gap: 0.14rem !important;
+      min-height: 3.05rem !important;
+      padding: 0.52rem 0.54rem 0.36rem !important;
+      border: 3px solid var(--cs-line, #070707) !important;
+      border-top: 7px solid var(--cs-yellow, #ffd400) !important;
+      border-left-width: 3px !important;
+      border-left-color: var(--cs-line, #070707) !important;
+      border-radius: 0 !important;
+      background:
+        linear-gradient(var(--replay-panel, transparent), var(--replay-panel, transparent)),
+        #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 5px 5px 0 var(--cs-line, #070707) !important;
+      overflow: hidden !important;
+      transform: translate(0, 0) !important;
+      filter: none !important;
+    }
+
+    .controls.transport-strip #safe-play::before,
+    .controls.transport-strip #safe-play::after {
+      content: none !important;
+    }
+
+    .controls.transport-strip #safe-play .button-main {
+      position: relative !important;
+      z-index: 2 !important;
+      display: block !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      color: #070707 !important;
+      background: transparent !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-size: 0.82rem !important;
+      line-height: 0.96 !important;
+      font-weight: 900 !important;
+      letter-spacing: 0.16em !important;
+      text-transform: uppercase !important;
+      text-align: center !important;
+      white-space: nowrap !important;
+      transform: translateY(-0.05rem) !important;
+    }
+
+    .controls.transport-strip #safe-play .button-shortcut {
+      position: relative !important;
+      z-index: 2 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 0.14rem !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      background: transparent !important;
+      color: #070707 !important;
+      box-shadow: none !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      transform: none !important;
+    }
+
+    .controls.transport-strip #safe-play .button-shortcut kbd {
+      display: inline-grid !important;
+      place-items: center !important;
+      min-width: 1rem !important;
+      min-height: 0.86rem !important;
+      padding: 0 0.16rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: var(--cs-yellow, #ffd400) !important;
+      color: #070707 !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+      font: inherit !important;
+      font-size: 0.54rem !important;
+      line-height: 1 !important;
+    }
+
+    .controls.transport-strip #safe-play:hover,
+    .controls.transport-strip #safe-play:focus-visible {
+      --replay-panel: rgba(255, 212, 0, 0.28);
+      background:
+        linear-gradient(var(--replay-panel), var(--replay-panel)),
+        #ffffff !important;
+      color: #070707 !important;
+      transform: translate(-1px, -1px) !important;
+      box-shadow: 5px 5px 0 var(--cs-blue, #0057ff), 8px 8px 0 var(--cs-line, #070707) !important;
+      outline: 2px solid var(--cs-line, #070707) !important;
+      outline-offset: 2px !important;
+      filter: none !important;
+    }
+
+    .controls.transport-strip #safe-play:hover .button-shortcut kbd,
+    .controls.transport-strip #safe-play:focus-visible .button-shortcut kbd {
+      background: #ffffff !important;
+      color: #070707 !important;
+      border-color: var(--cs-line, #070707) !important;
+      box-shadow: 2px 2px 0 var(--cs-blue, #0057ff) !important;
+    }
+
+    .controls.transport-strip #safe-play:active {
+      transform: translate(2px, 2px) !important;
+      box-shadow: 1px 1px 0 var(--cs-line, #070707) !important;
+      outline-offset: 1px !important;
+    }
+
+    body.io-popover-open::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 1190;
+      background:
+        repeating-linear-gradient(
+          135deg,
+          rgba(7, 7, 7, 0.12) 0 4px,
+          rgba(7, 7, 7, 0.12) 4px 8px,
+          rgba(255, 255, 255, 0.58) 8px 12px,
+          rgba(255, 255, 255, 0.58) 12px 16px
+        );
+      pointer-events: none;
+    }
+
+    #input-panel.io-popover {
+      position: fixed !important;
+      left: 50% !important;
+      top: 50% !important;
+      z-index: 1200 !important;
+      transform: translate(-50%, -50%) !important;
+      display: grid !important;
+      grid-template-rows: auto auto auto auto !important;
+      gap: 0 !important;
+      width: min(58rem, calc(100vw - 2.2rem)) !important;
+      max-height: min(76vh, 42rem) !important;
+      overflow: auto !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 3px solid var(--cs-line, #070707) !important;
+      border-radius: 0 !important;
+      background:
+        repeating-linear-gradient(0deg, transparent 0 13px, rgba(7, 7, 7, 0.035) 13px 14px),
+        #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 6px 6px 0 var(--cs-blue, #0057ff), 10px 10px 0 var(--cs-yellow, #ffd400) !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-size: 0.86rem !important;
+      line-height: 1.2 !important;
+    }
+
+    #input-panel.io-popover[hidden] {
+      display: none !important;
+    }
+
+    #input-panel.io-popover .input-panel-row {
+      display: flex !important;
+      flex-wrap: wrap !important;
+      align-items: center !important;
+      gap: 0.56rem 0.72rem !important;
+      margin: 0 !important;
+      padding: 0.7rem 0.82rem !important;
+      border-bottom: 2px solid var(--cs-line, #070707) !important;
+      background: transparent !important;
+    }
+
+    #input-panel.io-popover .input-panel-head {
+      display: grid !important;
+      grid-template-columns: auto minmax(0, 1fr) auto !important;
+      align-items: center !important;
+      gap: 0.6rem !important;
+      background: var(--cs-line, #070707) !important;
+      color: #ffffff !important;
+      margin: 0 !important;
+      padding: 0.58rem 0.72rem !important;
+      border-bottom: 2px solid var(--cs-line, #070707) !important;
+    }
+
+    #input-panel.io-popover .input-panel-head::before {
+      content: "";
+      display: inline-block;
+      width: 1.08rem;
+      height: 0.52rem;
+      margin-right: 0.12rem;
+      background:
+        linear-gradient(90deg, var(--cs-red, #e3342f) 0 33%, var(--cs-yellow, #ffd400) 33% 66%, var(--cs-blue, #0057ff) 66% 100%);
+      border: 2px solid var(--cs-line, #070707);
+      box-shadow: 1px 1px 0 #ffffff;
+    }
+
+    #input-panel.io-popover .input-panel-head strong {
+      color: #ffffff !important;
+      font-size: 0.9rem !important;
+      font-weight: 900 !important;
+      letter-spacing: 0.12em !important;
+      text-transform: uppercase !important;
+      white-space: nowrap !important;
+    }
+
+    #input-panel.io-popover .input-panel-subhead {
+      color: var(--cs-yellow, #ffd400) !important;
+      font-size: 0.62rem !important;
+      font-weight: 900 !important;
+      letter-spacing: 0.11em !important;
+      text-transform: uppercase !important;
+      min-width: 0 !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      white-space: nowrap !important;
+    }
+
+    #input-panel.io-popover .input-panel-close,
+    #input-panel.io-popover button {
+      border: 2px solid var(--cs-line, #070707) !important;
+      border-radius: 0 !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-size: 0.66rem !important;
+      font-weight: 900 !important;
+      letter-spacing: 0.08em !important;
+      text-transform: uppercase !important;
+      padding: 0.28rem 0.42rem !important;
+      cursor: pointer !important;
+    }
+
+    #input-panel.io-popover .input-panel-close:hover,
+    #input-panel.io-popover .input-panel-close:focus-visible,
+    #input-panel.io-popover button:hover,
+    #input-panel.io-popover button:focus-visible {
+      transform: translate(-1px, -1px) !important;
+      box-shadow: 3px 3px 0 var(--cs-line, #070707) !important;
+      outline: 2px solid var(--cs-yellow, #ffd400) !important;
+      outline-offset: 2px !important;
+    }
+
+    #input-panel.io-popover .input-panel-field {
+      display: inline-flex !important;
+      flex-direction: column !important;
+      gap: 0.16rem !important;
+      min-width: 10rem !important;
+      color: var(--cs-muted, #5f6368) !important;
+      font-size: 0.63rem !important;
+      font-weight: 900 !important;
+      letter-spacing: 0.12em !important;
+      text-transform: uppercase !important;
+    }
+
+    #input-panel.io-popover select {
+      min-width: 10rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      border-radius: 0 !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-size: 0.76rem !important;
+      font-weight: 900 !important;
+      letter-spacing: 0.03em !important;
+      padding: 0.22rem 0.34rem !important;
+    }
+
+    #input-panel.io-popover .input-status {
+      display: inline-flex !important;
+      align-items: center !important;
+      min-height: 1.45rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: #ffffff !important;
+      color: #070707 !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+      padding: 0.12rem 0.38rem !important;
+      font-weight: 900 !important;
+      text-transform: uppercase !important;
+    }
+
+    #input-panel.io-popover .input-status.source-live {
+      color: var(--cs-green, #008f5a) !important;
+    }
+
+    #input-panel.io-popover .input-status.source-error {
+      color: var(--cs-red, #e3342f) !important;
+    }
+
+    #input-panel.io-popover .input-meter {
+      width: 9.8rem !important;
+      height: 0.82rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: #ffffff !important;
+      box-shadow: 2px 2px 0 var(--cs-line, #070707) !important;
+    }
+
+    #input-panel.io-popover .input-meter-fill {
+      background: var(--cs-blue, #0057ff) !important;
+    }
+
+    #input-panel.io-popover .input-panel-help {
+      flex: 1 1 18rem !important;
+      min-width: 14rem !important;
+      color: var(--cs-muted, #5f6368) !important;
+      font-size: 0.72rem !important;
+      font-weight: 800 !important;
+      line-height: 1.25 !important;
+    }
+
+</style>
 </head>
 <body>
     <main class="shell repl-shell">
@@ -6506,8 +8936,14 @@ margin-top: var(--editor-label-rail, 0px);
         </div>
 
         <div class="editor-wrap">
-          <div class="patch-identity-row">
-            <div id="patch-title-chip" class="editor-label-chip patch-title-chip" role="button" tabindex="0" title="Click to rename/save patch title · Option-click to insert a title metadata line">
+          <div class="patch-identity-row" aria-label="patch document controls">
+            <div
+              id="patch-title-chip"
+              class="editor-label-chip patch-title-chip"
+              role="button"
+              tabindex="0"
+              title="Click to rename/save patch title · Option-click to insert a title metadata line"
+            >
               <span class="patch-title-chip-label">PATCH / UNTITLED</span>
               <span class="patch-title-chip-state" hidden></span>
               <form class="patch-title-editor" hidden>
@@ -6517,63 +8953,140 @@ margin-top: var(--editor-label-rail, 0px);
                 <button type="button" data-title-cancel>cancel</button>
               </form>
             </div>
-            <button id="example-trigger" class="patches-trigger-chip" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="example-popover" title="Browse examples and saved patches">
-              <span class="button-main">patches</span><span class="button-shortcut" id="example-current-label">examples / saved</span>
+
+            <button
+              id="example-trigger"
+              class="patches-trigger-chip"
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="example-popover"
+              title="Browse examples and saved patches"
+            >
+              <span class="button-main">patches</span>
+              <span class="button-shortcut" id="example-current-label">examples / saved</span>
+            </button>
+
+            <button
+              id="share"
+              class="repl-share-control patch-doc-action patch-doc-action-share"
+              type="button"
+              title="copy a shareable patch link"
+              aria-label="Copy patch link"
+            >
+              <span class="button-main">share</span>
+              <span class="button-shortcut">copy link</span>
+            </button>
+            <span id="sharePatchStatus" class="repl-share-status patch-doc-status" aria-live="polite"></span>
+
+            <button
+              id="clear-patch"
+              class="repl-clear-control patch-doc-action patch-doc-action-clear"
+              type="button"
+              title="Clear patch · Cmd/Ctrl-Shift-Backspace. Option-click: blank editor."
+              aria-label="Clear patch"
+            >
+              <span class="button-main" aria-hidden="true">CLEAR</span>
+              <span class="button-shortcut">clear patch</span>
             </button>
           </div>
+
           <div class="editor-label-chip cybernetic-score-chip" aria-hidden="true">CYBERNETIC SCORE</div>
           <div id="editor" class="repl-editor" aria-label="REPL score editor"></div>
         </div>
 
-        <div class="controls">
-          <span class="bracket">[</span> <button id="play" type="button" title="Cmd-Enter: evaluate and restart; frozen random choices may reroll"><span class="button-main">evaluate</span><span class="button-shortcut" aria-label="Command Enter"><kbd>⌘</kbd><kbd>↵</kbd></span></button> <span class="bracket">]</span>
-          <span class="sep">·</span>
-          <span class="bracket">[</span> <button id="safe-play" type="button" title="Cmd-Shift-Enter: replay transport without unlocking frozen random choices"><span class="button-main">replay</span><span class="button-shortcut" aria-label="Command Shift Enter"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>↵</kbd></span></button> <span class="bracket">]</span>
-          <span class="sep">·</span>
-          <span class="bracket">[</span> <button id="stop" type="button" title="Esc: stop all currently sounding voices"><span class="button-main">stop</span><span class="button-shortcut">esc</span></button> <span class="bracket">]</span>
-          <span class="sep">·</span>
-          <span class="bracket">[</span>
-          <button id="share" class="repl-share-control" type="button" title="copy a shareable patch link" aria-label="Copy patch link">
-            <span class="button-main">share</span><span class="button-shortcut">copy link</span>
-          </button>
-          <span id="sharePatchStatus" class="repl-share-status" aria-live="polite"></span>
-          <span class="bracket">]</span>
-          <span class="sep">·</span>
-          <span class="bracket">[</span>
+        <div class="controls transport-strip" aria-label="transport and runtime controls">
+          <div class="transport-rail" aria-hidden="true">TRANSPORT</div>
+
           <button
-            id="clear-patch"
-            class="repl-clear-control"
+            id="play"
+            class="transport-button transport-evaluate"
             type="button"
-            title="Clear patch · Cmd/Ctrl-Shift-Backspace. Option-click: blank editor."
-            aria-label="Clear patch"
+            title="Cmd-Enter: evaluate and restart; frozen random choices may reroll"
           >
-            <span class="button-main" aria-hidden="true">×</span>
-            <span class="button-shortcut">clear patch</span>
+            <span class="button-main">evaluate</span>
+            <span class="button-shortcut" aria-label="Command Enter"><kbd>⌘</kbd><kbd>↵</kbd></span>
           </button>
-          <span class="bracket">]</span>
-          <span class="sep">·</span>
-          <span class="bracket">[</span>
+
+          <button
+            id="safe-play"
+            class="transport-button transport-replay"
+            type="button"
+            title="Cmd-Shift-Enter: replay transport without unlocking frozen random choices"
+          >
+            <span class="button-main">replay</span>
+            <span class="button-shortcut" aria-label="Command Shift Enter"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>↵</kbd></span>
+          </button>
+
+          <button
+            id="stop"
+            class="transport-button transport-stop"
+            type="button"
+            title="Esc: stop all currently sounding voices"
+          >
+            <span class="button-main">stop</span>
+            <span class="button-shortcut">esc</span>
+          </button>
+
           <button
             id="samples-toggle"
+            class="transport-button transport-command"
             type="button"
             aria-haspopup="dialog"
             aria-expanded="false"
             aria-controls="command-popover"
             title="Cmd/Ctrl-K: open command palette"
           >
-            <span class="button-main">command</span><span class="button-shortcut">palette</span>
+            <span class="button-main">command</span>
+            <span class="button-shortcut">palette</span>
           </button>
-          <span class="bracket">]</span>
-          <span class="sep">·</span>
-          <span class="bracket">[</span> <button id="input-toggle" type="button" title="Cmd/Ctrl-I: toggle I/O panel" aria-expanded="false" aria-controls="input-panel"><span class="button-main">i/o</span><span class="button-shortcut">cmd/ctrl i</span></button> <span class="bracket">]</span>
-          <span class="sep">·</span>
-          <span id="video-toolbar">
-            <span class="bracket">[</span> <button id="video-toggle" type="button" aria-expanded="false" aria-controls="video-panel"><span class="button-main">video</span><span class="button-shortcut">open stage</span></button> <span class="bracket">]</span>
-            <span class="sep">·</span>
+
+          <button
+            id="input-toggle"
+            class="transport-button transport-io"
+            type="button"
+            title="Cmd/Ctrl-I: open I/O live input"
+            aria-expanded="false"
+            aria-controls="input-panel"
+          >
+            <span class="button-main">i/o</span>
+            <span class="button-shortcut">cmd/ctrl i</span>
+          </button>
+
+          <span id="video-toolbar" class="transport-video-slot">
+            <button
+              id="video-toggle"
+              class="transport-button transport-video"
+              type="button"
+              aria-expanded="false"
+              aria-controls="video-panel"
+            >
+              <span class="button-main">video</span>
+              <span class="button-shortcut">open stage</span>
+            </button>
           </span>
-          <span class="bracket">[</span> <button id="reference-toggle" type="button" aria-expanded="false" aria-controls="reference-panel"><span class="button-main">reference</span><span class="button-shortcut">surface map</span></button> <span class="bracket">]</span>
-          <span class="sep">·</span>
-          <span class="bracket">[</span> <button id="docs-toggle" type="button" aria-expanded="false" aria-controls="docs-panel"><span class="button-main">docs</span><span class="button-shortcut">manual</span></button> <span class="bracket">]</span>
+
+          <button
+            id="reference-toggle"
+            class="transport-button transport-reference"
+            type="button"
+            aria-expanded="false"
+            aria-controls="reference-panel"
+          >
+            <span class="button-main">reference</span>
+            <span class="button-shortcut">surface map</span>
+          </button>
+
+          <button
+            id="docs-toggle"
+            class="transport-button transport-docs"
+            type="button"
+            aria-expanded="false"
+            aria-controls="docs-panel"
+          >
+            <span class="button-main">docs</span>
+            <span class="button-shortcut">manual</span>
+          </button>
         </div>
 
         <div id="example-popover" class="example-popover" hidden role="dialog" aria-label="patch browser">
@@ -6628,10 +9141,11 @@ margin-top: var(--editor-label-rail, 0px);
           </div>
         </div>
 
-        <div id="input-panel" class="input-panel" hidden>
+        <div id="input-panel" class="input-panel io-popover" hidden role="dialog" aria-modal="true" aria-label="I/O live input">
           <div class="input-panel-row input-panel-head">
-            <strong>i/o</strong>
+            <strong>i/o / live input</strong>
             <span class="input-panel-subhead">arm sources / route output</span>
+            <button id="input-close" class="input-panel-close" type="button" aria-label="Close I/O live input">close</button>
           </div>
           <div class="input-panel-row input-panel-controls">
             <label class="input-panel-field"><span>source</span>
@@ -6723,7 +9237,7 @@ margin-top: var(--editor-label-rail, 0px);
             <code class="reference-key">Cmd-Enter</code><span class="reference-value">evaluate</span>
             <code class="reference-key">Cmd-Shift-Enter</code><span class="reference-value">replay</span>
             <code class="reference-key">Esc</code><span class="reference-value">stop</span>
-            <code class="reference-key">Cmd/Ctrl-I</code><span class="reference-value">toggle I/O panel</span>
+            <code class="reference-key">Cmd/Ctrl-I</code><span class="reference-value">open / close I/O modal</span>
             <code class="reference-key">Shift</code><span class="reference-value">on param/effect rows: open legal-value completion</span>
             <code class="reference-key">Tab</code><span class="reference-value">indent / complete</span>
             <code class="reference-key">↑ ↓ PgUp PgDn</code><span class="reference-value">completion menu navigation (when open)</span>
@@ -7288,660 +9802,119 @@ pan   *~</code></pre>
   <script src="./repl-editor.js?v=20260508r3"></script>
   <script src="./docs.js?v=20260508r2"></script>
   <script src="./repl-patch-codec.js?v=20260509r2"></script>
+
+  <script>
+    // Final DOM repair for the REPL button hierarchy. This intentionally runs
+    // before repl.js initializes so getElementById() still binds the same nodes.
+    (function () {
+      function ensureButton(id, className, mainText, subText, attrs) {
+        var btn = document.getElementById(id);
+        if (!btn) {
+          btn = document.createElement('button');
+          btn.id = id;
+          btn.type = 'button';
+        }
+        btn.className = className;
+        Object.keys(attrs || {}).forEach(function (key) { btn.setAttribute(key, attrs[key]); });
+        if (!btn.querySelector('.button-main')) {
+          var main = document.createElement('span');
+          main.className = 'button-main';
+          btn.appendChild(main);
+        }
+        if (!btn.querySelector('.button-shortcut')) {
+          var sub = document.createElement('span');
+          sub.className = 'button-shortcut';
+          btn.appendChild(sub);
+        }
+        btn.querySelector('.button-main').textContent = mainText;
+        btn.querySelector('.button-shortcut').textContent = subText;
+        return btn;
+      }
+
+      function repairButtonHierarchy() {
+        var editorWrap = document.querySelector('.editor-wrap');
+        var controls = document.querySelector('.controls');
+        if (!editorWrap || !controls) return;
+
+        controls.classList.add('transport-strip');
+        controls.setAttribute('aria-label', 'transport and runtime controls');
+
+        var rail = controls.querySelector('.transport-rail');
+        if (!rail) {
+          rail = document.createElement('div');
+          rail.className = 'transport-rail';
+          rail.setAttribute('aria-hidden', 'true');
+          rail.textContent = 'TRANSPORT';
+          controls.insertBefore(rail, controls.firstChild);
+        }
+
+        var map = [
+          ['play', 'transport-button transport-evaluate'],
+          ['safe-play', 'transport-button transport-replay'],
+          ['stop', 'transport-button transport-stop'],
+          ['samples-toggle', 'transport-button transport-command'],
+          ['input-toggle', 'transport-button transport-io'],
+          ['reference-toggle', 'transport-button transport-reference'],
+          ['docs-toggle', 'transport-button transport-docs']
+        ];
+        map.forEach(function (pair) {
+          var node = document.getElementById(pair[0]);
+          if (node) node.className = pair[1];
+        });
+
+        var videoToolbar = document.getElementById('video-toolbar');
+        if (videoToolbar) {
+          videoToolbar.className = 'transport-video-slot';
+          var videoBtn = document.getElementById('video-toggle');
+          if (videoBtn) videoBtn.className = 'transport-button transport-video';
+        }
+
+        var row = editorWrap.querySelector('.patch-identity-row');
+        if (!row) {
+          row = document.createElement('div');
+          row.className = 'patch-identity-row';
+          row.setAttribute('aria-label', 'patch document controls');
+          editorWrap.insertBefore(row, editorWrap.firstChild);
+        }
+
+        var title = document.getElementById('patch-title-chip');
+        if (title && title.parentNode !== row) row.appendChild(title);
+
+        var patches = document.getElementById('example-trigger');
+        if (patches) {
+          patches.className = 'patches-trigger-chip';
+          if (patches.parentNode !== row) row.appendChild(patches);
+        }
+
+        var share = ensureButton('share', 'repl-share-control patch-doc-action patch-doc-action-share', 'share', 'copy link', {
+          title: 'copy a shareable patch link',
+          'aria-label': 'Copy patch link'
+        });
+        if (share.parentNode !== row) row.appendChild(share);
+
+        var status = document.getElementById('sharePatchStatus');
+        if (!status) {
+          status = document.createElement('span');
+          status.id = 'sharePatchStatus';
+          status.setAttribute('aria-live', 'polite');
+        }
+        status.className = 'repl-share-status patch-doc-status';
+        if (status.parentNode !== row) row.appendChild(status);
+
+        var clear = ensureButton('clear-patch', 'repl-clear-control patch-doc-action patch-doc-action-clear', 'CLEAR', 'clear patch', {
+          title: 'Clear patch · Cmd/Ctrl-Shift-Backspace. Option-click: blank editor.',
+          'aria-label': 'Clear patch'
+        });
+        if (clear.parentNode !== row) row.appendChild(clear);
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', repairButtonHierarchy, { once: true });
+      } else {
+        repairButtonHierarchy();
+      }
+    }());
+  </script>
   <script src="./repl.js?v=20260509-share2" defer></script>
 </body>
-<style>
-    /* compact neo-brutal utility: clear patch */
-    .repl-clear-control {
-      position: relative;
-      display: inline-grid;
-      place-items: center;
-      width: 1.95rem;
-      height: 1.95rem;
-      min-width: 1.95rem;
-      min-height: 1.95rem;
-      padding: 0;
-      border: 2px solid var(--cs-line, #070707);
-      background: #fbfbf7;
-      color: #070707;
-      box-shadow: 2px 2px 0 var(--cs-line, #070707);
-      transform: translate(0, 0);
-      overflow: hidden;
-    }
-
-    .repl-clear-control .button-main {
-      display: block;
-      font-family: inherit;
-      font-size: 1.18rem;
-      line-height: 1;
-      font-weight: 900;
-      letter-spacing: 0;
-      text-transform: none;
-      transform: translateY(-0.02em);
-    }
-
-    .repl-clear-control .button-shortcut {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-      white-space: nowrap;
-    }
-
-    .repl-clear-control:hover {
-      background: #fff;
-      transform: translate(-1px, -1px);
-      box-shadow: 3px 3px 0 var(--cs-line, #070707);
-    }
-
-    .repl-clear-control:active {
-      transform: translate(0, 0);
-      box-shadow: 1px 1px 0 var(--cs-line, #070707);
-    }
-
-    .repl-clear-control:focus-visible {
-      outline: 2px solid var(--cs-line, #070707);
-      outline-offset: 2px;
-    }
-
-    /* armed: warning state, no animation */
-    .repl-clear-control.is-armed {
-      background:
-        repeating-linear-gradient(
-          135deg,
-          #ffd400 0 4px,
-          #ffd400 4px 8px,
-          #fbfbf7 8px 12px
-        );
-      color: #070707;
-      box-shadow: 2px 2px 0 #b00000;
-    }
-
-    .repl-clear-control.is-armed .button-main {
-      font-size: 0.86rem;
-      text-transform: uppercase;
-      letter-spacing: 0.02em;
-    }
-
-    .repl-clear-control.is-blank-armed {
-      background:
-        repeating-linear-gradient(
-          135deg,
-          #ffffff 0 4px,
-          #ffffff 4px 8px,
-          #d8d8d8 8px 12px
-        );
-      color: #070707;
-      box-shadow: 2px 2px 0 var(--cs-line, #070707);
-    }
-
-    .repl-clear-control.is-blank-armed .button-main {
-      font-size: 0.86rem;
-      text-transform: uppercase;
-      letter-spacing: 0.02em;
-    }
-
-    .repl-clear-control.is-cleared {
-      background: #070707;
-      color: #ffffff;
-      box-shadow: 2px 2px 0 var(--cs-line, #070707);
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .repl-clear-control {
-        transition: none;
-      }
-    }
-    /* Share-link feedback */
-    #share.repl-share-control {
-      cursor: pointer;
-      user-select: none;
-    }
-
-    #share.repl-share-control.is-copied {
-      filter: brightness(1.25);
-    }
-
-    #share.repl-share-control.is-warn {
-      outline: 1px solid rgba(255, 220, 120, 0.75);
-    }
-
-    #share.repl-share-control.is-error {
-      outline: 1px solid rgba(255, 80, 80, 0.85);
-    }
-
-    .repl-share-status {
-      display: inline-flex;
-      align-items: center;
-      min-height: 1em;
-      margin-left: 0.5rem;
-      font-family: inherit;
-      font-size: 0.72rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      opacity: 0.78;
-    }
-    
-    /* command palette / surface index */
-    .command-popover {
-      --example-accent: var(--cs-violet);
-    }
-
-    body.command-popover-open::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      z-index: 999;
-      background:
-        repeating-linear-gradient(
-          135deg,
-          rgba(7, 7, 7, 0.22) 0,
-          rgba(7, 7, 7, 0.22) 2px,
-          rgba(255, 255, 255, 0.10) 2px,
-          rgba(255, 255, 255, 0.10) 6px
-        ),
-        rgba(7, 7, 7, 0.34);
-      pointer-events: none;
-    }
-
-    .command-popover .example-popover-kicker {
-      font-family: "Times New Roman", Times, serif;
-      font-size: 1.35rem;
-      font-weight: 700;
-      letter-spacing: -0.035em;
-      text-transform: lowercase;
-      line-height: 1;
-    }
-
-    .command-popover-count {
-      white-space: nowrap;
-    }
-
-    .command-popover .example-popover-item {
-      grid-template-columns: 4.25rem minmax(0, 1fr) auto;
-    }
-
-    .command-popover .example-popover-num {
-      font-size: 0.56rem;
-      letter-spacing: 0.1em;
-    }
-
-    .command-popover .example-popover-label {
-      font-family: "Times New Roman", Times, serif;
-      font-size: 1.08rem;
-      font-weight: 700;
-      letter-spacing: -0.025em;
-      text-transform: lowercase;
-      line-height: 1.02;
-    }
-
-    .command-popover .example-popover-detail {
-      font-family: "Courier New", Courier, monospace;
-      font-size: 0.58rem;
-      font-weight: 900;
-      letter-spacing: 0.075em;
-      line-height: 1.25;
-      text-transform: uppercase;
-    }
-
-    .command-popover .command-popover-snippet {
-      display: block;
-      margin-top: 0.32rem;
-      padding: 0.22rem 0.34rem;
-      background: rgba(255, 255, 255, 0.68);
-      border: 2px solid rgba(7, 7, 7, 0.72);
-      box-shadow: 2px 2px 0 rgba(7, 7, 7, 0.72);
-      color: #070707;
-      font-family: "Courier New", Courier, monospace;
-      font-size: 0.58rem;
-      font-weight: 900;
-      letter-spacing: 0.02em;
-      line-height: 1.2;
-      white-space: pre-wrap;
-      text-transform: none;
-    }
-
-    .command-popover .command-popover-paramline {
-      display: block;
-      margin-top: 0.28rem;
-      color: rgba(7, 7, 7, 0.68);
-      font-family: "Courier New", Courier, monospace;
-      font-size: 0.52rem;
-      font-weight: 900;
-      letter-spacing: 0.08em;
-      line-height: 1.2;
-      text-transform: uppercase;
-    }
-
-    .command-popover .example-popover-item.is-current::after {
-      content: "READY";
-    }
-
-    .command-popover .command-kind-action { --example-accent: var(--cs-yellow); }
-    .command-popover .command-kind-voice { --example-accent: var(--cs-blue); }
-    .command-popover .command-kind-instrument { --example-accent: var(--cs-green); }
-    .command-popover .command-kind-sample { --example-accent: var(--cs-red); }
-    .command-popover .command-kind-kit { --example-accent: #b87516; }
-    .command-popover .command-kind-param { --example-accent: var(--cs-violet); }
-    .command-popover .command-kind-syntax { --example-accent: var(--cs-line); }
-    .command-popover .command-kind-docs { --example-accent: #00a8d8; }
-    .command-popover .command-kind-video { --example-accent: #ba55d3; }
-    .command-popover .command-kind-live { --example-accent: #0057ff; }
-
-    .command-popover .example-popover-stamp::before {
-      content: "INSERT";
-    }
-
-    .command-popover .example-popover-item[data-action-kind="run"] .example-popover-stamp::before {
-      content: "RUN";
-    }
-
-    .command-popover .example-popover-item[data-action-kind="open"] .example-popover-stamp::before {
-      content: "OPEN";
-    }
-
-    .command-popover .example-popover-item[data-action-kind="copy"] .example-popover-stamp::before {
-      content: "COPY";
-    }
-
-    .command-popover .example-popover-item[data-action-kind="insert"] .example-popover-stamp::before {
-      content: "INSERT";
-    }
-
-    .command-popover .example-popover-empty {
-      font-family: "Courier New", Courier, monospace;
-      text-transform: uppercase;
-    }
-    .samples-panel[hidden] {
-      display: none !important;
-    }
-    /* command palette sample-library browser */
-    .command-sample-browser {
-      display: flex;
-      flex-direction: column;
-      gap: 0.56rem;
-    }
-    .command-sample-breadcrumb {
-      display: flex;
-      align-items: center;
-      gap: 0.38rem;
-      flex-wrap: wrap;
-      padding: 0.42rem 0.5rem;
-      border: 2px solid var(--cs-line);
-      background: var(--cs-white);
-      box-shadow: 3px 3px 0 var(--cs-line);
-      font-family: "Courier New", Courier, monospace;
-      font-size: 0.56rem;
-      font-weight: 900;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-    }
-    .command-sample-crumb,
-    .command-sample-back {
-      appearance: none;
-      border: 2px solid var(--cs-line);
-      border-radius: 0;
-      background: var(--cs-white);
-      color: var(--cs-line);
-      box-shadow: 2px 2px 0 var(--cs-line);
-      font-family: "Courier New", Courier, monospace;
-      font-size: 0.54rem;
-      font-weight: 900;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      cursor: pointer;
-      padding: 0.14rem 0.32rem;
-    }
-    .command-sample-back {
-      background: var(--cs-yellow);
-    }
-    .command-sample-crumb:hover,
-    .command-sample-back:hover,
-    .command-sample-crumb:focus,
-    .command-sample-back:focus {
-      transform: translate(-1px, -1px);
-      box-shadow: 3px 3px 0 var(--cs-line);
-      outline: 0;
-    }
-    .command-sample-crumb[disabled] {
-      cursor: default;
-      background: var(--cs-line);
-      color: var(--cs-white);
-      transform: none;
-      box-shadow: none;
-    }
-    .command-sample-summary {
-      padding: 0.34rem 0.48rem;
-      background: var(--cs-line);
-      color: var(--cs-white);
-      border: 2px solid var(--cs-line);
-      box-shadow: 3px 3px 0 var(--cs-blue);
-      font-family: "Courier New", Courier, monospace;
-      font-size: 0.58rem;
-      font-weight: 900;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-    }
-    .command-sample-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
-      gap: 0.54rem;
-    }
-    .command-sample-card {
-      --example-accent: var(--cs-blue);
-      position: relative;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 0.5rem;
-      align-items: stretch;
-      min-height: 4.25rem;
-      padding: 0;
-      border: 2px solid var(--cs-line);
-      background: var(--cs-white);
-      color: var(--cs-line);
-      box-shadow: 3px 3px 0 var(--cs-line);
-      text-align: left;
-      cursor: pointer;
-      overflow: hidden;
-      transition:
-        transform 70ms steps(2, end),
-        box-shadow 70ms steps(2, end),
-        background-color 80ms steps(2, end);
-    }
-    .command-sample-card::before {
-      content: "";
-      position: absolute;
-      inset: 0 auto 0 0;
-      width: 0.42rem;
-      background: var(--example-accent);
-      border-right: 2px solid var(--cs-line);
-    }
-    .command-sample-card:hover,
-    .command-sample-card:focus {
-      outline: 0;
-      transform: translate(-2px, -2px);
-      box-shadow: 5px 5px 0 var(--cs-line);
-    }
-    .command-sample-card:active {
-      transform: translate(1px, 1px);
-      box-shadow: 1px 1px 0 var(--cs-line);
-    }
-    .command-sample-card-main {
-      min-width: 0;
-      padding: 0.56rem 0.56rem 0.56rem 0.9rem;
-    }
-    .command-sample-card-title {
-      display: block;
-      font-family: "Times New Roman", Times, serif;
-      font-size: 1.14rem;
-      font-weight: 700;
-      letter-spacing: -0.025em;
-      line-height: 1;
-      text-transform: lowercase;
-    }
-    .command-sample-card-detail,
-    .command-sample-card-count,
-    .command-sample-card-chips {
-      display: block;
-      margin-top: 0.26rem;
-      font-family: "Courier New", Courier, monospace;
-      font-size: 0.55rem;
-      font-weight: 900;
-      letter-spacing: 0.075em;
-      line-height: 1.25;
-      text-transform: uppercase;
-      color: rgba(7, 7, 7, 0.68);
-    }
-    .command-sample-card-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.22rem;
-      margin-top: 0.34rem;
-    }
-    .command-sample-chip {
-      display: inline-flex;
-      border: 2px solid var(--cs-line);
-      background: var(--cs-white);
-      color: var(--cs-line);
-      padding: 0.06rem 0.22rem;
-      box-shadow: 1px 1px 0 var(--cs-line);
-    }
-    .command-sample-card-side {
-      display: flex;
-      align-items: stretch;
-      border-left: 2px solid var(--cs-line);
-      background:
-        repeating-linear-gradient(
-          135deg,
-          transparent 0,
-          transparent 5px,
-          rgba(7, 7, 7, 0.08) 5px,
-          rgba(7, 7, 7, 0.08) 7px
-        ),
-        #fbfbf7;
-    }
-    .command-sample-action-stack {
-      display: flex;
-      flex-direction: column;
-      min-width: 2.9rem;
-    }
-    .command-sample-audition,
-    .command-sample-raw {
-      appearance: none;
-      width: 100%;
-      flex: 1;
-      border: 0;
-      border-bottom: 2px solid var(--cs-line);
-      background: var(--cs-white);
-      color: var(--cs-line);
-      font-family: "Courier New", Courier, monospace;
-      font-size: 0.58rem;
-      font-weight: 900;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      cursor: pointer;
-    }
-    .command-sample-audition {
-      background: var(--cs-line);
-      color: var(--cs-white);
-    }
-    .command-sample-audition::before {
-      content: "▶";
-    }
-    .command-sample-raw::before {
-      content: "raw";
-    }
-    .command-sample-audition:hover,
-    .command-sample-raw:hover,
-    .command-sample-audition:focus,
-    .command-sample-raw:focus {
-      background: var(--cs-yellow);
-      color: var(--cs-line);
-      outline: 0;
-    }
-    .command-sample-audition[disabled] {
-      opacity: 0.38;
-      cursor: not-allowed;
-    }
-    .command-sample-card[data-kind="folder"] .command-sample-audition,
-    .command-sample-card[data-kind="library"] .command-sample-audition {
-      display: none;
-    }
-    .command-sample-card[data-kind="folder"] .command-sample-raw,
-    .command-sample-card[data-kind="library"] .command-sample-raw {
-      display: none;
-    }
-    .command-sample-card[data-accent="marimba"] { --example-accent: #b87516; }
-    .command-sample-card[data-accent="vibraphone"] { --example-accent: #00a8d8; }
-    .command-sample-card[data-accent="violin"] { --example-accent: #a04a2a; }
-    .command-sample-card[data-accent="cello"] { --example-accent: #5b3bb8; }
-    .command-sample-card[data-accent="voice"] { --example-accent: #ba55d3; }
-    .command-sample-card[data-accent="rock"],
-    .command-sample-card[data-accent="drums"] { --example-accent: var(--cs-red); }
-    .command-sample-card[data-accent="archive"] { --example-accent: var(--cs-green); }
-    .command-sample-card[data-accent="local"] { --example-accent: var(--cs-blue); }
-
-    /* sample browser: folders are folders, not playable leaves */
-    .command-sample-card[data-kind="library"],
-    .command-sample-card[data-kind="folder"] {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .command-sample-card[data-kind="library"] .command-sample-card-side,
-    .command-sample-card[data-kind="folder"] .command-sample-card-side {
-      display: none !important;
-    }
-    /* exact sample leaves get one editor-style audition button */
-    .command-sample-card[data-kind="sample"] {
-      grid-template-columns: minmax(0, 1fr) auto;
-    }
-    .command-sample-card[data-kind="sample"] .command-sample-card-side {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 3.25rem;
-      padding: 0.36rem;
-      border-left: 2px solid var(--cs-line);
-      background:
-        repeating-linear-gradient(
-          135deg,
-          transparent 0,
-          transparent 5px,
-          rgba(7, 7, 7, 0.08) 5px,
-          rgba(7, 7, 7, 0.08) 7px
-        ),
-        #fbfbf7;
-    }
-    .command-sample-action-stack {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 0;
-    }
-    /* reuse the editor mute-button visual language */
-    .command-sample-audition.cs-mute-toggle {
-      margin: 0;
-      width: 1.42rem;
-      height: 1.28rem;
-      transform: none;
-    }
-    .command-sample-audition.cs-mute-toggle:hover {
-      transform: translate(-1px, -1px);
-    }
-    .command-sample-audition.cs-mute-toggle:active {
-      transform: translate(0, 0);
-    }
-    .command-sample-audition.cs-mute-toggle.is-loading {
-      background-image: repeating-linear-gradient(135deg, #ffd400 0 4px, #ffffff 4px 8px);
-      color: #070707;
-    }
-    .command-sample-audition.cs-mute-toggle[disabled] {
-      opacity: 0.36;
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: 1px 1px 0 var(--cs-line);
-    }
-    /* old raw/audition text-label buttons should not appear */
-    .command-sample-raw {
-      display: none !important;
-    }
-    .command-sample-audition::before,
-    .command-sample-raw::before {
-      content: none !important;
-    }
-
-    /* sample audition v2: use the editor mute-toggle button exactly, without a fat action rail */
-    .command-sample-card[data-kind="sample"] {
-      grid-template-columns: minmax(0, 1fr) 2.18rem;
-      gap: 0;
-    }
-    .command-sample-card[data-kind="sample"] .command-sample-card-side {
-      display: flex !important;
-      align-items: center;
-      justify-content: center;
-      min-width: 0;
-      width: 2.18rem;
-      padding: 0;
-      border-left: 2px solid var(--cs-line);
-      background: #fbfbf7;
-    }
-    .command-sample-card[data-kind="sample"] .command-sample-action-stack {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      min-width: 0;
-      height: 100%;
-    }
-    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle {
-      display: inline-flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      position: relative !important;
-      flex: 0 0 auto !important;
-      appearance: none !important;
-      margin: 0 !important;
-      width: 1.34rem !important;
-      height: 1.2rem !important;
-      min-width: 0 !important;
-      padding: 0 !important;
-      border: 2px solid var(--cs-line) !important;
-      border-radius: 0 !important;
-      background: var(--cs-white) !important;
-      color: var(--cs-line) !important;
-      box-shadow: 2px 2px 0 var(--cs-line) !important;
-      line-height: 1 !important;
-      cursor: pointer;
-      transform: translateY(-0.04rem) !important;
-      transition: transform 60ms ease, box-shadow 60ms ease, background-color 80ms ease, color 80ms ease;
-    }
-    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle:hover,
-    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle:focus {
-      background: #f6f6f6 !important;
-      color: var(--cs-line) !important;
-      outline: 0;
-      transform: translate(-1px, calc(-0.04rem - 1px)) !important;
-      box-shadow: 3px 3px 0 var(--cs-line) !important;
-    }
-    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle:active {
-      transform: translate(0, -0.04rem) !important;
-      box-shadow: 1px 1px 0 var(--cs-line) !important;
-    }
-    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle.is-loading {
-      background-image: repeating-linear-gradient(135deg, var(--cs-yellow) 0 4px, var(--cs-white) 4px 8px) !important;
-      color: var(--cs-line) !important;
-    }
-    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle[disabled] {
-      opacity: 0.36;
-      cursor: not-allowed;
-      transform: translateY(-0.04rem) !important;
-      box-shadow: 1px 1px 0 var(--cs-line) !important;
-    }
-    .command-sample-card[data-kind="sample"] .command-sample-audition.cs-mute-toggle .cs-mute-icon {
-      display: block;
-      width: 0.86rem;
-      height: 0.86rem;
-      pointer-events: none;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 1.8;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .command-sample-card[data-accent="piano"] { --example-accent: #0a9396; }
-    .command-sample-card.is-loading {
-      opacity: 0.62;
-    }
-    .command-sample-card.is-missing {
-      background: #fbfbf7;
-    }
-    .command-sample-card.is-missing .command-sample-card-title {
-      text-decoration: line-through;
-    }
-    @media (max-width: 760px) {
-      .command-sample-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-    </style>
 </html>

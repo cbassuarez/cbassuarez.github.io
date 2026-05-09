@@ -73,6 +73,7 @@
   const samplesToggleBtn = document.getElementById('samples-toggle');
   const inputToggleBtn = document.getElementById('input-toggle');
   const inputPanel = document.getElementById('input-panel');
+  const inputCloseBtn = document.getElementById('input-close');
   const inputKindSelect = document.getElementById('input-kind');
   const inputDeviceSelect = document.getElementById('input-device');
   const outputDeviceSelect = document.getElementById('output-device');
@@ -1422,18 +1423,14 @@
     function setClearPatchVisual(state) {
       if (!clearPatchBtn) return;
 
+      clearPatchBtn.classList.remove('is-armed', 'is-blank-armed', 'is-cleared');
+
       const main = clearPatchBtn.querySelector('.button-main');
       const shortcut = clearPatchBtn.querySelector('.button-shortcut');
 
-      clearPatchBtn.classList.remove(
-        'is-armed',
-        'is-blank-armed',
-        'is-cleared'
-      );
-
       if (state === 'armed') {
         clearPatchBtn.classList.add('is-armed');
-        if (main) main.textContent = '?';
+        if (main) main.textContent = 'CLEAR?';
         if (shortcut) shortcut.textContent = 'click again to clear patch';
         clearPatchBtn.setAttribute('aria-label', 'Confirm clear patch');
         clearPatchBtn.title = 'Click again to clear patch';
@@ -1442,7 +1439,7 @@
 
       if (state === 'blank-armed') {
         clearPatchBtn.classList.add('is-blank-armed');
-        if (main) main.textContent = '∅';
+        if (main) main.textContent = 'BLANK?';
         if (shortcut) shortcut.textContent = 'click again to blank editor';
         clearPatchBtn.setAttribute('aria-label', 'Confirm blank editor');
         clearPatchBtn.title = 'Click again to blank editor';
@@ -1451,14 +1448,14 @@
 
       if (state === 'cleared') {
         clearPatchBtn.classList.add('is-cleared');
-        if (main) main.textContent = '✓';
+        if (main) main.textContent = 'DONE';
         if (shortcut) shortcut.textContent = 'patch cleared';
         clearPatchBtn.setAttribute('aria-label', 'Patch cleared');
         clearPatchBtn.title = 'Patch cleared';
         return;
       }
 
-      if (main) main.textContent = '×';
+      if (main) main.textContent = 'CLEAR';
       if (shortcut) shortcut.textContent = 'clear patch';
       clearPatchBtn.setAttribute('aria-label', 'Clear patch');
       clearPatchBtn.title = 'Clear patch · Cmd/Ctrl-Shift-Backspace. Option-click: blank editor.';
@@ -5777,30 +5774,93 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
     window.InputVoice.stop(inputKind());
   }
 
-  function setInputPanelOpen(shouldOpen) {
+  let inputPanelReturnFocus = null;
+
+  function setInputPanelOpen(shouldOpen, options) {
     if (!inputToggleBtn || !inputPanel) return;
     const open = Boolean(shouldOpen);
+    const opts = options || {};
+
+    if (open) {
+      inputPanelReturnFocus = opts.returnFocus || document.activeElement || inputToggleBtn;
+      if (typeof closeCommandPopover === 'function') closeCommandPopover();
+      if (typeof closeExamplePopover === 'function') closeExamplePopover();
+    }
+
     inputPanel.hidden = !open;
+    document.body.classList.toggle('io-popover-open', open);
     inputToggleBtn.setAttribute('aria-expanded', String(open));
+
     if (open) {
       refreshInputDevices();
       refreshOutputDevices();
+      window.setTimeout(() => {
+        const focusTarget = inputPanel.querySelector('select, button, input, [tabindex]:not([tabindex="-1"])');
+        if (focusTarget && typeof focusTarget.focus === 'function') {
+          focusTarget.focus({ preventScroll: true });
+        }
+      }, 0);
+      return;
+    }
+
+    if (opts.restoreFocus !== false) {
+      const target = inputPanelReturnFocus && typeof inputPanelReturnFocus.focus === 'function'
+        ? inputPanelReturnFocus
+        : inputToggleBtn;
+      window.setTimeout(() => {
+        try { target.focus({ preventScroll: true }); } catch (_) {}
+      }, 0);
     }
   }
 
   function toggleInputPanel(forceState) {
     if (!inputToggleBtn || !inputPanel) return;
     if (typeof forceState === 'boolean') {
-      setInputPanelOpen(forceState);
+      setInputPanelOpen(forceState, { returnFocus: inputToggleBtn });
       return;
     }
-    setInputPanelOpen(inputPanel.hidden);
+    setInputPanelOpen(inputPanel.hidden, { returnFocus: inputToggleBtn });
   }
 
   function bindInputPanel() {
     if (!inputToggleBtn || !inputPanel) return;
 
-    inputToggleBtn.addEventListener('click', () => toggleInputPanel());
+    inputToggleBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      toggleInputPanel();
+    });
+
+    if (inputCloseBtn) {
+      inputCloseBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        setInputPanelOpen(false);
+      });
+    }
+
+    inputPanel.addEventListener('mousedown', (event) => {
+      event.stopPropagation();
+    });
+
+    document.addEventListener('keydown', (event) => {
+      const key = String(event.key || '').toLowerCase();
+      const hasCommandModifier = Boolean(event.metaKey || event.ctrlKey);
+
+      if (hasCommandModifier && key === 'i') {
+        const replShell = document.querySelector('main.shell');
+        const target = event.target;
+        if (!replShell || !(target instanceof Node) || !replShell.contains(target)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggleInputPanel();
+        return;
+      }
+
+      if (event.key === 'Escape' && !inputPanel.hidden) {
+        event.preventDefault();
+        event.stopPropagation();
+        setInputPanelOpen(false);
+      }
+    }, true);
 
     if (inputKindSelect) {
       inputKindSelect.addEventListener('change', () => {
