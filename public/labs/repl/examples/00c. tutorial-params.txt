@@ -1,0 +1,16 @@
+// params
+// rows below a voice shape that voice.
+// try changing gain, pan, body, and space.
+tempo 84
+meter 4/4
+string C3 E3 G3 C4
+gain .55
+pan -.18
+body glass
+space .28
+string C4 G3 E3 C3
+gain .38
+pan .18
+body wood
+space .12
+

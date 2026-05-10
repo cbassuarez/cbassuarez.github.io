@@ -212,6 +212,25 @@
     };
   }
 
+  function bowScheduleLeadSec(sample, opts, articulation) {
+    if (articulation !== 'bow') return 0;
+
+    const explicit = numericParamValue(opts && opts.bowlead, NaN);
+    if (Number.isFinite(explicit)) return clamp(explicit, 0, 0.45);
+
+    const onset = sample && typeof sample === 'object' ? sample.onset : null;
+    const rawLead = Number.isFinite(Number(onset && onset.scheduleLeadSec))
+      ? Number(onset.scheduleLeadSec)
+      : Number.isFinite(Number(onset && onset.arrivalSec))
+        ? Number(onset.arrivalSec)
+        : 0.16;
+
+    const bowpressure = clamp01(numericParamValue(opts && opts.bowpressure, 0.45));
+    const pressureMul = 1.15 - bowpressure * 0.35;
+
+    return clamp(rawLead * pressureMul, 0.025, 0.42);
+  }
+
   function applyTone(audioCtx, signal, opts, articulation) {
     const pedal = clamp01(numericParamValue(opts.pedal, 0.85));
     const damp = clamp01(numericParamValue(opts.damp, articulation === 'dampen' ? 0.75 : 0));
@@ -293,7 +312,10 @@
       tail *= 0.35;
       sustainLevel *= 0.35;
     } else if (articulation === 'bow') {
-      attack = 0.08 + (1 - bowpressure) * 0.26;
+      // The bowed sample already contains its physical scrape/lead-in and
+      // gradual bloom. Keep the amp envelope from adding a second slow attack;
+      // timing compensation happens by starting the sample before the grid.
+      attack = 0.012 + (1 - bowpressure) * 0.035;
       ringMul *= 1.25;
       tail *= 1.2;
       sustainLevel = 0.32 + pedal * 0.18;
@@ -502,8 +524,16 @@
 
     const h = opts.sharedHuman || humanize(opts);
     const spreadSec = Number.isFinite(Number(opts.spreadSec)) ? Number(opts.spreadSec) : 0;
-    const time = Math.max(audioCtx.currentTime, Number(opts.time) + h.timeOffset + spreadSec);
+    const nominalTimeRaw = Number(opts.time);
+    const nominalTime = (Number.isFinite(nominalTimeRaw) ? nominalTimeRaw : audioCtx.currentTime) + h.timeOffset + spreadSec;
+    const bowLeadSec = bowScheduleLeadSec(plan.sample, opts, plan.articulation);
+    const requestedStartTime = nominalTime - bowLeadSec;
+    const safeNow = audioCtx.currentTime + 0.006;
+    const startTime = Math.max(safeNow, requestedStartTime);
+    const lateBy = Math.max(0, startTime - requestedStartTime);
     const playbackRate = clamp((plan.targetFreq / plan.sourceFreq) * Math.pow(2, h.cents / 1200), 0.125, 8);
+    const startOffset = clamp(lateBy * playbackRate, 0, Math.max(0, buffer.duration - 0.025));
+    const time = startTime;
 
     const src = audioCtx.createBufferSource();
     src.buffer = buffer;
@@ -550,6 +580,9 @@
       bodyNodes,
       lfos: [motor.lfo, motor.lfoGain].filter(Boolean),
       startedAt: time,
+      nominalTime,
+      bowLeadSec,
+      startOffset,
       holdUntil: stopAt,
       dampSec,
       releaseTimer: null,
@@ -562,8 +595,9 @@
     src.onended = () => unregister(active);
 
     try {
-      src.start(time, 0);
-      src.stop(Math.min(time + buffer.duration / Math.max(0.001, playbackRate), stopAt + 0.08));
+      src.start(time, startOffset);
+      const remainingDuration = Math.max(0.02, (buffer.duration - startOffset) / Math.max(0.001, playbackRate));
+      src.stop(Math.min(time + remainingDuration, stopAt + 0.08));
       scheduleRelease(active, stopAt);
       return active;
     } catch (err) {
@@ -678,6 +712,7 @@
       notes: _manifest && _manifest.noteList ? _manifest.noteList.length : 0,
       active: _activeVoices.size,
       heldGroups: _heldGroupsByBlock.size,
+      bowedArrival: 'scheduleLeadSec metadata with 160ms fallback',
     };
   }
 

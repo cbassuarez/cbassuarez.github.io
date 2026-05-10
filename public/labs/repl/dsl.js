@@ -564,10 +564,19 @@
 
   // Tokenizes a string into a flat array of tokens where each token is
   // either:
-  //   - a string (a leaf token like "A3", ".", "tub-xemf-mass", "|", "~")
-  //   - the special markers "(" and ")"
-  // Whitespace is the primary separator; parens always tokenize as their
-  // own characters even when adjacent to text.
+  //   - a string (a leaf token like "A3", ".", "tub-xemf-mass", "~")
+  //   - a punctuation marker: "(", ")", "|", or ";"
+  //
+  // Whitespace is not the language grammar. Punctuation remains structural
+  // even when typed tightly against neighboring values, so these are all
+  // equivalent to the parser:
+  //   pan 1 1 1 1|1
+  //   pan 1 1 1 1 | 1
+  //   string (* *)|* *
+  //
+  // `;` is emitted as a standalone gate marker and then attached to the
+  // preceding sound-producing leaf by parseSlotStream(). That preserves the
+  // existing `A4;` / `snm-*;` behavior while making semicolon lexical too.
   function tokenizeSlotLine(text) {
     const out = [];
     let buf = '';
@@ -576,7 +585,7 @@
     }
     for (let i = 0; i < text.length; i++) {
       const ch = text[i];
-      if (ch === '(' || ch === ')') {
+      if (ch === '(' || ch === ')' || ch === '|' || ch === ';') {
         flush();
         out.push(ch);
         continue;
@@ -726,6 +735,29 @@
       currentBarSlots++;
     }
 
+    function gateNode(node) {
+      if (!node) return false;
+      if (node.kind === 'leaf') {
+        const tok = node.token;
+        if (!tok || tok.kind === 'rest' || tok.kind === 'sustain') return false;
+        tok.gated = true;
+        return true;
+      }
+      if (node.kind === 'group' && Array.isArray(node.children)) {
+        for (let i = node.children.length - 1; i >= 0; i -= 1) {
+          if (gateNode(node.children[i])) return true;
+        }
+      }
+      return false;
+    }
+
+    function gatePreviousSlot(list) {
+      const target = Array.isArray(list) && list.length ? list[list.length - 1] : null;
+      if (gateNode(target)) return true;
+      errors.push({ line: lineNumber, message: `';' can only gate the previous sound-producing note or sample leaf` });
+      return false;
+    }
+
     function collectLeafRefs(node, out) {
       if (!node) return;
       if (node.kind === 'leaf') {
@@ -865,6 +897,11 @@
           children.push(parseGroup());
           continue;
         }
+        if (t === ';') {
+          pos++;
+          gatePreviousSlot(children);
+          continue;
+        }
         if (t === '|') {
           // Bar lines aren't allowed inside a group; treat as separator
           // ignored at top level only.
@@ -915,6 +952,11 @@
 
     while (pos < tokens.length) {
       const t = tokens[pos];
+      if (t === ';') {
+        pos++;
+        gatePreviousSlot(slots);
+        continue;
+      }
       if (t === '|') {
         // Bar lines act as equal-time bar separators: each bar takes the
         // same wall-clock time, but bars may hold different slot counts.
@@ -1666,6 +1708,12 @@
             continue;
           }
 
+          if (t === ';') {
+            pos++;
+            errors.push({ line: lineNumber, message: `unexpected ';' in ${paramName} — semicolon gates voice leaves only` });
+            continue;
+          }
+
           if (t === '|') {
             pos++;
             errors.push({ line: lineNumber, message: `unexpected '|' inside (...) group — bar lines belong only between top-level values` });
@@ -1687,6 +1735,12 @@
         const t = tokens[pos];
 
         if (t === '|') {
+          pos++;
+          continue;
+        }
+
+        if (t === ';') {
+          errors.push({ line: lineNumber, message: `unexpected ';' in ${paramName} — semicolon gates voice leaves only` });
           pos++;
           continue;
         }

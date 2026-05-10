@@ -1,0 +1,9 @@
+// leaves + rests
+// notes are leaves. "." is a rest. "|" is a barline.
+// "~" holds a sustained instrument through the next cell.
+tempo 72
+meter 4/4
+string C3 . E3 . | G3 ~ ~ .
+gain .55
+decay 4
+space .2

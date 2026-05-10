@@ -1,0 +1,10 @@
+// command palette
+// press Cmd-K to open the command palette.
+// search "marimba", "vocoder", "rock", or "meter".
+tempo 92
+meter 4/4
+string A3 C4 E4 G4
+gain .5
+body glass
+space .25
+// try Cmd-K, search "marimba", then insert a row.

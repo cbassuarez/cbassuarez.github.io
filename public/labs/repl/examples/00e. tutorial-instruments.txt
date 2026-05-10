@@ -1,0 +1,16 @@
+// instruments
+// instrument rows use the same leaf grid,
+// but each instrument has its own material controls.
+tempo 84
+meter 4/4
+marimba C3 E3 G3 C4
+mallet yarn
+resonance .62
+body .45
+pan -.12
+vibraphone C4 ~ ~ .
+articulation sustain
+pedal .9
+motor .25
+depth .18
+pan .12

@@ -1,0 +1,13 @@
+// robot voice
+// voice is a synthetic mouth-machine.
+// carrier sample uses the generated eSpeak corpus when available.
+tempo 72
+meter 4/4
+voice C3 E3 G3 C4
+vowel ah
+syllable input
+carrier sample
+robot .35
+vocoder .35
+mouth .55
+gain .55

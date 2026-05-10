@@ -10,6 +10,7 @@
   'use strict';
 
   const VIDEO_DEBUG_STORAGE_KEY = 'replDebugVideo';
+  const SCORE_GRID_STORAGE_KEY = 'replScoreGridEnabled:v1';
 
   function parseDebugBool(value) {
     const v = String(value == null ? '' : value).trim().toLowerCase();
@@ -43,6 +44,7 @@
   window.__REPL_DEBUG_VIDEO__ = VIDEO_DEBUG_ENABLED;
 
   const editorMount = document.getElementById('editor');
+  const scoreGridToggleBtn = document.getElementById('score-grid-toggle');
   const statusEl = document.getElementById('status');
     const playBtn = document.getElementById('play');
     const safePlayBtn = document.getElementById('safe-play');
@@ -63,6 +65,8 @@
     const commandPopoverList = document.getElementById('command-popover-list');
     const commandPopoverSearch = document.getElementById('command-popover-search');
     const commandPopoverCount = document.getElementById('command-popover-count');
+    const replSkeletonScreen = document.getElementById('repl-skeleton-screen');
+    const replSkeletonStatus = document.getElementById('repl-skeleton-status');
   let videoExamplesEnabled = true;
   const errorList = document.getElementById('errors');
   const patchTitleChip = document.getElementById('patch-title-chip');
@@ -141,8 +145,8 @@
       lastSavedCode: '',
       lastSavedTitle: '',
       editingTitle: false,
+      bootedFromHash: false,
     };
-
     const clearPatchState = {
       armed: false,
       blank: false,
@@ -158,6 +162,57 @@
     let localSampleObjectUrls = [];
     let localSamplesBusy = false;
     let mediaDeviceChangeBound = false;
+
+    const LOADING_PHASE_LABELS = {
+      boot: 'LOADING BOOT',
+      parser: 'LOADING PARSER',
+      manifests: 'INDEXING SAMPLE LIBRARIES',
+      audio: 'REGISTERING VOICES',
+      ready: 'READY',
+    };
+
+    function setLoadingPhase(phase, label) {
+      const nextPhase = String(phase || 'boot').toLowerCase();
+      document.body.classList.add('repl-loading');
+      document.body.dataset.loadingPhase = nextPhase;
+      if (replSkeletonStatus) {
+        replSkeletonStatus.textContent = label || LOADING_PHASE_LABELS[nextPhase] || `LOADING ${nextPhase.toUpperCase()}`;
+      }
+      if (replSkeletonScreen) replSkeletonScreen.setAttribute('aria-busy', 'true');
+    }
+
+    function finishLoadingPhase(label) {
+      document.body.dataset.loadingPhase = 'ready';
+      if (replSkeletonStatus) replSkeletonStatus.textContent = label || LOADING_PHASE_LABELS.ready;
+      window.setTimeout(() => {
+        document.body.classList.remove('repl-loading');
+        if (replSkeletonScreen) {
+          replSkeletonScreen.setAttribute('aria-busy', 'false');
+          replSkeletonScreen.setAttribute('hidden', '');
+        }
+      }, 140);
+    }
+
+    function renderCommandSampleLoadingSkeleton(shell) {
+      const grid = document.createElement('div');
+      grid.className = 'command-sample-loading-grid';
+      const labels = [
+        ['marimba', 'IOWA MARIMBA · INDEXING'],
+        ['vibraphone', 'IOWA VIBES · INDEXING'],
+        ['rock', 'DRUM KIT · COUNTING LANES'],
+        ['voice / vox', 'ESPEAK CORPUS · TOKENS'],
+        ['violin', 'BOWED STRINGS · MANIFEST'],
+        ['cello', 'BOWED BODY · MANIFEST'],
+      ];
+      labels.forEach(([title, meta]) => {
+        const card = document.createElement('div');
+        card.className = 'command-sample-tile-skeleton';
+        card.innerHTML = `<strong>${commandEscapeHtml(title)}</strong><span>${commandEscapeHtml(meta)}</span>`;
+        grid.appendChild(card);
+      });
+      shell.appendChild(grid);
+    }
+
     const blockMuteOverridesBySignature = new Map();
     let lastEditorMuteSnapshotKey = '';
 
@@ -1587,10 +1642,11 @@
           loadedExampleLabel = '';
           currentExampleFile = '';
           if (editorAPI) editorAPI.setValue(shared.code);
-          patchLinkState.lastSavedCode = shared.code;
-          patchLinkState.lastSavedTitle = shared.title || '';
-          refreshPatchTitle();
-          return true;
+            patchLinkState.lastSavedCode = shared.code;
+            patchLinkState.lastSavedTitle = shared.title || '';
+            patchLinkState.bootedFromHash = true;
+            refreshPatchTitle();
+            return true;
         } finally {
           patchLinkState.applyingRemotePatch = false;
         }
@@ -1935,6 +1991,54 @@
   // topic; URL hash (`#example=<slug>`) survives refresh and can be deep-linked.
 
   const EXAMPLE_CATEGORIES = [
+      {
+        id: 'tutorials',
+        label: 'tutorials',
+        examples: [
+          {
+            file: '00a. tutorial-first-score.txt',
+            label: '00a. first score',
+            detail: 'tempo · meter · first string row',
+            accent: 'blue',
+          },
+          {
+            file: '00b. tutorial-leaves-and-rests.txt',
+            label: '00b. leaves + rests',
+            detail: 'events · rests · ties · bars',
+            accent: 'blue',
+          },
+          {
+            file: '00c. tutorial-params.txt',
+            label: '00c. params',
+            detail: 'gain · pan · body · space',
+            accent: 'violet',
+          },
+          {
+            file: '00d. tutorial-samples-and-drums.txt',
+            label: '00d. samples + drums',
+            detail: 'sample rows · rock kit · variance',
+            accent: 'red',
+          },
+          {
+            file: '00e. tutorial-instruments.txt',
+            label: '00e. instruments',
+            detail: 'piano · marimba · vibraphone · strings',
+            accent: 'marimba',
+          },
+          {
+            file: '00f. tutorial-command-palette.txt',
+            label: '00f. command palette',
+            detail: 'commands · samples · parameters · docs',
+            accent: 'violet',
+          },
+          {
+            file: '00g. tutorial-robot-voice.txt',
+            label: '00g. robot voice',
+            detail: 'voice · syllable · carrier · vocoder',
+            accent: 'voice',
+          },
+        ],
+      },
     { id: 'foundations', label: 'foundations', examples: [
       { file: '0a. welcome.txt', label: '0a. welcome (start here)' },
       { file: '0b. a row of notes.txt', label: '0b. a row of notes' },
@@ -5150,6 +5254,22 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
       renderSurfaceChips(couplingSummaryEls.surfacesValue, surfaces, false);
     }
 
+    function transportSecondaryBeatIndex(beats) {
+      const count = Math.max(1, Number(beats) || 4);
+      if (count === 6) return 3;
+      if (count === 4) return 2;
+      if (count > 2 && count % 2 === 0) return Math.floor(count / 2);
+      return -1;
+    }
+
+    function transportBeatHierarchyClass(index, beats) {
+      const i = Math.max(0, Math.floor(Number(index) || 0));
+      const count = Math.max(1, Math.floor(Number(beats) || 4));
+      if (i === 0) return 'beat-strong';
+      if (i === transportSecondaryBeatIndex(count)) return 'beat-secondary';
+      return 'beat-weak';
+    }
+
     function renderTransportShell(program) {
       if (!beatDotsEl || !blockRowsEl) return;
 
@@ -5164,9 +5284,12 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
       const beats = program.meter.num;
       for (let i = 0; i < beats; i++) {
         const d = document.createElement('span');
-        d.className = 'dot beat';
-        d.title = `beat ${i + 1} of ${beats}`;
-        d.setAttribute('aria-label', `beat ${i + 1}`);
+        const beatClass = transportBeatHierarchyClass(i, beats);
+        const beatLabel = beatClass === 'beat-strong' ? 'strong beat' : (beatClass === 'beat-secondary' ? 'secondary beat' : 'weak beat');
+        d.className = `dot beat ${beatClass}`;
+        d.dataset.beatWeight = beatClass.replace(/^beat-/, '');
+        d.title = `beat ${i + 1} of ${beats} · ${beatLabel}`;
+        d.setAttribute('aria-label', `beat ${i + 1}, ${beatLabel}`);
         beatDotsEl.appendChild(d);
         beatDotEls.push(d);
       }
@@ -6977,7 +7100,51 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
           if (btn) btn.click();
         },
       },
-
+      {
+        id: 'action.score-grid',
+        group: 'actions',
+        kind: 'action',
+        label: 'toggle score grid',
+        detail: 'visual-only live alignment for voice/speed cells',
+        action: 'toggle',
+        run: toggleScoreGrid,
+      },
+      {
+        id: 'action.tutorial.start',
+        group: 'docs',
+        kind: 'docs',
+        label: 'start tutorial',
+        detail: 'load the first score and begin the machine tour',
+        action: 'open',
+        run: () => {
+          if (window.ReplOnboarding) window.ReplOnboarding.loadTutorial('first-score', { tour: true });
+        },
+      },
+      {
+        id: 'action.tour.machine',
+        group: 'docs',
+        kind: 'docs',
+        label: 'tour the machine',
+        detail: 'transport · command palette · editor · cybernetic score',
+        action: 'open',
+        run: () => {
+          if (window.ReplOnboarding) window.ReplOnboarding.startTour('machine');
+        },
+      },
+      {
+        id: 'action.tour.reset',
+        group: 'docs',
+        kind: 'docs',
+        label: 'reset onboarding',
+        detail: 'show first-run field manual on next visit',
+        action: 'run',
+        run: () => {
+          if (window.ReplOnboarding) {
+            window.ReplOnboarding.reset();
+            window.ReplOnboarding.openWelcome({ rebuild: true });
+          }
+        },
+      },
       {
         id: 'voice.string',
         group: 'voices',
@@ -8444,10 +8611,7 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
       info.textContent = commandSampleSurfaceInfoText();
       shell.appendChild(info);
       if (!libs.length && commandSampleLibraryState.loading) {
-        const loading = document.createElement('div');
-        loading.className = 'example-popover-empty';
-        loading.textContent = 'loading sample libraries...';
-        shell.appendChild(loading);
+        renderCommandSampleLoadingSkeleton(shell);
         commandPopoverList.appendChild(shell);
         return;
       }
@@ -8873,7 +9037,8 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
       if (window.SampleVoice && window.SampleVoice.ready) {
         window.SampleVoice.ready().then(() => {
           samplesGroupsCache = null;
-          commandSampleEntriesHydrated = false;
+          commandSampleLibraryState.libraries = null;
+          commandSampleLibraryState.loading = null;
           if (!commandPopover.hidden) renderCommandPalette();
         }).catch(() => {});
       }
@@ -8926,6 +9091,64 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
       if (!commandPopover) return;
       if (commandPopover.hidden) openCommandPopover();
       else closeCommandPopover();
+    }
+    
+    function installOnboardingAdapter() {
+      window.ReplOnboardingAdapter = {
+        getEditorCode() {
+          return editorAPI && typeof editorAPI.getValue === 'function'
+            ? editorAPI.getValue()
+            : '';
+        },
+        setEditorCode(code) {
+          if (editorAPI && typeof editorAPI.setValue === 'function') {
+            editorAPI.setValue(String(code || ''));
+            if (typeof renderAndValidate === 'function') renderAndValidate();
+            return true;
+          }
+          return false;
+        },
+        async loadTutorial(file) {
+          if (typeof loadExampleByFile === 'function') {
+            await loadExampleByFile(file);
+            return true;
+          }
+          return false;
+        },
+        openExamples() {
+          if (typeof openExamplePopover === 'function') {
+            openExamplePopover();
+            return;
+          }
+          if (exampleTrigger) exampleTrigger.click();
+        },
+        openCommandPalette() {
+          if (typeof openCommandPopover === 'function') {
+            openCommandPopover();
+            return;
+          }
+          if (samplesToggleBtn) samplesToggleBtn.click();
+        },
+        evaluate() {
+          if (typeof evaluateAndRun === 'function') evaluateAndRun();
+        },
+        replay() {
+          if (typeof safePlay === 'function') safePlay();
+        },
+        stop() {
+          if (typeof stop === 'function') stop();
+        },
+        share() {
+          if (typeof shareCurrent === 'function') {
+            shareCurrent();
+          } else if (typeof sharePatchNow === 'function') {
+            sharePatchNow();
+          }
+        },
+        focusEditor() {
+          if (editorAPI && typeof editorAPI.focus === 'function') editorAPI.focus();
+        },
+      };
     }
 
   function toggleSamplesPanel(forceState) {
@@ -9098,6 +9321,56 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
   });
   updateLocalSamplesControls();
 
+  function readScoreGridPreference() {
+    try {
+      const raw = localStorage.getItem(SCORE_GRID_STORAGE_KEY);
+      if (raw === '0' || raw === 'false') return false;
+      if (raw === '1' || raw === 'true') return true;
+    } catch (_) {}
+    return true;
+  }
+
+  function persistScoreGridPreference(enabled) {
+    try { localStorage.setItem(SCORE_GRID_STORAGE_KEY, enabled ? '1' : '0'); } catch (_) {}
+  }
+
+  function applyScoreGridState(enabled, options) {
+    const opts = options || {};
+    const next = enabled !== false;
+    if (scoreGridToggleBtn) {
+      scoreGridToggleBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+      scoreGridToggleBtn.classList.toggle('is-active', next);
+      scoreGridToggleBtn.title = next
+        ? 'Live score grid is on — visual alignment only; source text stays unchanged'
+        : 'Live score grid is off — click to visually align piano/speed cells';
+      const shortcut = scoreGridToggleBtn.querySelector('.button-shortcut');
+      if (shortcut) shortcut.textContent = next ? 'visual on' : 'raw text';
+    }
+    if (editorAPI && typeof editorAPI.setScoreGridEnabled === 'function') {
+      editorAPI.setScoreGridEnabled(next);
+    }
+    if (!opts.quiet) {
+      setStatus(next ? 'score grid on (visual only)' : 'score grid off');
+    }
+  }
+
+  function toggleScoreGrid() {
+    const current = scoreGridToggleBtn
+      ? scoreGridToggleBtn.getAttribute('aria-pressed') === 'true'
+      : readScoreGridPreference();
+    const next = !current;
+    persistScoreGridPreference(next);
+    applyScoreGridState(next);
+    if (editorAPI) editorAPI.focus();
+  }
+
+  if (scoreGridToggleBtn) {
+    scoreGridToggleBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      toggleScoreGrid();
+    });
+  }
+
     applyVideoDebugGate();
     bindInputPanel();
     bindVideoPanel();
@@ -9122,6 +9395,7 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
     editorAPI = window.createReplEditor({
       parent: editorMount,
       initialText: '',
+      scoreGridEnabled: readScoreGridPreference(),
       blockMuteLines: editorMuteLinesSnapshot(),
         onChange: () => {
           // CM linter already runs on doc changes; do not hard-evaluate here.
@@ -9161,47 +9435,133 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
         window.ReplDSL && window.ReplDSL.parse ? window.ReplDSL.parse(text) : { ok: true }
       ),
     });
+    applyScoreGridState(readScoreGridPreference(), { quiet: true });
   }
 
-  // ---------------- bootstrap ----------------
+    // ---------------- bootstrap ----------------
 
-    (async function init() {
+    function loadBootManifests() {
+      const loads = [];
+
+      if (window.SampleVoice && typeof window.SampleVoice.loadManifest === 'function') {
+        loads.push(window.SampleVoice.loadManifest(SAMPLES_MANIFEST_URL).catch(() => {}));
+      }
+
+      if (window.PianoVoice && typeof window.PianoVoice.loadManifest === 'function') {
+        loads.push(window.PianoVoice.loadManifest().catch(() => {}));
+      }
+
+      if (window.ViolinVoice && typeof window.ViolinVoice.loadManifest === 'function') {
+        loads.push(window.ViolinVoice.loadManifest().catch(() => {}));
+      }
+
+      if (window.CelloVoice && typeof window.CelloVoice.loadManifest === 'function') {
+        loads.push(window.CelloVoice.loadManifest().catch(() => {}));
+      }
+
+      if (window.MarimbaVoice && typeof window.MarimbaVoice.loadManifest === 'function') {
+        loads.push(window.MarimbaVoice.loadManifest().catch(() => {}));
+      }
+
+      if (window.VibraphoneVoice && typeof window.VibraphoneVoice.loadManifest === 'function') {
+        loads.push(window.VibraphoneVoice.loadManifest().catch(() => {}));
+      }
+
+      if (window.VoiceVoice && typeof window.VoiceVoice.loadManifest === 'function') {
+        loads.push(window.VoiceVoice.loadManifest().catch(() => {}));
+      }
+
+      return loads;
+    }
+
+    function bootParseInitialPatch() {
+      if (!editorAPI || !window.ReplDSL || typeof window.ReplDSL.parse !== 'function') return;
+
+      const initialText = editorAPI.getValue();
+      const parsed = window.ReplDSL.parse(initialText);
+
+      if (!parsed || !parsed.ok) return;
+
+      applyStoredBlockMuteOverrides(parsed.program);
+      lastGoodProgram = parsed.program;
+
+      if (window.ReplAttractors && typeof window.ReplAttractors.warm === 'function') {
+        window.ReplAttractors.warm(parsed.program);
+      }
+
+      renderTransportShell(parsed.program);
+      syncEditorBlockMuteLines();
+    }
+
+    function finishReplBoot(label) {
+      finishLoadingPhase(label || 'READY');
+
+      if (editorAPI && shouldAutofocusEditor) {
+        editorAPI.focus();
+      }
+
+      if (window.ReplOnboarding && typeof window.ReplOnboarding.maybeStart === 'function') {
+        window.ReplOnboarding.maybeStart({
+          bootedFromHash: Boolean(
+            patchLinkState.bootedFromHash
+            || String(window.location.hash || '').startsWith('#patch=v1.')
+          ),
+          delayMs: 520,
+        });
+      }
+    }
+
+    async function bootRepl() {
+      setLoadingPhase('boot');
       initReferencePanel();
+
+      setLoadingPhase('parser');
       mountEditor();
 
-    // Kick off sample manifest load in parallel; won't block first audio.
-    if (window.SampleVoice) {
-      window.SampleVoice.loadManifest(SAMPLES_MANIFEST_URL).catch(() => {});
-    }
-    if (window.PianoVoice && typeof window.PianoVoice.loadManifest === 'function') {
-      window.PianoVoice.loadManifest().catch(() => {});
-    }
-    if (window.ViolinVoice && typeof window.ViolinVoice.loadManifest === 'function') {
-      window.ViolinVoice.loadManifest().catch(() => {});
-    }
-    initLocalSamplesFromSavedHandle();
-        const loaded = await loadFromHash();
-        if (!loaded) await loadDefaultExample();
-
-        // Treat the boot-loaded patch/default as the current clean state. The URL
-        // should not be rewritten until the user actually edits or clicks share.
-        patchLinkState.lastSavedCode = editorAPI ? editorAPI.getValue() : '';
-        patchLinkState.lastSavedTitle = getPatchTitleForShare();
-        refreshPatchTitle();
-
-        // Pre-render the transport panel from a parse of the loaded text so
-    // the slot dots are visible before the user hits play.
-    const initialText = editorAPI ? editorAPI.getValue() : '';
-    const parsed = window.ReplDSL.parse(initialText);
-      if (parsed.ok) {
-        applyStoredBlockMuteOverrides(parsed.program);
-        lastGoodProgram = parsed.program;
-        if (window.ReplAttractors && window.ReplAttractors.warm) {
-          window.ReplAttractors.warm(parsed.program);
-        }
-        renderTransportShell(parsed.program);
-        syncEditorBlockMuteLines();
+      if (typeof installOnboardingAdapter === 'function') {
+        installOnboardingAdapter();
       }
-        if (editorAPI && shouldAutofocusEditor) editorAPI.focus();
+
+      setLoadingPhase('manifests');
+
+      const bootManifestLoads = loadBootManifests();
+
+      initLocalSamplesFromSavedHandle();
+
+      const loadedFromHash = await loadFromHash();
+
+      if (loadedFromHash) {
+        patchLinkState.bootedFromHash = true;
+      } else {
+        await loadDefaultExample();
+      }
+
+      patchLinkState.lastSavedCode = editorAPI ? editorAPI.getValue() : '';
+      patchLinkState.lastSavedTitle = getPatchTitleForShare();
+
+      refreshPatchTitle();
+      bootParseInitialPatch();
+
+      setLoadingPhase('audio');
+
+      await Promise.race([
+        Promise.allSettled(bootManifestLoads),
+        new Promise((resolve) => window.setTimeout(resolve, 520)),
+      ]);
+
+      finishReplBoot('READY');
+    }
+
+    bootRepl().catch((err) => {
+      console.error('[repl] boot failed:', err);
+      showWarning(`boot failed: ${err && err.message ? err.message : err}`);
+      finishLoadingPhase('BOOT ERROR');
+    });
+
+    window.setTimeout(() => {
+      if (document.body.classList.contains('repl-loading')) {
+        console.warn('[repl] skeleton timeout; forcing ready state');
+        finishLoadingPhase('READY');
+      }
+    }, 4500);
   })();
-})();

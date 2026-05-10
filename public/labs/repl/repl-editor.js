@@ -105,6 +105,665 @@
 
   const COMMON_OPERATORS = ['*', '*!', '*~', '*&8', '*&16', '*&30', '~', '_'];
 
+
+  // --------------------------------------------------------------------------
+  // live score grid — visual-only cell alignment for related score rows.
+  // --------------------------------------------------------------------------
+
+  const setScoreGridEnabledEffect = StateEffect.define();
+  const SCORE_GRID_MIN_CELL_CH = 3;
+  const SCORE_GRID_CELL_GAP_CH = 1;
+  const SCORE_GRID_BAR_GAP_CH = 2;
+  const SCORE_GRID_HEAD_GAP_CH = 2;
+  const SCORE_GRID_MUTE_PREFIX_CH = 4.25;
+  const SCORE_GRID_BEAT_CH = 6;
+  const SCORE_GRID_DEFAULT_BEATS = 4;
+
+  class ScoreGridSpacerWidget extends WidgetType {
+    constructor(widthCh) {
+      super();
+      this.widthCh = Math.max(0, Number(widthCh) || 0);
+    }
+
+    eq(other) {
+      return other && Math.abs(other.widthCh - this.widthCh) < 0.01;
+    }
+
+    toDOM() {
+      const span = document.createElement('span');
+      span.className = 'cm-score-grid-spacer';
+      span.setAttribute('aria-hidden', 'true');
+      span.style.setProperty('--score-grid-gap', `${this.widthCh.toFixed(2)}ch`);
+      return span;
+    }
+
+    ignoreEvent() {
+      return true;
+    }
+  }
+
+  function scoreGridLineHead(text) {
+    const m = String(text || '').match(/^(\s*)(\S+)(\s*)/);
+    if (!m) return null;
+    return {
+      indent: m[1] || '',
+      head: m[2] || '',
+      headFrom: (m[1] || '').length,
+      headTo: (m[1] || '').length + (m[2] || '').length,
+      headTrailingSpaces: (m[3] || '').length,
+      restFrom: ((m[1] || '').length + (m[2] || '').length + (m[3] || '').length),
+    };
+  }
+
+  function scoreGridVisualLength(text) {
+    return String(text || '').replace(/\t/g, '  ').length;
+  }
+
+  function scoreGridTokenizeRow(line) {
+    const text = String(line.text || '');
+    const headInfo = scoreGridLineHead(text);
+    if (!headInfo) return null;
+
+    const tokens = [];
+    let i = headInfo.restFrom;
+    let barIndex = 0;
+    let cellIndex = 0;
+
+    function skipSpaces() {
+      while (i < text.length && /\s/.test(text[i])) i += 1;
+    }
+
+    while (i < text.length) {
+      skipSpaces();
+      if (i >= text.length) break;
+
+      const from = i;
+      if (text[i] === '|') {
+        tokens.push({ type: 'bar', text: '|', from, to: from + 1, bar: barIndex, cell: -1, trailingSpaces: 0 });
+        i += 1;
+        barIndex += 1;
+        cellIndex = 0;
+        continue;
+      }
+
+      let depth = 0;
+      while (i < text.length) {
+        const ch = text[i];
+        if (ch === '(') depth += 1;
+        else if (ch === ')' && depth > 0) depth -= 1;
+        if (depth === 0 && (ch === '|' || /\s/.test(ch))) break;
+        i += 1;
+      }
+
+      const to = i;
+      if (to > from) {
+        tokens.push({ type: 'cell', text: text.slice(from, to), from, to, bar: barIndex, cell: cellIndex, trailingSpaces: 0 });
+        cellIndex += 1;
+      }
+    }
+
+    for (let t = 0; t < tokens.length; t += 1) {
+      const token = tokens[t];
+      let j = token.to;
+      while (j < text.length && /\s/.test(text[j])) j += 1;
+      token.trailingSpaces = Math.max(0, j - token.to);
+    }
+
+    return {
+      line,
+      text,
+      indent: headInfo.indent,
+      head: headInfo.head,
+      headFrom: headInfo.headFrom,
+      headTo: headInfo.headTo,
+      headTrailingSpaces: headInfo.headTrailingSpaces,
+      tokens,
+      cells: tokens.filter((token) => token.type === 'cell'),
+      bars: tokens.filter((token) => token.type === 'bar'),
+    };
+  }
+
+  function scoreGridIsVoiceRow(row) {
+    return Boolean(row && HEAD_VOICE.has(String(row.head || '').toLowerCase()));
+  }
+
+  function scoreGridIsSpeedRow(row) {
+    return Boolean(row && String(row.head || '').toLowerCase() === 'speed');
+  }
+
+  function scoreGridQueueSpacer(ops, absolutePos, widthCh, side) {
+    const width = Math.max(0, Number(widthCh) || 0);
+    if (width <= 0.05) return;
+    ops.push({
+      pos: absolutePos,
+      width,
+      side: side == null ? 1 : Number(side) || 1,
+    });
+  }
+
+  function scoreGridFlushSpacers(builder, ops) {
+    const sorted = ops
+      .filter((op) => op && Number.isFinite(op.pos) && Number(op.width) > 0.05)
+      .sort((a, b) => (a.pos - b.pos) || ((a.side || 0) - (b.side || 0)) || (a.width - b.width));
+
+    for (const op of sorted) {
+      builder.add(op.pos, op.pos, Decoration.widget({
+        widget: new ScoreGridSpacerWidget(op.width),
+        side: op.side == null ? 1 : op.side,
+      }));
+    }
+  }
+
+  function scoreGridIsAttachableSequenceRow(row) {
+    if (!row) return false;
+    const head = String(row.head || '').toLowerCase();
+    if (scoreGridIsSpeedRow(row)) return scoreGridRowHasBody(row);
+    if (!HEAD_PARAM.has(head) && !HEAD_EFFECT.has(head) && !HEAD_COUPLING.has(head)) return false;
+
+    // A one-value parameter row is still score material. Treat it as a
+    // one-cell row in the metered field so `pan 1`, `decay 4`, `gain 0.72`,
+    // etc. land at the same x-position their first value would occupy if the
+    // row later grew into `pan 1 1` or `decay 4 2`.
+    return scoreGridRowHasBody(row);
+  }
+
+  function scoreGridIsHardBoundary(row, text) {
+    const raw = String(text || '').trim();
+    if (!raw) return true;
+    if (raw.startsWith('//') || raw.startsWith('#')) return true;
+    if (!row) return true;
+    const head = String(row.head || '').toLowerCase();
+    return scoreGridIsVoiceRow(row) || HEAD_DIRECTIVE.has(head);
+  }
+
+  function scoreGridCollectBlockRows(doc, startLineNumber) {
+    const firstLine = doc.line(startLineNumber);
+    const firstRow = scoreGridTokenizeRow(firstLine);
+    if (!scoreGridIsVoiceRow(firstRow)) return null;
+
+    const rows = [firstRow];
+    let lineNumber = startLineNumber + 1;
+
+    while (lineNumber <= doc.lines) {
+      const line = doc.line(lineNumber);
+      const row = scoreGridTokenizeRow(line);
+      if (scoreGridIsHardBoundary(row, line.text)) break;
+      if (scoreGridIsAttachableSequenceRow(row)) rows.push(row);
+      lineNumber += 1;
+    }
+
+    return rows.length > 1 ? { rows, nextLineNumber: lineNumber } : null;
+  }
+
+  function scoreGridRowPrefixCh(row) {
+    if (!row) return 0;
+    return scoreGridIsVoiceRow(row) ? SCORE_GRID_MUTE_PREFIX_CH : 0;
+  }
+
+  function scoreGridBeatsPerBar(doc) {
+    if (!doc) return SCORE_GRID_DEFAULT_BEATS;
+    const lineLimit = Math.min(doc.lines || 0, 80);
+    for (let lineNumber = 1; lineNumber <= lineLimit; lineNumber += 1) {
+      const line = doc.line(lineNumber);
+      const row = scoreGridTokenizeRow(line);
+      if (!row || String(row.head || '').toLowerCase() !== 'meter') continue;
+      const first = row.cells && row.cells.length ? String(row.cells[0].text || '') : '';
+      const match = first.match(/^(\d+)(?:\s*)?(?:\/\d+)?$/);
+      if (match) {
+        const beats = Number(match[1]);
+        if (Number.isFinite(beats) && beats > 0) return Math.max(1, Math.min(32, beats));
+      }
+      const fallback = String(line.text || '').match(/^\s*meter\s+(\d+)/i);
+      if (fallback) {
+        const fallbackBeats = Number(fallback[1]);
+        if (Number.isFinite(fallbackBeats) && fallbackBeats > 0) return Math.max(1, Math.min(32, fallbackBeats));
+      }
+    }
+    return SCORE_GRID_DEFAULT_BEATS;
+  }
+
+  function scoreGridBarWidthCh(doc) {
+    return scoreGridBeatsPerBar(doc) * SCORE_GRID_BEAT_CH;
+  }
+
+  function scoreGridIsOriginRow(row) {
+    if (!row) return false;
+    return scoreGridIsVoiceRow(row) || scoreGridIsAttachableSequenceRow(row);
+  }
+
+  function scoreGridRowHasBody(row) {
+    return Boolean(row && Array.isArray(row.cells) && row.cells.length > 0);
+  }
+
+  function scoreGridOriginHeadWidth(doc) {
+    if (!doc) return 0;
+    let maxHead = 0;
+
+    for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
+      const row = scoreGridTokenizeRow(doc.line(lineNumber));
+      if (!scoreGridIsOriginRow(row) || !scoreGridRowHasBody(row)) continue;
+      maxHead = Math.max(
+        maxHead,
+        scoreGridRowPrefixCh(row) + scoreGridVisualLength(row.head)
+      );
+    }
+
+    return maxHead > 0 ? maxHead + SCORE_GRID_HEAD_GAP_CH : 0;
+  }
+
+  function scoreGridFirstOriginLine(doc) {
+    if (!doc) return null;
+
+    // The start barline is the beginning of the piece, not the beginning of
+    // the metadata/directive rows. It should start at the first sounding/top
+    // level voice row once that row has body material.
+    for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
+      const line = doc.line(lineNumber);
+      const row = scoreGridTokenizeRow(line);
+      if (!scoreGridIsVoiceRow(row) || !scoreGridRowHasBody(row)) continue;
+      return line;
+    }
+
+    return null;
+  }
+
+  function scoreGridCellsByBar(row) {
+    const out = new Map();
+    if (!row || !Array.isArray(row.cells)) return out;
+    for (const cell of row.cells) {
+      const bar = Number(cell.bar) || 0;
+      out.set(bar, (out.get(bar) || 0) + 1);
+    }
+    return out;
+  }
+
+  function scoreGridMaxBarIndex(rows) {
+    let maxBar = 0;
+    for (const row of rows || []) {
+      for (const cell of row.cells || []) maxBar = Math.max(maxBar, Number(cell.bar) || 0);
+      for (const bar of row.bars || []) maxBar = Math.max(maxBar, (Number(bar.bar) || 0) + 1);
+    }
+    return maxBar;
+  }
+
+  function scoreGridBarStartCh(headWidth, barWidth, barIndex) {
+    return headWidth + Math.max(0, Number(barIndex) || 0) * (barWidth + 1 + SCORE_GRID_BAR_GAP_CH);
+  }
+
+  function scoreGridCellTargetCh(headWidth, barWidth, rowCellCounts, token) {
+    const bar = Math.max(0, Number(token && token.bar) || 0);
+    const cell = Math.max(0, Number(token && token.cell) || 0);
+    const cellCount = Math.max(1, Number(rowCellCounts.get(bar)) || 1);
+    return scoreGridBarStartCh(headWidth, barWidth, bar) + ((barWidth / cellCount) * cell);
+  }
+
+  function scoreGridBarTargetCh(headWidth, barWidth, token) {
+    const bar = Math.max(0, Number(token && token.bar) || 0);
+    return scoreGridBarStartCh(headWidth, barWidth, bar) + barWidth;
+  }
+
+  function scoreGridSecondaryBeatIndex(beats) {
+    const count = Math.max(1, Number(beats) || SCORE_GRID_DEFAULT_BEATS);
+    if (count === 6) return 3;
+    if (count === 4) return 2;
+    if (count > 2 && count % 2 === 0) return Math.floor(count / 2);
+    return -1;
+  }
+
+  function scoreGridBaseBeatClass(beats, beatIndex) {
+    const safeBeat = Math.max(0, Math.floor(Number(beatIndex) || 0));
+    if (safeBeat === 0) return 'cs-beat-strong';
+    if (safeBeat === scoreGridSecondaryBeatIndex(beats)) return 'cs-beat-secondary';
+    return 'cs-beat-weak';
+  }
+
+  function scoreGridCellBeatClass(row, cell, beats) {
+    if (!row || !cell) return '';
+    const text = String(cell.text || '').trim();
+    if (isRestLikeLeafToken(text)) return 'cs-beat-rest';
+
+    const rowCellCounts = scoreGridCellsByBar(row);
+    const bar = Math.max(0, Number(cell.bar) || 0);
+    const cellIndex = Math.max(0, Number(cell.cell) || 0);
+    const count = Math.max(1, Number(rowCellCounts.get(bar)) || 1);
+    const safeBeats = Math.max(1, Number(beats) || SCORE_GRID_DEFAULT_BEATS);
+
+    // Meter wins: if a row has more top-level cells than the meter has beats,
+    // those cells are denser subdivisions inside the same bar span. They should
+    // read quieter than beat-level cells and must not imply a wider bar.
+    if (count > safeBeats) {
+      if (cellIndex === 0) return 'cs-beat-subdivision cs-beat-subdivision-strong';
+      const projectedBeat = Math.floor((cellIndex / count) * safeBeats);
+      if (projectedBeat === scoreGridSecondaryBeatIndex(safeBeats)) return 'cs-beat-subdivision cs-beat-subdivision-secondary';
+      return 'cs-beat-subdivision';
+    }
+
+    const projectedBeat = Math.floor((cellIndex / count) * safeBeats);
+    return scoreGridBaseBeatClass(safeBeats, projectedBeat);
+  }
+
+  function scoreGridCellContainsRange(cell, range) {
+    if (!cell || !range) return false;
+    const from = Number(range.from);
+    const to = Number(range.to);
+    return Number.isFinite(from) && Number.isFinite(to) && from >= cell.from && to <= cell.to;
+  }
+
+  function scoreGridCellLooksGrouped(cell) {
+    const text = String(cell && cell.text || '').trim();
+    return text.length >= 2 && text[0] === '(' && text[text.length - 1] === ')';
+  }
+
+  function scoreGridBeatClassesForRange(row, range, beats) {
+    if (!row || !range || range.comment || range.isHead) return '';
+    if (!scoreGridIsVoiceRow(row) && !scoreGridIsAttachableSequenceRow(row)) return '';
+
+    const cell = (row.cells || []).find((candidate) => scoreGridCellContainsRange(candidate, range));
+    if (!cell) return '';
+
+    const raw = String(range.text || '').trim();
+    if (!raw || raw === '|') return '';
+    if (isRestLikeLeafToken(raw)) return 'cs-beat-rest';
+
+    const base = scoreGridCellBeatClass(row, cell, beats);
+    if (!scoreGridCellLooksGrouped(cell)) return base;
+
+    if (raw === '(' || raw === ')') return `${base} cs-beat-group-shell`;
+    if (/^[()]+$/.test(raw)) return `${base} cs-beat-group-shell`;
+    return 'cs-beat-nested';
+  }
+
+  function scoreGridBeatRowForLine(line) {
+    const row = scoreGridTokenizeRow(line);
+    if (!row) return null;
+    if (scoreGridIsVoiceRow(row) || scoreGridIsAttachableSequenceRow(row)) return row;
+    return null;
+  }
+
+  function scoreGridApplyRows(builder, rows, doc) {
+    const parsed = rows.filter(Boolean);
+    if (parsed.length < 2) return;
+
+    const ops = [];
+    const barWidth = scoreGridBarWidthCh(doc);
+    const maxBar = scoreGridMaxBarIndex(parsed);
+    const localHeadWidth = Math.max(
+      ...parsed.map((row) => scoreGridRowPrefixCh(row) + scoreGridVisualLength(row.head))
+    ) + SCORE_GRID_HEAD_GAP_CH;
+    const headWidth = Math.max(localHeadWidth, scoreGridOriginHeadWidth(doc));
+
+    for (const row of parsed) {
+      const rowPrefix = scoreGridRowPrefixCh(row);
+      const rowCellCounts = scoreGridCellsByBar(row);
+      const tokens = row.tokens.slice().sort((a, b) => a.from - b.from);
+      let extraCh = 0;
+
+      const firstToken = tokens.find((token) => token.type === 'cell' || token.type === 'bar');
+      const firstTarget = firstToken
+        ? (firstToken.type === 'cell'
+          ? scoreGridCellTargetCh(headWidth, barWidth, rowCellCounts, firstToken)
+          : scoreGridBarTargetCh(headWidth, barWidth, firstToken))
+        : headWidth;
+      const afterHeadRawCh = rowPrefix + row.headTo + row.headTrailingSpaces;
+      const headGap = firstTarget - afterHeadRawCh;
+      if (headGap > 0.05) {
+        scoreGridQueueSpacer(ops, row.line.from + row.headTo, headGap, 1);
+        extraCh += headGap;
+      }
+
+      for (const token of tokens) {
+        let targetLeft = null;
+        if (token.type === 'cell') {
+          targetLeft = scoreGridCellTargetCh(headWidth, barWidth, rowCellCounts, token);
+        } else if (token.type === 'bar') {
+          targetLeft = scoreGridBarTargetCh(headWidth, barWidth, token);
+        }
+        if (targetLeft == null || !Number.isFinite(targetLeft)) continue;
+
+        const actualLeft = rowPrefix + token.from + extraCh;
+        const beforeGap = targetLeft - actualLeft;
+        if (beforeGap > 0.05) {
+          scoreGridQueueSpacer(ops, row.line.from + token.from, beforeGap, -1);
+          extraCh += beforeGap;
+        }
+      }
+
+      // If this row stops before the block's last notated bar, preserve the
+      // same metered span so the visual grid does not collapse at row ends.
+      const lastToken = tokens.length ? tokens[tokens.length - 1] : null;
+      if (lastToken && lastToken.type !== 'bar') {
+        const lastBar = Math.max(0, Number(lastToken.bar) || 0);
+        if (lastBar < maxBar) {
+          const rowEndActual = rowPrefix + lastToken.to + (lastToken.trailingSpaces || 0) + extraCh;
+          const rowEndTarget = scoreGridBarTargetCh(headWidth, barWidth, { bar: lastBar });
+          const tailGap = rowEndTarget - rowEndActual;
+          if (tailGap > 0.05) {
+            scoreGridQueueSpacer(ops, row.line.from + lastToken.to, tailGap, 1);
+          }
+        }
+      }
+    }
+
+    scoreGridFlushSpacers(builder, ops);
+  }
+
+  function buildScoreGridDecorations(view) {
+    if (!editorEnvRef.scoreGridEnabled) return Decoration.none;
+    if (view.composing) return Decoration.none;
+
+    const builder = new RangeSetBuilder();
+    const doc = view.state.doc;
+    let lineNumber = 1;
+
+    while (lineNumber <= doc.lines) {
+      const block = scoreGridCollectBlockRows(doc, lineNumber);
+      if (block) {
+        scoreGridApplyRows(builder, block.rows, doc);
+        lineNumber = Math.max(lineNumber + 1, block.nextLineNumber);
+        continue;
+      }
+      lineNumber += 1;
+    }
+
+    return builder.finish();
+  }
+
+  const scoreGridPlugin = ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.decorations = buildScoreGridDecorations(view);
+    }
+
+    update(update) {
+      const toggled = update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setScoreGridEnabledEffect)));
+      if (update.docChanged || update.viewportChanged || update.geometryChanged || toggled) {
+        this.decorations = buildScoreGridDecorations(update.view);
+      }
+    }
+  }, {
+    decorations: (plugin) => plugin.decorations,
+  });
+
+  function scoreGridMeasureChPx(view) {
+    if (view && Number.isFinite(Number(view.defaultCharacterWidth)) && Number(view.defaultCharacterWidth) > 0) {
+      return Number(view.defaultCharacterWidth);
+    }
+
+    const owner = view && view.dom && view.dom.ownerDocument ? view.dom.ownerDocument : document;
+    const probe = owner.createElement('span');
+    probe.textContent = '0000000000';
+    probe.setAttribute('aria-hidden', 'true');
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    probe.style.pointerEvents = 'none';
+    probe.style.whiteSpace = 'pre';
+    probe.style.left = '-9999px';
+    probe.style.top = '0';
+
+    try {
+      const computed = view && view.contentDOM ? root.getComputedStyle(view.contentDOM) : null;
+      if (computed && computed.font) probe.style.font = computed.font;
+    } catch (_) {}
+
+    try {
+      (view && view.dom ? view.dom : owner.body).appendChild(probe);
+      const rect = probe.getBoundingClientRect();
+      const width = rect && Number.isFinite(rect.width) ? rect.width / 10 : 0;
+      return width > 0 ? width : 8.4;
+    } finally {
+      if (probe.parentNode) probe.parentNode.removeChild(probe);
+    }
+  }
+
+  function scoreGridLineTextLeftPx(view, scrollerRect) {
+    const scroller = view && view.scrollDOM ? view.scrollDOM : null;
+    const owner = view && view.dom && view.dom.ownerDocument ? view.dom.ownerDocument : document;
+    const firstLineEl = view && view.dom ? view.dom.querySelector('.cm-line') : null;
+
+    if (firstLineEl && scrollerRect) {
+      try {
+        const lineRect = firstLineEl.getBoundingClientRect();
+        const lineStyle = owner.defaultView.getComputedStyle(firstLineEl);
+        const paddingLeft = Number.parseFloat(lineStyle.paddingLeft) || 0;
+        return (lineRect.left - scrollerRect.left) + paddingLeft;
+      } catch (_) {}
+    }
+
+    try {
+      const contentRect = view.contentDOM.getBoundingClientRect();
+      return contentRect.left - scrollerRect.left;
+    } catch (_) {
+      return scroller && Number.isFinite(scroller.scrollLeft) ? -scroller.scrollLeft : 0;
+    }
+  }
+
+  function scoreGridOriginTopPx(view, firstOriginLine) {
+    if (!view || !view.scrollDOM || !firstOriginLine) return 0;
+
+    try {
+      if (typeof view.lineBlockAt === 'function') {
+        const block = view.lineBlockAt(firstOriginLine.from);
+        if (block && Number.isFinite(block.top)) {
+          return block.top - view.scrollDOM.scrollTop;
+        }
+      }
+    } catch (_) {}
+
+    try {
+      const coords = typeof view.coordsAtPos === 'function' ? view.coordsAtPos(firstOriginLine.from) : null;
+      const scrollerRect = view.scrollDOM.getBoundingClientRect();
+      if (coords && scrollerRect && Number.isFinite(coords.top)) {
+        return coords.top - scrollerRect.top;
+      }
+    } catch (_) {}
+
+    return 0;
+  }
+
+  function scoreGridSyncOriginRuler(view) {
+    if (!view || !view.dom || !view.state || !view.state.doc) return;
+
+    const originCh = scoreGridOriginHeadWidth(view.state.doc);
+    const firstOriginLine = scoreGridFirstOriginLine(view.state.doc);
+    const hasOrigin = originCh > 0 && Boolean(firstOriginLine);
+    view.dom.classList.toggle('cs-has-score-origin', hasOrigin);
+    view.dom.classList.toggle('cs-score-origin-grid', editorEnvRef.scoreGridEnabled === true);
+
+    if (!hasOrigin) {
+      view.dom.style.removeProperty('--cs-score-origin-x');
+      view.dom.style.removeProperty('--cs-score-origin-label-width');
+      view.dom.style.removeProperty('--cs-score-origin-ch');
+      view.dom.style.removeProperty('--cs-score-origin-top');
+      view.dom.style.removeProperty('--cs-score-beat-width');
+      view.dom.style.removeProperty('--cs-score-bar-width');
+      return;
+    }
+
+    const scroller = view.scrollDOM;
+    const chPx = scoreGridMeasureChPx(view);
+    let scrollerRect = null;
+
+    try {
+      scrollerRect = scroller.getBoundingClientRect();
+    } catch (_) {
+      scrollerRect = null;
+    }
+
+    const textLeft = scoreGridLineTextLeftPx(view, scrollerRect);
+    const originPx = textLeft + originCh * chPx;
+    const originTopPx = scoreGridOriginTopPx(view, firstOriginLine);
+    const beatWidthCh = Math.max(1, Number(SCORE_GRID_BEAT_CH) || 6);
+    const barWidthCh = Math.max(beatWidthCh, scoreGridBarWidthCh(view.state.doc));
+    view.dom.style.setProperty('--cs-score-origin-x', `${originPx.toFixed(2)}px`);
+    view.dom.style.setProperty('--cs-score-origin-label-width', `${Math.max(0, originPx).toFixed(2)}px`);
+    view.dom.style.setProperty('--cs-score-origin-ch', `${originCh.toFixed(2)}ch`);
+    view.dom.style.setProperty('--cs-score-origin-top', `${originTopPx.toFixed(2)}px`);
+    view.dom.style.setProperty('--cs-score-beat-width', `${beatWidthCh.toFixed(2)}ch`);
+    view.dom.style.setProperty('--cs-score-bar-width', `${barWidthCh.toFixed(2)}ch`);
+  }
+
+  const scoreOriginRulerPlugin = ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.frame = null;
+      this.view = view;
+      this.ruleEl = null;
+      this.onScroll = () => this.schedule();
+      this.ensureRuleLayer();
+      if (view.scrollDOM) view.scrollDOM.addEventListener('scroll', this.onScroll, { passive: true });
+      this.sync();
+    }
+
+    ensureRuleLayer() {
+      const view = this.view;
+      const scroller = view && view.scrollDOM;
+      if (!scroller) return;
+      if (this.ruleEl && this.ruleEl.parentNode === scroller) return;
+      this.removeRuleLayer();
+
+      const owner = view.dom && view.dom.ownerDocument ? view.dom.ownerDocument : document;
+      const rule = owner.createElement('div');
+      rule.className = 'cm-score-origin-rule';
+      rule.setAttribute('aria-hidden', 'true');
+      scroller.appendChild(rule);
+      this.ruleEl = rule;
+    }
+
+    removeRuleLayer() {
+      if (this.ruleEl && this.ruleEl.parentNode) {
+        this.ruleEl.parentNode.removeChild(this.ruleEl);
+      }
+      this.ruleEl = null;
+    }
+
+    schedule() {
+      if (this.frame != null) return;
+      this.frame = root.requestAnimationFrame(() => {
+        this.frame = null;
+        this.sync();
+      });
+    }
+
+    sync() {
+      this.ensureRuleLayer();
+      scoreGridSyncOriginRuler(this.view);
+    }
+
+    update(update) {
+      const toggled = update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setScoreGridEnabledEffect)));
+      if (update.docChanged || update.viewportChanged || update.geometryChanged || toggled) {
+        this.view = update.view;
+        this.schedule();
+      }
+    }
+
+    destroy() {
+      if (this.frame != null) root.cancelAnimationFrame(this.frame);
+      if (this.view && this.view.scrollDOM && this.onScroll) {
+        this.view.scrollDOM.removeEventListener('scroll', this.onScroll);
+      }
+      this.removeRuleLayer();
+    }
+  });
+
   const HEAD_VOICE = new Set(VOICE_WORDS);
   const HEAD_DIRECTIVE = new Set(DIRECTIVES);
   const HEAD_PARAM = new Set(PARAMS);
@@ -1342,6 +2001,7 @@
     const now = Date.now();
     const builder = new RangeSetBuilder();
     const current = findCurrentBlockLines(view.state);
+    const beatCount = scoreGridBeatsPerBar(view.state.doc);
 
     for (let i = 1; i <= view.state.doc.lines; i++) {
       const line = view.state.doc.line(i);
@@ -1388,14 +2048,16 @@
       builder.add(line.from, line.from, Decoration.line({ attributes: attrs }));
 
       const ranges = tokenRanges(text);
+      const beatRow = scoreGridBeatRowForLine(line);
       for (const r of ranges) {
         const cls = r.comment ? 'cs-token cs-comment' : tokenCssClass(r.text, r.isHead);
         const tokenPulse = active && r.isHead ? ' cs-token-active' : '';
+        const beatClass = beatRow ? scoreGridBeatClassesForRange(beatRow, r, beatCount) : '';
         // Leaf playback is drawn by an absolute overlay plate owned by the
         // ViewPlugin. Do not add layout-affecting classes to source tokens here:
         // the code text must stay perfectly registered while the runtime stamp
         // moves independently above/below the score grid.
-        builder.add(line.from + r.from, line.from + r.to, Decoration.mark({ class: cls + tokenPulse }));
+        builder.add(line.from + r.from, line.from + r.to, Decoration.mark({ class: cls + tokenPulse + (beatClass ? ` ${beatClass}` : '') }));
       }
     }
 
@@ -1760,13 +2422,81 @@
       '--cs-sample-ink': '#070707',
       '--cs-input-ink': '#070707',
     },
+    '.cm-score-grid-spacer': {
+      display: 'inline-block',
+      width: 'var(--score-grid-gap, 0ch)',
+      minWidth: 'var(--score-grid-gap, 0ch)',
+      height: '1em',
+      pointerEvents: 'none',
+      userSelect: 'none',
+      verticalAlign: 'baseline',
+    },
+    '&.cm-score-grid-enabled .cm-line': {
+      // The beat grid is a score-field layer now, not a full-width line
+      // background. Keeping line backgrounds clear prevents the vertical grid
+      // from crossing row labels such as `string`, `sample`, or `attractor`.
+      backgroundImage: 'none',
+      backgroundSize: 'auto',
+    },
+    '&.cs-has-score-origin .cm-scroller::before': {
+      content: '""',
+      position: 'absolute',
+      top: 'var(--cs-score-origin-top, 0px)',
+      bottom: '0',
+      left: 'var(--cs-score-origin-x, 0px)',
+      right: '0',
+      width: 'auto',
+      borderLeft: '0',
+      boxShadow: 'none',
+      backgroundImage: 'none',
+      backgroundPosition: '0 0',
+      backgroundRepeat: 'repeat',
+      pointerEvents: 'none',
+      zIndex: '1',
+    },
+    '.cm-score-origin-rule': {
+      display: 'none',
+      position: 'absolute',
+      top: 'var(--cs-score-origin-top, 0px)',
+      bottom: '0',
+      left: 'var(--cs-score-origin-x, 0px)',
+      width: '0',
+      borderLeft: '1px solid rgba(7, 7, 7, 0.20)',
+      boxShadow: '1px 0 0 rgba(255, 212, 0, 0.10), -1px 0 0 rgba(0, 87, 255, 0.055)',
+      pointerEvents: 'none',
+      zIndex: '76',
+    },
+    '&.cs-has-score-origin .cm-score-origin-rule': {
+      display: 'block',
+    },
+    '&.cs-has-score-origin .cm-scroller::after': {
+      content: '""',
+      position: 'absolute',
+      top: 'var(--cs-score-origin-top, 0px)',
+      bottom: '0',
+      left: '0',
+      width: 'var(--cs-score-origin-label-width, 0px)',
+      backgroundImage: 'repeating-linear-gradient(135deg, rgba(7, 7, 7, 0.014) 0, rgba(7, 7, 7, 0.014) 2px, transparent 2px, transparent 7px)',
+      borderRight: '1px solid rgba(7, 7, 7, 0.035)',
+      pointerEvents: 'none',
+      zIndex: '0',
+    },
+    '&.cs-score-origin-grid .cm-scroller::before': {
+      backgroundImage:
+        'repeating-linear-gradient(90deg, rgba(255, 212, 0, 0.032) 0, rgba(255, 212, 0, 0.032) 1px, transparent 1px, transparent var(--cs-score-bar-width, 24ch)), repeating-linear-gradient(90deg, rgba(0, 87, 255, 0.026) 0, rgba(0, 87, 255, 0.026) 1px, transparent 1px, transparent var(--cs-score-beat-width, 6ch))',
+    },
+    '&.cs-score-origin-grid .cm-score-origin-rule': {
+      borderLeftColor: 'rgba(7, 7, 7, 0.24)',
+      boxShadow: '1px 0 0 rgba(255, 212, 0, 0.14), -1px 0 0 rgba(0, 87, 255, 0.07)',
+    },
     '&.cm-focused': {
       outline: 'none',
     },
     '.cm-scroller': {
       backgroundColor: '#ffffff',
-      backgroundImage:
-        'linear-gradient(90deg, rgba(7,7,7,0.035) 1px, transparent 1px), linear-gradient(180deg, rgba(7,7,7,0.028) 1px, transparent 1px)',
+      // Keep the page/staff wash horizontal only. Vertical beat/grid columns
+      // are clipped to the score field via `.cs-score-origin-grid` above.
+      backgroundImage: 'linear-gradient(180deg, rgba(7,7,7,0.028) 1px, transparent 1px)',
       backgroundSize: '32px 32px',
     },
     '.cm-content': {
@@ -2039,7 +2769,49 @@
       borderRadius: '0',
       textDecorationThickness: '2px',
       textUnderlineOffset: '0.18em',
-      transition: 'color 90ms ease, background-color 90ms ease, box-shadow 90ms ease, outline-color 90ms ease',
+      transition: 'color 90ms ease, background-color 90ms ease, box-shadow 90ms ease, outline-color 90ms ease, opacity 90ms ease, filter 90ms ease',
+    },
+    '.cs-token.cs-beat-strong': {
+      opacity: '1',
+      filter: 'brightness(1.08)',
+      backgroundColor: 'rgba(255, 212, 0, 0.20)',
+      outline: '1px solid rgba(7, 7, 7, 0.08)',
+    },
+    '.cs-token.cs-beat-secondary': {
+      opacity: '0.9',
+      filter: 'brightness(1.02)',
+      backgroundColor: 'rgba(255, 212, 0, 0.12)',
+    },
+    '.cs-token.cs-beat-weak': {
+      opacity: '0.74',
+      filter: 'saturate(0.92)',
+    },
+    '.cs-token.cs-beat-subdivision': {
+      opacity: '0.62',
+      filter: 'saturate(0.82)',
+    },
+    '.cs-token.cs-beat-subdivision-strong': {
+      opacity: '0.76',
+      backgroundColor: 'rgba(255, 212, 0, 0.08)',
+    },
+    '.cs-token.cs-beat-subdivision-secondary': {
+      opacity: '0.7',
+      backgroundColor: 'rgba(255, 212, 0, 0.055)',
+    },
+    '.cs-token.cs-beat-nested': {
+      opacity: '0.54',
+      filter: 'saturate(0.74)',
+    },
+    '.cs-token.cs-beat-rest': {
+      opacity: '0.45',
+      filter: 'saturate(0.55)',
+    },
+    '.cs-token.cs-beat-group-shell': {
+      backgroundColor: 'rgba(7, 7, 7, 0.035)',
+    },
+    '.cm-line.cs-leaf-line-active .cs-token, .cs-token.cs-token-active': {
+      opacity: '1',
+      filter: 'brightness(1.08)',
     },
     '.cs-head': {
       color: '#070707',
@@ -2417,6 +3189,41 @@
       color: '#d8e4ff',
       opacity: '1',
     },
+    '.cm-repl-completion-accept-key': {
+      display: 'none',
+      alignSelf: 'center',
+      justifySelf: 'end',
+      marginLeft: '0.65rem',
+      border: '2px solid #070707',
+      backgroundColor: '#ffd400',
+      color: '#070707',
+      boxShadow: '2px 2px 0 #070707',
+      fontSize: '0.58rem',
+      fontWeight: '900',
+      letterSpacing: '0.08em',
+      lineHeight: '1',
+      padding: '0.1rem 0.28rem',
+      textTransform: 'uppercase',
+      whiteSpace: 'nowrap',
+    },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-repl-completion-accept-key': {
+      display: 'inline-block',
+    },
+    '.cm-tooltip-autocomplete::after': {
+      content: '"TAB ACCEPTS · ENTER NEW LINE · ESC CLOSES"',
+      display: 'block',
+      borderTop: '2px solid #070707',
+      padding: '0.35rem 0.5rem',
+      backgroundImage: 'repeating-linear-gradient(135deg, rgba(7,7,7,0.08) 0, rgba(7,7,7,0.08) 2px, transparent 2px, transparent 6px)',
+      backgroundColor: '#ffffff',
+      color: '#070707',
+      fontFamily: '"Courier New", Courier, monospace',
+      fontSize: '0.62rem',
+      fontWeight: '900',
+      letterSpacing: '0.08em',
+      textTransform: 'uppercase',
+      whiteSpace: 'nowrap',
+    },
     '.cm-completionMatchedText': {
       textDecoration: 'none',
       fontWeight: '900',
@@ -2567,32 +3374,84 @@
   }
 
   function completionApplyTokenSuffix(token) {
-    const target = completionCommitToken(token);
-    if (!target) return null;
+    const target = String(token == null ? '' : token);
+    const commit = target.trim() ? target : completionCommitToken(target);
+    if (!commit) return null;
     return (view, _completion, from, to) => {
       const state = view && view.state;
       if (!state || !state.doc) return false;
       const docLen = state.doc.length;
       const safeFrom = Math.max(0, Math.min(Number.isFinite(from) ? from : 0, docLen));
       const safeTo = Math.max(safeFrom, Math.min(Number.isFinite(to) ? to : safeFrom, docLen));
-      const current = state.sliceDoc(safeFrom, safeTo);
-      const currentLower = String(current).toLowerCase();
-      const targetLower = target.toLowerCase();
-
-      if (current && targetLower.startsWith(currentLower)) {
-        const suffix = target.slice(current.length);
-        if (!suffix) return true;
-        view.dispatch({
-          changes: { from: safeTo, to: safeTo, insert: suffix },
-        });
-        return true;
-      }
+      const anchor = safeFrom + commit.length;
 
       view.dispatch({
-        changes: { from: safeFrom, to: safeTo, insert: target },
+        changes: { from: safeFrom, to: safeTo, insert: commit },
+        selection: { anchor },
+        userEvent: 'input.complete',
       });
+
+      if (typeof closeCompletion === 'function') {
+        try { closeCompletion(view); } catch (_) {}
+      }
       return true;
     };
+  }
+
+  function completionSubsequenceMatch(needle, haystack) {
+    const n = String(needle || '').toLowerCase();
+    const h = String(haystack || '').toLowerCase();
+    if (!n) return true;
+    let i = 0;
+    for (let j = 0; j < h.length && i < n.length; j += 1) {
+      if (h[j] === n[i]) i += 1;
+    }
+    return i === n.length;
+  }
+
+  function completionFitBoost(label, active) {
+    const token = completionCommitToken(label).toLowerCase();
+    const query = String(active || '').trim().toLowerCase();
+    if (!token || !query) return 0;
+    if (token === query) return 100;
+    if (token.startsWith(query)) return 70 + Math.max(0, 14 - token.length);
+    if (token.split(/[._-]+/).some((part) => part.startsWith(query))) return 52;
+    if (completionSubsequenceMatch(query, token)) return 34;
+    return 0;
+  }
+
+  function completionRecentBoost(label) {
+    const token = completionCommitToken(label);
+    if (!token || token.length < 2 || /^[*~_.|;()]+$/.test(token)) return 0;
+    const docText = String(editorEnvRef.completionDocText || '');
+    if (!docText) return 0;
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    try {
+      return new RegExp(`(^|\\s)${escaped}(?=$|\\s|[|;)])`, 'i').test(docText) ? 15 : 0;
+    } catch (_) {
+      return docText.toLowerCase().includes(token.toLowerCase()) ? 8 : 0;
+    }
+  }
+
+  function completionLikelihoodBoost(option, categoryKey) {
+    const label = option && typeof option.label === 'string' ? option.label : '';
+    const active = String(editorEnvRef.completionActiveText || '');
+    let boost = 0;
+    boost += completionFitBoost(label, active);
+    boost += completionRecentBoost(label);
+
+    if (option && option.replOpensRow) boost += 40;
+    if (categoryKey === 'voice') boost += 20;
+    if (categoryKey === 'directive' || categoryKey === 'tuning') boost += 16;
+    if (categoryKey === 'param' || categoryKey === 'effect') boost += 10;
+    if (categoryKey === 'value') boost += 6;
+
+    const token = completionCommitToken(label).toLowerCase();
+    if (token === 'right' || token === 'center' || token === 'left') boost += 18;
+    if (token === 'mp' || token === 'mf' || token === 'p' || token === 'f') boost += 14;
+    if (token === 'bright' || token === 'dark') boost += 14;
+    if (/^[a-g][b#]?-?\d+$/i.test(token)) boost += 12;
+    return boost;
   }
 
   function withCompletionCategory(option, category) {
@@ -2603,15 +3462,19 @@
     if (categoryKey) {
       out.replCategory = categoryKey;
       if (!out.section && COMPLETION_SECTIONS[categoryKey]) out.section = COMPLETION_SECTIONS[categoryKey];
-      if (!Number.isFinite(out.boost) && Number.isFinite(COMPLETION_BOOST[categoryKey])) out.boost = COMPLETION_BOOST[categoryKey];
+      const baseBoost = Number.isFinite(COMPLETION_BOOST[categoryKey]) ? COMPLETION_BOOST[categoryKey] : 0;
+      const fitBoost = completionLikelihoodBoost(out, categoryKey);
+      out.boost = (Number.isFinite(out.boost) ? Number(out.boost) : baseBoost) + fitBoost;
     }
     if (typeof out.apply !== 'string' && typeof out.apply !== 'function') {
-      const token = completionCommitToken(label);
-      if (token) out.apply = completionApplyTokenSuffix(token);
+      const insert = typeof out.replInsertText === 'string'
+        ? out.replInsertText
+        : completionCommitToken(label);
+      if (insert) out.apply = completionApplyTokenSuffix(insert);
     }
     if (label && /\s/.test(label) && typeof out.info !== 'string') {
       const token = completionCommitToken(label);
-      if (token) out.info = `Enter completes '${token}' only. Remaining text is guidance.`;
+      if (token) out.info = `Tab completes '${token}' only. Remaining text is guidance.`;
     }
     return out;
   }
@@ -2632,6 +3495,15 @@
       return false;
     }
     return false;
+  }
+
+
+  function completionKeymapWithoutEnter() {
+    if (!Array.isArray(completionKeymap)) return [];
+    return completionKeymap.filter((binding) => {
+      if (!binding) return false;
+      return !['key', 'mac', 'win', 'linux'].some((field) => binding[field] === 'Enter');
+    });
   }
 
   function completionWordMatch(state, pos, expr) {
@@ -2904,9 +3776,11 @@
     const explicit = ctx.explicit;
     const wordMatch = ctx.matchBefore(/[A-Za-z0-9_.\-#*&!~/]+/);
     const from = wordMatch ? wordMatch.from : ctx.pos;
+    editorEnvRef.completionActiveText = wordMatch ? String(wordMatch.text || '') : '';
+    editorEnvRef.completionDocText = ctx.state && ctx.state.doc ? ctx.state.doc.toString() : '';
 
     if (here.kind === 'head') {
-      if (here.headWord && HEAD_PARAM.has(here.headWord)) {
+      if (explicit && here.headWord && HEAD_PARAM.has(here.headWord)) {
         return buildParamBodyCompletion({
           name: here.headWord,
           from: ctx.pos,
@@ -2914,7 +3788,7 @@
           trailingSpace: true,
         });
       }
-      if (here.headWord && HEAD_EFFECT.has(here.headWord)) {
+      if (explicit && here.headWord && HEAD_EFFECT.has(here.headWord)) {
         return buildEffectBodyCompletion({
           name: here.headWord,
           from: ctx.pos,
@@ -2926,11 +3800,11 @@
       // is mid-word or has hit the trigger.
       if (!explicit && !wordMatch) return null;
       const opts = [
-        ...voiceWordsForCompletion().map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'voice' }, 'voice')),
-        ...DIRECTIVES.map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'directive' }, 'directive')),
-        ...PARAMS.map((w) => withCompletionCategory({ label: w, type: 'property', detail: 'param' }, 'param')),
-        ...EFFECTS.map((w) => withCompletionCategory({ label: w, type: 'property', detail: 'effect' }, 'effect')),
-        ...COUPLING.map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'coupling' }, 'coupling')),
+        ...voiceWordsForCompletion().map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'voice · opens row', replInsertText: `${w} `, replOpensRow: true }, 'voice')),
+        ...DIRECTIVES.map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'directive · opens row', replInsertText: `${w} `, replOpensRow: true }, 'directive')),
+        ...PARAMS.map((w) => withCompletionCategory({ label: w, type: 'property', detail: 'param · opens row', replInsertText: `${w} `, replOpensRow: true }, 'param')),
+        ...EFFECTS.map((w) => withCompletionCategory({ label: w, type: 'property', detail: 'effect · opens row', replInsertText: `${w} `, replOpensRow: true }, 'effect')),
+        ...COUPLING.map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'coupling · opens row', replInsertText: `${w} `, replOpensRow: true }, 'coupling')),
       ];
       return { from: here.from, options: opts, validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
     }
@@ -3436,16 +4310,11 @@
           },
         },
         {
-          // Enter accepts an open completion; otherwise falls through to
-          // the default newline insertion via lower-precedence keymaps.
+          // Enter is always a writing key in this REPL. Completion acceptance
+          // belongs to Tab, so returning false lets the lower default keymap
+          // insert a newline even while the completion tooltip is open.
           key: 'Enter',
-          run: (view) => {
-            if (completionStatus(view.state) === 'active') {
-              acceptCompletion(view);
-              return true;
-            }
-            return false;
-          },
+          run: () => false,
         },
         {
           key: 'Ctrl-Space',
@@ -3470,6 +4339,7 @@
     editorEnvRef.getDrumKits = opts.getDrumKits;
     editorEnvRef.getVideoGeneratedIds = opts.getVideoGeneratedIds;
     editorEnvRef.enableVideoDebug = opts.enableVideoDebug === true;
+    editorEnvRef.scoreGridEnabled = opts.scoreGridEnabled !== false;
     editorEnvRef.onToggleBlockMute = typeof opts.onToggleBlockMute === 'function'
       ? opts.onToggleBlockMute
       : null;
@@ -3495,6 +4365,8 @@
       replLanguageWithTags,
       syntaxHighlighting(replHighlight),
       cyberneticScorePlugin,
+      scoreGridPlugin,
+      scoreOriginRulerPlugin,
       selectionStateClassPlugin,
       selectionMaskPlugin,
       blockMuteDecorationsPlugin,
@@ -3515,6 +4387,16 @@
         defaultKeymap: false,
         closeOnBlur: true,
         icons: false,
+        addToOptions: [{
+          position: 90,
+          render() {
+            const key = document.createElement('span');
+            key.className = 'cm-repl-completion-accept-key';
+            key.textContent = 'TAB ACCEPT';
+            key.setAttribute('aria-hidden', 'true');
+            return key;
+          },
+        }],
       }),
       sanitizerFilter,
       replTheme,
@@ -3534,7 +4416,7 @@
       // keymap built last so it can reference the eventual view via closure.
       makeKeymap(opts.onCommand || {}),
       // baseline editing keymap, lower precedence
-      keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, ...lintKeymap]),
+      keymap.of([...completionKeymapWithoutEnter(), ...defaultKeymap, ...historyKeymap, ...searchKeymap, ...lintKeymap]),
     ];
 
     if (parseFn) extensions.push(buildLinter(parseFn));
@@ -3547,6 +4429,7 @@
     });
 
     const view = new EditorView({ state, parent });
+    view.dom.classList.toggle('cm-score-grid-enabled', editorEnvRef.scoreGridEnabled === true);
 
     // Reinforce contentDOM attributes after mount in case the theme injects
     // extras downstream.
@@ -3638,6 +4521,17 @@
       replaceSelection(text) {
         const insert = typeof text === 'string' ? text : '';
         view.dispatch(view.state.replaceSelection(insert));
+      },
+
+      setScoreGridEnabled(enabled) {
+        const next = enabled !== false;
+        editorEnvRef.scoreGridEnabled = next;
+        view.dom.classList.toggle('cm-score-grid-enabled', next);
+        view.dispatch({ effects: setScoreGridEnabledEffect.of(next) });
+      },
+
+      getScoreGridEnabled() {
+        return editorEnvRef.scoreGridEnabled === true;
       },
 
       setMutedBlockLines(lines) {

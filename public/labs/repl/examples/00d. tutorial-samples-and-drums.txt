@@ -1,0 +1,13 @@
+// samples + drums
+// drum rows use lane letters.
+// k kick, s snare, h hat, r ride, c crash, t tom, o other.
+tempo 104
+meter 4/4
+drum k h s h | k h s h
+kit rock
+variance .25
+gain .5
+sample snm-* . tub-* .
+gain .35
+rate 1
+pan .15

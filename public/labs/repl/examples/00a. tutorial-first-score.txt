@@ -1,0 +1,8 @@
+// first score
+// press Cmd-Enter or EVALUATE to run.
+// edit the pitches, then replay.
+tempo 72
+meter 4/4
+string C3 E3 G3 C4
+gain .55
+pan center

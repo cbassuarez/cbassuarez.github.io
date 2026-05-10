@@ -19,6 +19,15 @@
     const _buffers = new Map();       // name → AudioBuffer
     const _pending = new Map();       // name → Promise<AudioBuffer>
     const _activeSources = new Set(); // currently playing AudioBufferSourceNodes
+
+    // Session-only quarantine for broken production assets.
+    // If a manifest points to a 404 / bad / undecodable sample, do not hammer
+    // that URL every loop. Mark it unavailable, remove it from future kit/lane
+    // choices, and warn once.
+    const _failedSampleIds = new Set();
+    const _failedSampleUrls = new Set();
+    const _warnedSampleFailures = new Set();
+
     let _manifest = null;             // shipped manifest { version, samples, kits, groups }
     let _manifestUrl = '';
     let _manifestPromise = null;
@@ -160,6 +169,59 @@
     setOverlayBank({ samples: [], groups: [] });
   }
 
+    function sampleFailureKey(name, url) {
+      const n = String(name || '').trim();
+      const u = String(url || '').trim();
+      return `${n}::${u}`;
+    }
+
+    function isUrlUnavailable(url) {
+      const u = String(url || '').trim();
+      return Boolean(u && _failedSampleUrls.has(u));
+    }
+
+    function isUnavailable(name) {
+      const n = String(name || '').trim();
+      if (!n) return false;
+      if (_failedSampleIds.has(n)) return true;
+
+      const entry = _overlayByName.has(n) ? _overlayByName.get(n) : baseManifestEntry(n);
+      if (!entry) return false;
+
+      try {
+        return isUrlUnavailable(resolveSampleUrl(entry));
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function markSampleUnavailable(name, url, err) {
+      const n = String(name || '').trim();
+      const u = String(url || '').trim();
+
+      if (n) {
+        _failedSampleIds.add(n);
+        _buffers.delete(n);
+        _pending.delete(n);
+      }
+
+      if (u) _failedSampleUrls.add(u);
+
+      const key = sampleFailureKey(n, u);
+      if (_warnedSampleFailures.has(key)) return;
+      _warnedSampleFailures.add(key);
+
+      // eslint-disable-next-line no-console
+      console.warn('[repl] sample quarantined:', n || '(unnamed)', u || '(no url)', err || '');
+    }
+
+    function unavailable() {
+      return {
+        samples: Array.from(_failedSampleIds),
+        urls: Array.from(_failedSampleUrls),
+      };
+    }
+    
   function loadManifest(url) {
     if (_manifestPromise) return _manifestPromise;
     _manifestUrl = url;
@@ -184,39 +246,51 @@
     return _manifest.samples.find((s) => s && s.name === name) || null;
   }
 
-  function manifestEntry(name) {
-    if (_overlayByName.has(name)) return _overlayByName.get(name);
-    return baseManifestEntry(name);
-  }
+    function manifestEntry(name) {
+      const n = String(name || '').trim();
+      if (!n || isUnavailable(n)) return null;
 
-  function has(name) {
-    return Boolean(manifestEntry(name));
-  }
+      const entry = _overlayByName.has(n) ? _overlayByName.get(n) : baseManifestEntry(n);
+      if (!entry) return null;
 
-  function list() {
-    const out = [];
-    const seen = new Set();
+      try {
+        const url = resolveSampleUrl(entry);
+        if (isUrlUnavailable(url)) return null;
+      } catch (_) {}
 
-    if (_manifest && Array.isArray(_manifest.samples)) {
-      for (const s of _manifest.samples) {
+      return entry;
+    }
+
+    function has(name) {
+      return Boolean(manifestEntry(name)) && !isUnavailable(name);
+    }
+
+    function list() {
+      const out = [];
+      const seen = new Set();
+
+      if (_manifest && Array.isArray(_manifest.samples)) {
+        for (const s of _manifest.samples) {
+          const name = s && s.name;
+          if (!name || seen.has(name) || isUnavailable(name)) continue;
+          seen.add(name);
+          out.push(name);
+        }
+      }
+
+      for (const s of _overlay.samples) {
         const name = s && s.name;
-        if (!name || seen.has(name)) continue;
+        if (!name || seen.has(name) || isUnavailable(name)) continue;
         seen.add(name);
         out.push(name);
       }
-    }
-    for (const s of _overlay.samples) {
-      const name = s && s.name;
-      if (!name || seen.has(name)) continue;
-      seen.add(name);
-      out.push(name);
-    }
-    return out;
-  }
 
-  function baseHas(name) {
-    return Boolean(baseManifestEntry(name));
-  }
+      return out;
+    }
+
+    function baseHas(name) {
+      return Boolean(baseManifestEntry(name)) && !isUnavailable(name);
+    }
 
   function mapGroups(rawGroups, allowedNames) {
     if (!Array.isArray(rawGroups)) return [];
@@ -370,38 +444,43 @@
 
   // Returns the names of every sample whose id starts with `prefix`. Empty
   // prefix matches all. Used by the DSL's wildcard selectors.
-  function expandPrefix(prefix) {
-    const p = String(prefix || '');
-    const out = [];
-    const seen = new Set();
+    function expandPrefix(prefix) {
+      const p = String(prefix || '');
+      const out = [];
+      const seen = new Set();
 
-    for (const s of (_manifest && Array.isArray(_manifest.samples) ? _manifest.samples : [])) {
-      if (!s || typeof s.name !== 'string') continue;
-      if (p !== '' && !s.name.startsWith(p)) continue;
-      if (seen.has(s.name)) continue;
-      seen.add(s.name);
-      out.push(s.name);
-    }
-    for (const s of _overlay.samples) {
-      if (!s || typeof s.name !== 'string') continue;
-      if (p !== '' && !s.name.startsWith(p)) continue;
-      if (seen.has(s.name)) continue;
-      seen.add(s.name);
-      out.push(s.name);
-    }
-    return out;
-  }
+      for (const s of (_manifest && Array.isArray(_manifest.samples) ? _manifest.samples : [])) {
+        if (!s || typeof s.name !== 'string') continue;
+        if (p !== '' && !s.name.startsWith(p)) continue;
+        if (seen.has(s.name) || isUnavailable(s.name)) continue;
+        seen.add(s.name);
+        out.push(s.name);
+      }
 
-  function expandBasePrefix(prefix) {
-    if (!_manifest || !Array.isArray(_manifest.samples)) return [];
-    const p = String(prefix || '');
-    const out = [];
-    for (const s of _manifest.samples) {
-      if (!s || typeof s.name !== 'string') continue;
-      if (p === '' || s.name.startsWith(p)) out.push(s.name);
+      for (const s of _overlay.samples) {
+        if (!s || typeof s.name !== 'string') continue;
+        if (p !== '' && !s.name.startsWith(p)) continue;
+        if (seen.has(s.name) || isUnavailable(s.name)) continue;
+        seen.add(s.name);
+        out.push(s.name);
+      }
+
+      return out;
     }
-    return out;
-  }
+
+    function expandBasePrefix(prefix) {
+      if (!_manifest || !Array.isArray(_manifest.samples)) return [];
+      const p = String(prefix || '');
+      const out = [];
+
+      for (const s of _manifest.samples) {
+        if (!s || typeof s.name !== 'string') continue;
+        if (isUnavailable(s.name)) continue;
+        if (p === '' || s.name.startsWith(p)) out.push(s.name);
+      }
+
+      return out;
+    }
 
   function resolveSampleUrl(entry) {
     if (!entry) return '';
@@ -412,29 +491,46 @@
     return new URL('./' + file.replace(/^\.?\/*/, ''), new URL(base, window.location.href)).toString();
   }
 
-  function loadBuffer(audioCtx, name) {
-    if (_buffers.has(name)) return Promise.resolve(_buffers.get(name));
-    if (_pending.has(name)) return _pending.get(name);
-    const entry = manifestEntry(name);
-    if (!entry) return Promise.resolve(null);
-    const url = resolveSampleUrl(entry);
-    const promise = fetch(url, { credentials: 'omit' })
-      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('sample http ' + r.status))))
-      .then((bytes) => audioCtx.decodeAudioData(bytes))
-      .then((buffer) => {
-        _buffers.set(name, buffer);
-        _pending.delete(name);
-        return buffer;
-      })
-      .catch((err) => {
-        _pending.delete(name);
-        // eslint-disable-next-line no-console
-        console.warn('[repl] sample load failed:', name, err);
-        return null;
-      });
-    _pending.set(name, promise);
-    return promise;
-  }
+    function loadBuffer(audioCtx, name) {
+      const sampleName = String(name || '').trim();
+
+      if (!sampleName || isUnavailable(sampleName)) {
+        return Promise.resolve(null);
+      }
+
+      if (_buffers.has(sampleName)) return Promise.resolve(_buffers.get(sampleName));
+      if (_pending.has(sampleName)) return _pending.get(sampleName);
+
+      const entry = manifestEntry(sampleName);
+      if (!entry) return Promise.resolve(null);
+
+      const url = resolveSampleUrl(entry);
+
+      if (isUrlUnavailable(url)) {
+        markSampleUnavailable(sampleName, url, new Error('sample url previously failed'));
+        return Promise.resolve(null);
+      }
+
+      const promise = fetch(url, { credentials: 'omit' })
+        .then((r) => {
+          if (r.ok) return r.arrayBuffer();
+          throw new Error('sample http ' + r.status);
+        })
+        .then((bytes) => audioCtx.decodeAudioData(bytes))
+        .then((buffer) => {
+          _buffers.set(sampleName, buffer);
+          _pending.delete(sampleName);
+          return buffer;
+        })
+        .catch((err) => {
+          _pending.delete(sampleName);
+          markSampleUnavailable(sampleName, url, err);
+          return null;
+        });
+
+      _pending.set(sampleName, promise);
+      return promise;
+    }
 
   // Synchronous trigger: schedules the buffer if it's already cached, otherwise
   // kicks off a load and silently drops THIS event (the next time the slot
@@ -443,15 +539,23 @@
     const audioCtx = opts.audioCtx;
     const masterBus = opts.masterBus;
     if (!audioCtx || !masterBus) return false;
-    const name = String(opts.name || '');
-    const entry = manifestEntry(name);
-    if (!entry) {
-      if (root.__REPL_DRUM_DEBUG) {
-        console.log('[drum-debug] playSample:no-entry', { name });
+      const name = String(opts.name || '').trim();
+
+      if (!name || isUnavailable(name)) {
+        if (root.__REPL_DRUM_DEBUG) {
+          console.log('[drum-debug] playSample:unavailable', { name });
+        }
+        return false;
       }
-      if (typeof opts.onMissing === 'function') opts.onMissing(name);
-      return false;
-    }
+
+      const entry = manifestEntry(name);
+      if (!entry) {
+        if (root.__REPL_DRUM_DEBUG) {
+          console.log('[drum-debug] playSample:no-entry', { name });
+        }
+        if (typeof opts.onMissing === 'function') opts.onMissing(name);
+        return false;
+      }
 
     const time = Number.isFinite(opts.time) ? Math.max(opts.time, audioCtx.currentTime) : audioCtx.currentTime;
 
@@ -631,7 +735,11 @@
         }
       }
 
-      return Promise.all(Array.from(names).map((name) => loadBuffer(audioCtx, name)));
+        return Promise.all(
+          Array.from(names)
+            .filter((name) => !isUnavailable(name))
+            .map((name) => loadBuffer(audioCtx, name))
+        );
     }
     function stopAll(when) {
       const t = Number.isFinite(when) ? when : 0;
@@ -668,8 +776,10 @@
       ready,
       preload,
         preloadKit,
-      expandPrefix,
-      setOverlayBank,
-      clearOverlayBank,
+        expandPrefix,
+        isUnavailable,
+        unavailable,
+        setOverlayBank,
+        clearOverlayBank,
     };
 })(window);
