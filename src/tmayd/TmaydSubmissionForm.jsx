@@ -1,15 +1,96 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { submitTmaydMessage } from './tmaydApi';
 
 const MAX_CHARS = 700;
 const MIN_CHARS = 3;
 const URL_PATTERN = /(https?:\/\/|www\.)/i;
 
+const TURNSTILE_SCRIPT_SRC =
+  'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+
+let turnstileScriptPromise = null;
+
+function loadTurnstileScript() {
+  if (typeof window === 'undefined') {
+    return Promise.resolve(null);
+  }
+  if (window.turnstile) {
+    return Promise.resolve(window.turnstile);
+  }
+  if (turnstileScriptPromise) {
+    return turnstileScriptPromise;
+  }
+  turnstileScriptPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src^="${TURNSTILE_SCRIPT_SRC.split('?')[0]}"]`);
+    if (existing) {
+      existing.addEventListener('load', () => resolve(window.turnstile || null));
+      existing.addEventListener('error', () => reject(new Error('turnstile_script_failed')));
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = TURNSTILE_SCRIPT_SRC;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve(window.turnstile || null);
+    script.onerror = () => reject(new Error('turnstile_script_failed'));
+    document.head.appendChild(script);
+  });
+  return turnstileScriptPromise;
+}
+
 export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage = '' }) {
   const [text, setText] = useState('');
   const [consent, setConsent] = useState(false);
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState({ tone: 'neutral', message: '' });
+  const [turnstileReady, setTurnstileReady] = useState(false);
+  const [turnstileError, setTurnstileError] = useState('');
+  const containerRef = useRef(null);
+  const widgetIdRef = useRef(null);
+  const tokenRef = useRef('');
+  const containerDomId = useId().replace(/[:]/g, '_') + '_turnstile';
+
+  const siteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!siteKey) {
+      setTurnstileReady(true); // dev/mock mode — server may also bypass
+      return () => {};
+    }
+    loadTurnstileScript()
+      .then((turnstile) => {
+        if (cancelled || !turnstile || !containerRef.current) return;
+        widgetIdRef.current = turnstile.render(containerRef.current, {
+          sitekey: siteKey,
+          appearance: 'always',
+          callback: (token) => {
+            tokenRef.current = token || '';
+            setTurnstileReady(true);
+            setTurnstileError('');
+          },
+          'expired-callback': () => {
+            tokenRef.current = '';
+          },
+          'error-callback': () => {
+            setTurnstileError('Verification widget failed to load.');
+          }
+        });
+      })
+      .catch(() => {
+        setTurnstileError('Verification widget failed to load.');
+      });
+    return () => {
+      cancelled = true;
+      try {
+        if (widgetIdRef.current && window.turnstile) {
+          window.turnstile.remove(widgetIdRef.current);
+        }
+      } catch {
+        // best effort
+      }
+    };
+  }, [siteKey]);
 
   const charsUsed = text.length;
 
@@ -51,11 +132,30 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
       return;
     }
 
+    if (siteKey && !tokenRef.current) {
+      setResult({ tone: 'error', message: 'Please complete the verification widget and try again.' });
+      return;
+    }
+
     setPending(true);
     setResult({ tone: 'neutral', message: 'Sending...' });
 
     try {
-      const response = await submitTmaydMessage({ text: trimmed, consent: true });
+      const response = await submitTmaydMessage({
+        text: trimmed,
+        consent: true,
+        turnstileToken: tokenRef.current
+      });
+
+      // Refresh Turnstile token regardless of outcome (single-use).
+      try {
+        if (widgetIdRef.current && window.turnstile) {
+          window.turnstile.reset(widgetIdRef.current);
+          tokenRef.current = '';
+        }
+      } catch {
+        // best effort
+      }
 
       if (response.status === 'accepted') {
         const codeSuffix = response.publicCode ? ` (${response.publicCode})` : '';
@@ -145,8 +245,17 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
             I consent to public archival display if accepted.
           </label>
         </p>
+        {siteKey ? (
+          <p>
+            <div id={containerDomId} ref={containerRef} aria-label="Verification widget" />
+            {turnstileError ? <small>{turnstileError}</small> : null}
+          </p>
+        ) : null}
         <p>
-          <button type="submit" disabled={formDisabled}>
+          <button
+            type="submit"
+            disabled={formDisabled || (siteKey ? !turnstileReady : false)}
+          >
             {pending ? 'sending...' : 'send to the machine'}
           </button>
         </p>

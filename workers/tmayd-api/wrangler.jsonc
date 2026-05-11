@@ -1,0 +1,68 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tmayd-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "observability": {
+    "enabled": true
+  },
+
+  // Same-origin routing. cbassuarez.com is on Cloudflare DNS (proxied); these
+  // routes intercept /api/tmayd/* before the request reaches GH Pages.
+  "routes": [
+    { "pattern": "cbassuarez.com/api/tmayd/*", "zone_name": "cbassuarez.com" },
+    { "pattern": "www.cbassuarez.com/api/tmayd/*", "zone_name": "cbassuarez.com" }
+  ],
+
+  "workers_dev": true,
+
+  "vars": {
+    "TMAYD_ALLOWED_ORIGINS": "https://cbassuarez.com,https://www.cbassuarez.com",
+    "TMAYD_ENV": "production",
+    "TMAYD_HEARTBEAT_STALE_SECONDS": "90",
+    "TMAYD_RATE_WINDOW_SECONDS": "600",
+    "TMAYD_RATE_MAX_REQUESTS": "3",
+    "TMAYD_MIN_CHARS": "3",
+    "TMAYD_MAX_CHARS": "700",
+    "MODERATION_MODE": "deterministic_only",
+    "TMAYD_ALLOW_TEST_TURNSTILE": "true",
+    "TMAYD_ALLOW_DETERMINISTIC_ONLY_IN_PROD": "true",
+    "TMAYD_LEASE_SECONDS": "120",
+    "TMAYD_MAX_ATTEMPTS": "5"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tmayd",
+      "database_id": "7b8faa71-6aa1-4238-8aba-6150b6e74c13",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "CAPTURES",
+      "bucket_name": "tmayd-captures"
+    }
+  ]
+
+  // Rate limiting is enforced by a D1-backed sliding-window limiter in
+  // src/lib/rate-limit.ts (per ipHash). Platform `[[ratelimits]]` bindings can
+  // be added later via the Cloudflare dashboard as a coarse global spike guard;
+  // the application reads them through env.RATE_LIMIT_TMAYD_* if present and
+  // fail-opens if absent.
+
+  // Secrets (set via `wrangler secret put <NAME>`):
+  //   TURNSTILE_SECRET_KEY         — Cloudflare Turnstile server secret
+  //   TMAYD_BRIDGE_TOKEN           — shared secret for OptiPlex bridge auth
+  //   TMAYD_ADMIN_TOKEN            — admin bearer for /admin/* settings calls
+  //   TMAYD_RATE_HASH_SALT         — random salt for hashing CF-Connecting-IP
+  //   BEDROCK_GUARDRAIL_ID         — (optional) AWS Bedrock guardrail
+  //   BEDROCK_GUARDRAIL_VERSION    — (optional)
+  //   AWS_REGION                   — (optional)
+  //   AWS_ACCESS_KEY_ID            — (optional)
+  //   AWS_SECRET_ACCESS_KEY        — (optional)
+}
