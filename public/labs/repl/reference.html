@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>reference · seb's repl</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #f7f7f3;
+      color: #555;
+      font-family: "Courier New", Courier, monospace;
+    }
+
+    body {
+      padding: 1rem 1.1rem 1.4rem;
+    }
+
+    .reference-panel {
+      border: 1px solid #ddd;
+      background: #f7f7f3;
+      color: #555;
+      font-size: 0.92em;
+      line-height: 1.4;
+      padding: 0.82em 0.92em 1em;
+    }
+
+    .reference-panel-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1em;
+      margin-bottom: 0.8em;
+      padding-bottom: 0.5em;
+      border-bottom: 1px solid #e0e0d8;
+    }
+
+    .reference-title {
+      color: #222;
+      font-weight: 600;
+    }
+
+    .reference-subtitle {
+      color: #777;
+      font-size: 0.92em;
+      margin-top: 0.12em;
+    }
+
+    .reference-section {
+      margin-top: 0.92em;
+    }
+
+    .reference-section:first-of-type {
+      margin-top: 0;
+    }
+
+    .reference-section-title {
+      color: #777;
+      font-size: 0.92em;
+      letter-spacing: 0.02em;
+      margin-bottom: 0.28em;
+    }
+
+    .reference-section-note {
+      margin-top: 0.48em;
+      color: #666;
+      border-top: 1px solid #e0e0d8;
+      padding-top: 0.48em;
+    }
+
+    .reference-table {
+      display: grid;
+      grid-template-columns: max-content minmax(0, 1fr);
+      gap: 0.2em 0.85em;
+    }
+
+    .reference-key {
+      color: #222;
+      white-space: nowrap;
+    }
+
+    .reference-value {
+      color: #666;
+      min-width: 0;
+    }
+
+    .reference-panel code {
+      background: transparent;
+      color: #222;
+      padding: 0;
+    }
+  </style>
+</head>
+<body>
+  <aside class="reference-panel" aria-label="REPL reference">
+    <div class="reference-panel-head">
+      <div>
+        <div class="reference-title">reference</div>
+        <div class="reference-subtitle">cbassuarez repl</div>
+      </div>
+    </div>
+
+    <section class="reference-section">
+      <div class="reference-section-title">keyboard</div>
+      <div class="reference-table">
+        <code class="reference-key">Cmd-Enter</code><span class="reference-value">evaluate</span>
+        <code class="reference-key">Cmd-Shift-Enter</code><span class="reference-value">replay</span>
+        <code class="reference-key">Esc</code><span class="reference-value">stop</span>
+        <code class="reference-key">Cmd/Ctrl-I</code><span class="reference-value">open / close I/O modal</span>
+        <code class="reference-key">Shift</code><span class="reference-value">on param/effect rows: open legal-value completion</span>
+        <code class="reference-key">Tab</code><span class="reference-value">indent / complete</span>
+        <code class="reference-key">&uarr; &darr; PgUp PgDn</code><span class="reference-value">completion menu navigation (when open)</span>
+        <code class="reference-key">Enter</code><span class="reference-value">commit completion token suffix</span>
+      </div>
+    </section>
+
+    <section class="reference-section">
+      <div class="reference-section-title">notation</div>
+      <div class="reference-table">
+        <code class="reference-key">|</code><span class="reference-value">bar divider</span>
+        <code class="reference-key">pickup 1</code><span class="reference-value">sounding pickup duration; use ? bookends for omitted pickup space</span>
+        <code class="reference-key">?</code><span class="reference-value">anacrusis bookend; structural, never sounding</span>
+        <code class="reference-key">.</code><span class="reference-value">rest</span>
+        <code class="reference-key">~</code><span class="reference-value">sustain / hold</span>
+        <code class="reference-key">(...)</code><span class="reference-value">subdivide one slot</span>
+        <code class="reference-key">;</code><span class="reference-value">gate to rhythmic unit</span>
+        <code class="reference-key">&lt; &gt; &lt;&lt; &gt;&gt;</code><span class="reference-value">pitched span start operators</span>
+        <code class="reference-key">G% Bb% C#%</code><span class="reference-value">pitched span end token (same octave)</span>
+      </div>
+    </section>
+
+    <section class="reference-section">
+      <div class="reference-section-title">wildcards</div>
+      <div class="reference-table">
+        <code class="reference-key">*</code><span class="reference-value">random now</span>
+        <code class="reference-key">*!</code><span class="reference-value">frozen random</span>
+        <code class="reference-key">*~</code><span class="reference-value">continuous random motion</span>
+        <code class="reference-key">*&amp;16</code><span class="reference-value">drift over 16 seconds</span>
+      </div>
+    </section>
+
+    <section class="reference-section">
+      <div class="reference-section-title">samples</div>
+      <div class="reference-table">
+        <code class="reference-key">snm-*</code><span class="reference-value">random sample</span>
+        <code class="reference-key">snm-*&amp;24</code><span class="reference-value">crossfade through bank</span>
+        <code class="reference-key">snm-*&amp;24;</code><span class="reference-value">gated crossfade</span>
+      </div>
+    </section>
+
+    <section class="reference-section">
+      <div class="reference-section-title">attractors</div>
+      <div class="reference-table">
+        <code class="reference-key">weather.dew</code><span class="reference-value">humid pressure</span>
+        <code class="reference-key">archive</code><span class="reference-value">memory / lineage</span>
+        <code class="reference-key">quake</code><span class="reference-value">rupture</span>
+        <code class="reference-key">tide</code><span class="reference-value">cyclic breath</span>
+      </div>
+    </section>
+
+    <section class="reference-section">
+      <div class="reference-section-title">effects</div>
+      <div class="reference-table">
+        <code class="reference-key">space</code><span class="reference-value">environment</span>
+        <code class="reference-key">body</code><span class="reference-value">material resonance</span>
+        <code class="reference-key">compress</code><span class="reference-value">regulation</span>
+        <code class="reference-key">grain</code><span class="reference-value">fragments</span>
+        <code class="reference-key">scar</code><span class="reference-value">return / residue</span>
+      </div>
+    </section>
+
+    <section class="reference-section">
+      <div class="reference-section-title">fade</div>
+      <div class="reference-table">
+        <code class="reference-key">fade in 30s</code><span class="reference-value">silent to present, then stay present</span>
+        <code class="reference-key">fade out 30s</code><span class="reference-value">present to silent, then stay silent</span>
+        <code class="reference-key">fade inout 30s</code><span class="reference-value">cycle in &rarr; out forever</span>
+        <code class="reference-key">fade outin 30s</code><span class="reference-value">cycle out &rarr; in forever</span>
+        <code class="reference-key">fade inout 30s hold 10s</code><span class="reference-value">add high/low holds between fades</span>
+        <code class="reference-key">fade hold</code><span class="reference-value">freeze current fade level</span>
+        <code class="reference-key">fade clear</code><span class="reference-value">remove fade automation</span>
+      </div>
+      <div class="reference-section-note">
+        <code>gain</code> is event loudness; <code>fade</code> is block presence after event gain/effects.
+      </div>
+    </section>
+  </aside>
+</body>
+</html>
