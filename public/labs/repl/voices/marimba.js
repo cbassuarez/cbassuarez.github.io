@@ -9,7 +9,10 @@ console.info('[repl] LOADING voices/marimba.js', new Date().toISOString());
 (function (root) {
   'use strict';
 
-  const DEFAULT_MANIFEST_URL = './public/instruments/iowa-marimba/manifest.full.json';
+  const DEFAULT_MANIFEST_URL =
+    (typeof window !== 'undefined' && typeof window.replAudioUrl === 'function')
+      ? window.replAudioUrl('instrument-manifest', 'iowa-marimba')
+      : './public/instruments/iowa-marimba/manifest.full.json';
   const MALLETS = ['yarn', 'cord', 'rubber'];
   const DEFAULT_MAX_VOICES = 96;
 

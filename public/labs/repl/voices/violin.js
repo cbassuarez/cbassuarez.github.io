@@ -10,7 +10,10 @@
 (function (root) {
   'use strict';
 
-  const DEFAULT_MANIFEST_URL = './public/instruments/iowa-violin/manifest.full.json';
+  const DEFAULT_MANIFEST_URL =
+    (typeof window !== 'undefined' && typeof window.replAudioUrl === 'function')
+      ? window.replAudioUrl('instrument-manifest', 'iowa-violin')
+      : './public/instruments/iowa-violin/manifest.full.json';
   const ARTICULATIONS = ['arco', 'pizz'];
   const STRINGS_HIGH_TO_LOW = ['E', 'A', 'D', 'G'];
   const DEFAULT_MAX_VOICES = 32;

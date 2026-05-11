@@ -10,7 +10,10 @@
 (function (root) {
   'use strict';
 
-  const DEFAULT_MANIFEST_URL = './public/instruments/iowa-cello/manifest.full.json';
+  const DEFAULT_MANIFEST_URL =
+    (typeof window !== 'undefined' && typeof window.replAudioUrl === 'function')
+      ? window.replAudioUrl('instrument-manifest', 'iowa-cello')
+      : './public/instruments/iowa-cello/manifest.full.json';
   const ARTICULATIONS = ['arco', 'pizz'];
   const STRINGS_HIGH_TO_LOW = ['A', 'D', 'G', 'C'];
   const DEFAULT_MAX_VOICES = 32;

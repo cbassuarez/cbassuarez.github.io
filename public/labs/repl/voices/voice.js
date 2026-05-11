@@ -6,7 +6,10 @@
 (function (root) {
   'use strict';
 
-  const MANIFEST_URL = './public/instruments/espeak-robotvoice/manifest.full.json';
+  const MANIFEST_URL =
+    (typeof window !== 'undefined' && typeof window.replAudioUrl === 'function')
+      ? window.replAudioUrl('instrument-manifest', 'espeak-robotvoice')
+      : './public/instruments/espeak-robotvoice/manifest.full.json';
     const DEFAULT_MAX_VOICES = 32;
     const MAX_PENDING_SAMPLE_LOADS = 12;
     const MAX_PREWARM_VARIANTS = 16;

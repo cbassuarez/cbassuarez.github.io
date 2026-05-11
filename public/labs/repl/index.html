@@ -8889,6 +8889,86 @@ margin-top: var(--editor-label-rail, 0px);
       background: var(--cs-blue, #0057ff);
     }
 
+    /* Multi-line loader rail — each bar maps to a real boot/load promise.
+       Colors borrow the MTA + BART line palette so returning visitors learn
+       which line is which task. No decorative shimmer; fills track real
+       progress: pending → loading → loaded (or failed). */
+    .repl-loader-rail {
+      list-style: none;
+      margin: 0.5rem 0 0;
+      padding: 0;
+      display: grid;
+      gap: 0.32rem;
+    }
+    .repl-loader-bar {
+      position: relative;
+      height: 1.6rem;
+      border: 2px solid var(--cs-line, #070707);
+      background: var(--cs-white, #ffffff);
+      box-shadow: 2px 2px 0 var(--cs-line, #070707);
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      padding: 0 0.65rem;
+      font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+      font-size: 0.74rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--cs-line, #070707);
+      overflow: hidden;
+    }
+    .repl-loader-bar::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: var(--bar-color, var(--cs-blue, #0057ff));
+      transform: scaleX(0.05);
+      transform-origin: left center;
+      transition: transform 220ms ease-out;
+      z-index: 0;
+    }
+    .repl-loader-bar.is-loading::before { transform: scaleX(0.45); }
+    .repl-loader-bar.is-loaded::before  { transform: scaleX(1); }
+    .repl-loader-bar.is-failed::before {
+      background: var(--cs-line, #070707);
+      transform: scaleX(1);
+    }
+    .repl-loader-line {
+      position: relative;
+      z-index: 1;
+      display: inline-grid;
+      place-items: center;
+      width: 1.15rem;
+      height: 1.15rem;
+      border-radius: 999px;
+      background: var(--bar-color, var(--cs-line, #070707));
+      color: var(--cs-white, #ffffff);
+      font-weight: 700;
+      font-size: 0.7rem;
+      flex: 0 0 auto;
+    }
+    .repl-loader-bar[data-color="yellow"] .repl-loader-line { color: var(--cs-line, #070707); }
+    .repl-loader-label {
+      position: relative;
+      z-index: 1;
+      color: var(--cs-line, #070707);
+      transition: color 220ms ease-out;
+    }
+    .repl-loader-bar.is-loaded .repl-loader-label { color: var(--cs-white, #ffffff); }
+    .repl-loader-bar[data-color="yellow"].is-loaded .repl-loader-label { color: var(--cs-line, #070707); }
+    .repl-loader-bar.is-failed .repl-loader-label { color: var(--cs-white, #ffffff); }
+
+    /* Transit-line palette. Pick distinct colors per task so the loader can
+       be read at a glance — same task = same color across sessions. */
+    .repl-loader-bar[data-color="red"]    { --bar-color: #ee352e; } /* MTA 1/2/3 */
+    .repl-loader-bar[data-color="green"]  { --bar-color: #00933c; } /* MTA 4/5/6 */
+    .repl-loader-bar[data-color="purple"] { --bar-color: #b933ad; } /* MTA 7 */
+    .repl-loader-bar[data-color="blue"]   { --bar-color: #2850ad; } /* MTA A/C/E */
+    .repl-loader-bar[data-color="orange"] { --bar-color: #ff6319; } /* MTA B/D/F/M */
+    .repl-loader-bar[data-color="yellow"] { --bar-color: #fccc0a; } /* MTA N/Q/R/W */
+    .repl-loader-bar[data-color="brown"]  { --bar-color: #996633; } /* MTA J/Z */
+    .repl-loader-bar[data-color="line"]   { --bar-color: var(--cs-line, #070707); } /* MTA L */
+
     .command-sample-loading-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
@@ -10442,9 +10522,17 @@ margin-top: var(--editor-label-rail, 0px);
           <div class="repl-skeleton-registration" aria-hidden="true"><span></span><span></span><span></span></div>
         </div>
 
-        <div class="nb-skel nb-skel-frame" data-skel-label="status / registering page">
-          <div class="nb-skel-line" data-w="long"></div>
-          <div class="nb-skel-phase-rail" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div class="nb-skel nb-skel-frame repl-loader-frame" data-skel-label="boot lines">
+          <ul id="repl-loader-rail" class="repl-loader-rail" aria-label="boot loading states">
+            <li class="repl-loader-bar" data-loader-id="parser"             data-color="line"  ><span class="repl-loader-line">L</span>  <span class="repl-loader-label">dsl parser</span></li>
+            <li class="repl-loader-bar" data-loader-id="samples-manifest"   data-color="orange"><span class="repl-loader-line">F</span>  <span class="repl-loader-label">sample bank</span></li>
+            <li class="repl-loader-bar" data-loader-id="piano-manifest"     data-color="green" ><span class="repl-loader-line">6</span>  <span class="repl-loader-label">iowa piano</span></li>
+            <li class="repl-loader-bar" data-loader-id="marimba-manifest"   data-color="yellow"><span class="repl-loader-line">N</span>  <span class="repl-loader-label">iowa marimba</span></li>
+            <li class="repl-loader-bar" data-loader-id="vibraphone-manifest" data-color="purple"><span class="repl-loader-line">7</span>  <span class="repl-loader-label">iowa vibraphone</span></li>
+            <li class="repl-loader-bar" data-loader-id="cello-manifest"     data-color="red"   ><span class="repl-loader-line">2</span>  <span class="repl-loader-label">iowa cello</span></li>
+            <li class="repl-loader-bar" data-loader-id="violin-manifest"    data-color="blue"  ><span class="repl-loader-line">A</span>  <span class="repl-loader-label">iowa violin</span></li>
+            <li class="repl-loader-bar" data-loader-id="voice-manifest"     data-color="brown" ><span class="repl-loader-line">J</span>  <span class="repl-loader-label">espeak voice</span></li>
+          </ul>
         </div>
 
         <div class="nb-skel-transport" aria-hidden="true">
@@ -11326,6 +11414,7 @@ pan   *~</code></pre>
     })();
   </script>
 
+  <script src="./audio-base.js?v=20260511r1"></script>
   <script src="./voices/crush.js?v=20260505r5"></script>
   <script src="./voices/string.js?v=20260507r6"></script>
   <script src="./voices/sine.js?v=20260507r3"></script>

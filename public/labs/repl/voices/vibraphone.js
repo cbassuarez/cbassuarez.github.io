@@ -9,7 +9,10 @@
 (function (root) {
   'use strict';
 
-  const DEFAULT_MANIFEST_URL = './public/instruments/iowa-vibraphone/manifest.full.json';
+  const DEFAULT_MANIFEST_URL =
+    (typeof window !== 'undefined' && typeof window.replAudioUrl === 'function')
+      ? window.replAudioUrl('instrument-manifest', 'iowa-vibraphone')
+      : './public/instruments/iowa-vibraphone/manifest.full.json';
   const ARTICULATIONS = ['sustain', 'shortsustain', 'dampen', 'bow'];
   const DEFAULT_MAX_VOICES = 96;
 

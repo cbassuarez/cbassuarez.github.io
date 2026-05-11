@@ -123,7 +123,10 @@
     const fieldReportCopyBtn = document.querySelector('[data-field-report-copy]');
     const FIELD_REPORT_ISSUE_URL = 'https://github.com/OWNER/REPO/issues/new';
 
-    const SAMPLES_MANIFEST_URL = './samples/manifest.json';
+    const SAMPLES_MANIFEST_URL =
+      (typeof window !== 'undefined' && typeof window.replAudioUrl === 'function')
+        ? window.replAudioUrl('samples-manifest')
+        : './samples/manifest.json';
     const DEFAULT_EXAMPLE_URL = './examples/default.txt';
     const REFERENCE_POPUP_FEATURES = 'popup,width=520,height=900,menubar=no,toolbar=no,location=no,status=no';
     const LOCAL_SAMPLES_DB_NAME = 'replLocalSamples';
@@ -185,11 +188,30 @@
         replSkeletonStatus.textContent = label || LOADING_PHASE_LABELS[nextPhase] || `LOADING ${nextPhase.toUpperCase()}`;
       }
       if (replSkeletonScreen) replSkeletonScreen.setAttribute('aria-busy', 'true');
+
+      // Light up the corresponding bars in the multi-line loader rail. Phases
+      // progress monotonically (boot → parser → manifests → audio → ready),
+      // so marking lower-order bars on higher phases keeps the rail honest.
+      const loader = window.replLoader;
+      if (!loader) return;
+      const advanced = ['parser', 'manifests', 'audio', 'ready'];
+      const idx = advanced.indexOf(nextPhase);
+      if (idx >= 0) loader.mark('parser', true);
     }
 
     function finishLoadingPhase(label) {
       document.body.dataset.loadingPhase = 'ready';
       if (replSkeletonStatus) replSkeletonStatus.textContent = label || LOADING_PHASE_LABELS.ready;
+
+      // Any still-pending loader bars get marked at ready so the rail does
+      // not look stalled on the last visible frame before the skeleton hides.
+      const loader = window.replLoader;
+      if (loader) {
+        ['parser', 'samples-manifest', 'piano-manifest', 'marimba-manifest',
+          'vibraphone-manifest', 'cello-manifest', 'violin-manifest',
+          'voice-manifest'].forEach((id) => loader.mark(id, true));
+      }
+
       window.setTimeout(() => {
         document.body.classList.remove('repl-loading');
         if (replSkeletonScreen) {

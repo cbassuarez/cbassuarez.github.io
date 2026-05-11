@@ -7,7 +7,10 @@
 (function (root) {
   'use strict';
 
-  const DEFAULT_MANIFEST_URL = './public/instruments/iowa-piano/manifest.full.json';
+  const DEFAULT_MANIFEST_URL =
+    (typeof window !== 'undefined' && typeof window.replAudioUrl === 'function')
+      ? window.replAudioUrl('instrument-manifest', 'iowa-piano')
+      : './public/instruments/iowa-piano/manifest.full.json';
   const LAYERS = ['pp', 'mf', 'ff'];
   const DEFAULT_MAX_VOICES = 64;
   const MAX_BODY_VOICES = 32;

@@ -484,7 +484,14 @@
 
   function resolveSampleUrl(entry) {
     if (!entry) return '';
-    if (entry.url) return entry.url;
+    if (entry.url) {
+      // Manifest entries use absolute paths like '/audio/main_b3/main_b3_01.mp3'.
+      // In production, route those to the R2 public-audio prefix via replAudioUrl.
+      if (typeof window !== 'undefined' && typeof window.replAudioUrl === 'function') {
+        return window.replAudioUrl('public-audio', entry.url);
+      }
+      return entry.url;
+    }
     const file = entry.file || (entry.name + '.mp3');
     // Resolve relative to the manifest URL if known, else the page.
     const base = _manifestUrl || (window.location.pathname.replace(/[^/]+$/, '') + 'samples/manifest.json');
