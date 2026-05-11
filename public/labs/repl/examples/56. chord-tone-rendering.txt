@@ -1,0 +1,32 @@
+// chord-tone rendering
+// after a chord track exists, pitched rows can address the active harmony.
+// root / third / 5 / 7 / 9 / guide / color / top are rendering tokens.
+
+tempo 86
+meter 4/4
+key F major
+
+chord Imaj9 vi9 ii11 V13b9 | Imaj9 IVmaj7 ii9 V13
+voicing close open drop2 rootless | close open rootless rootless
+lead smooth smooth smooth resolve | settle smooth smooth resolve
+chord-open .25 .42 .55 .75 | .25 .50 .62 .70
+harmonic-risk .10 .25 .40 .80 | .15 .25 .45 .72
+
+piano root third fifth seventh | 9 7 5 3
+force mp
+decay 2.4
+pan left
+tone bright
+body wood
+space .18
+gain .30
+
+piano guide color top chord | shell guide color chord
+roll . . . u | . . . d
+force p
+decay 3.4
+pan right
+tone bright
+body wood
+space .28
+gain .28

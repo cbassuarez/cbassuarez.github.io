@@ -84,6 +84,7 @@
       let pendingEvaluate = null;
       const missingSampleSeen = new Set();
       let onMissingCallback = null;
+      let onEvaluateResetAppliedCallback = null;
       let runtimeEpoch = 0;
       let runtimeEventSeq = 0;
       const pendingEditorPulseTimers = new Set();
@@ -131,6 +132,7 @@
 
       function leafTokenLabel(tok) {
         if (!tok) return '';
+        if (tok.kind === 'pickup-gap') return '?';
         if (tok.raw) return String(tok.raw);
         if (tok.kind === 'rest') return tok.raw ? String(tok.raw) : '.';
         if (tok.kind === 'sustain') return tok.raw ? String(tok.raw) : '~';
@@ -958,6 +960,42 @@
         }
       }
 
+      function meterUnitCount(prog) {
+        const n = Number(prog && prog.meter && prog.meter.num);
+        return Number.isFinite(n) && n > 0 ? n : 4;
+      }
+
+      function pickupBeatsForProgram(prog) {
+        const raw = prog && prog.pickup && Number.isFinite(Number(prog.pickup.beats))
+          ? Number(prog.pickup.beats)
+          : Number(prog && prog.pickupBeats);
+        return Number.isFinite(raw) && raw > 0 ? raw : 0;
+      }
+
+      function pickupPhaseOffset(prog) {
+        const units = meterUnitCount(prog);
+        const pickup = pickupBeatsForProgram(prog);
+        if (!Number.isFinite(units) || units <= 0 || !Number.isFinite(pickup) || pickup <= 0) return 0;
+        return (units - (pickup % units)) % units;
+      }
+
+      function pickupBarRatio(prog) {
+        const units = meterUnitCount(prog);
+        const pickup = pickupBeatsForProgram(prog);
+        if (!Number.isFinite(units) || units <= 0 || !Number.isFinite(pickup) || pickup <= 0) return 1;
+        // The pickup is the first pre-bar span. Keep it positive and bounded so
+        // malformed/oversized pickup directives remain scheduler-safe.
+        const ratio = pickup / units;
+        if (!Number.isFinite(ratio) || ratio <= 0) return 1;
+        return Math.max(1 / units, Math.min(1, ratio));
+      }
+
+      function pickupSeconds(prog) {
+        const barSec = barSeconds(prog);
+        const ratio = pickupBarRatio(prog);
+        return ratio < 1 && Number.isFinite(barSec) && barSec > 0 ? ratio * barSec : 0;
+      }
+
       function meterQuarterBeats(meter) {
         const num = Number(meter && meter.num);
         const den = Number(meter && meter.den);
@@ -1104,9 +1142,15 @@
         if (!program) return Math.max(audioCtx.currentTime, Number(now) || audioCtx.currentTime) + 0.05;
         const t = Number.isFinite(Number(now)) ? Number(now) : audioCtx.currentTime;
         const barSec = barSeconds(program);
-        const elapsed = Math.max(0, t - originTime);
-        const completedBars = Math.max(0, Math.floor(elapsed / barSec));
-        let boundary = originTime + (completedBars + 1) * barSec;
+        const pickupSec = pickupSeconds(program);
+        const firstDownbeat = originTime + pickupSec;
+
+        if (!Number.isFinite(barSec) || barSec <= 0) return Math.max(t, audioCtx.currentTime) + 0.05;
+        if (pickupSec > 0 && t < firstDownbeat - 0.001) return firstDownbeat;
+
+        const elapsedAfterDownbeat = Math.max(0, t - firstDownbeat);
+        const completedBars = Math.max(0, Math.floor(elapsedAfterDownbeat / barSec));
+        let boundary = firstDownbeat + (completedBars + 1) * barSec;
         if (boundary <= t + 0.001) boundary += barSec;
         return boundary;
       }
@@ -1149,6 +1193,15 @@
             : block._arrangeOrigin;
         }
         seedProgramMuteDefaults(program, false);
+        if (typeof onEvaluateResetAppliedCallback === 'function') {
+          try {
+            onEvaluateResetAppliedCallback({
+              resetTime: originTime,
+              stopVoices: Boolean(stopVoices),
+              program,
+            });
+          } catch (_) {}
+        }
       }
 
       function stop() {
@@ -1390,18 +1443,21 @@
 
     function onMissingSample(fn) { onMissingCallback = fn; }
 
+    function onEvaluateResetApplied(fn) {
+      onEvaluateResetAppliedCallback = typeof fn === 'function' ? fn : null;
+    }
+
     function reportMissingSample(name) {
       if (missingSampleSeen.has(name)) return;
       missingSampleSeen.add(name);
       if (onMissingCallback) onMissingCallback(name);
     }
 
-      // Asymmetric bars: a block's cycle has `cycleBars` bars of equal
-      // wall-clock duration, but each bar may hold a different slot count.
-      // Slot N's duration is `barSec / barSlotCounts[bar(N)]`, so we cache
-      // the prefix-sum of slot counts and a slot→bar map per block. Block
-      // identity is rebuilt on every evaluate, so the cache implicitly
-      // resets when patterns change.
+      // Asymmetric bars: a block's cycle has `cycleBars` bars. Each bar may
+      // hold a different slot count; with `pickup`/`anacrusis`, bar 0 may also
+      // have a shorter wall-clock duration. Slot N's duration is therefore
+      // `(barSec * barRatio) / barSlotCounts[bar(N)]`. Block identity is rebuilt
+      // on every evaluate, so the cache implicitly resets when patterns change.
       function ensureBarGrid(block) {
         if (block && block._barGrid) return block._barGrid;
         const slots = block && Array.isArray(block.slots) ? block.slots : [];
@@ -1411,6 +1467,20 @@
           : fallback;
         const counts = raw.map((n) => Math.max(1, Math.floor(Number(n) || 0)));
         const cycleBars = counts.length;
+        const explicitRatios = block && Array.isArray(block.barRatios) ? block.barRatios : [];
+        const firstRatio = pickupBarRatio(program);
+        const barRatios = counts.map((_, index) => {
+          const explicit = Number(explicitRatios[index]);
+          if (Number.isFinite(explicit) && explicit > 0) return explicit;
+          return index === 0 ? firstRatio : 1;
+        });
+        const barTimePrefix = new Array(cycleBars + 1);
+        barTimePrefix[0] = 0;
+        for (let i = 0; i < cycleBars; i++) {
+          const ratio = Number.isFinite(Number(barRatios[i])) && Number(barRatios[i]) > 0 ? Number(barRatios[i]) : 1;
+          barTimePrefix[i + 1] = barTimePrefix[i] + ratio;
+        }
+        const cycleTimeRatio = Math.max(1 / Math.max(1, meterUnitCount(program)), barTimePrefix[cycleBars]);
         const slotPrefix = new Array(cycleBars + 1);
         slotPrefix[0] = 0;
         for (let i = 0; i < cycleBars; i++) slotPrefix[i + 1] = slotPrefix[i] + counts[i];
@@ -1421,7 +1491,7 @@
             slotToBar[slotPrefix[b] + k] = b;
           }
         }
-        const grid = { counts, cycleBars, slotPrefix, totalSlots, slotToBar };
+        const grid = { counts, cycleBars, slotPrefix, totalSlots, slotToBar, barRatios, barTimePrefix, cycleTimeRatio };
         if (block) block._barGrid = grid;
         return grid;
       }
@@ -1434,8 +1504,9 @@
         const inCycle = idx - cycle * grid.totalSlots;
         const bar = grid.slotToBar[inCycle];
         const slotInBar = inCycle - grid.slotPrefix[bar];
-        const slotDur = barSec / grid.counts[bar];
-        return (cycle * grid.cycleBars + bar) * barSec + slotInBar * slotDur;
+        const ratio = Number.isFinite(Number(grid.barRatios[bar])) && Number(grid.barRatios[bar]) > 0 ? Number(grid.barRatios[bar]) : 1;
+        const slotDur = (barSec * ratio) / grid.counts[bar];
+        return (cycle * grid.cycleTimeRatio * barSec) + (grid.barTimePrefix[bar] * barSec) + slotInBar * slotDur;
       }
 
       function slotDurationFor(block, absSlotIdx, barSec) {
@@ -1443,19 +1514,28 @@
         const idx = Math.max(0, Math.floor(Number(absSlotIdx) || 0));
         const inCycle = idx % grid.totalSlots;
         const bar = grid.slotToBar[inCycle];
-        return barSec / grid.counts[bar];
+        const ratio = Number.isFinite(Number(grid.barRatios[bar])) && Number(grid.barRatios[bar]) > 0 ? Number(grid.barRatios[bar]) : 1;
+        return (barSec * ratio) / grid.counts[bar];
       }
 
       function absSlotForElapsed(block, elapsed, barSec) {
         const grid = ensureBarGrid(block);
         if (!Number.isFinite(elapsed) || elapsed <= 0) return 0;
-        const cycleSec = barSec * grid.cycleBars;
+        const cycleSec = barSec * grid.cycleTimeRatio;
         if (!Number.isFinite(cycleSec) || cycleSec <= 0) return 0;
         const cycle = Math.floor(elapsed / cycleSec);
         const tIn = elapsed - cycle * cycleSec;
-        const bar = Math.min(grid.cycleBars - 1, Math.max(0, Math.floor(tIn / barSec)));
-        const tInBar = tIn - bar * barSec;
-        const slotDur = barSec / grid.counts[bar];
+        const ratioInCycle = tIn / barSec;
+        let bar = grid.cycleBars - 1;
+        for (let b = 0; b < grid.cycleBars; b += 1) {
+          if (ratioInCycle < grid.barTimePrefix[b + 1] - 0.000001) {
+            bar = b;
+            break;
+          }
+        }
+        const tInBar = Math.max(0, tIn - grid.barTimePrefix[bar] * barSec);
+        const ratio = Number.isFinite(Number(grid.barRatios[bar])) && Number(grid.barRatios[bar]) > 0 ? Number(grid.barRatios[bar]) : 1;
+        const slotDur = (barSec * ratio) / grid.counts[bar];
         const slotInBar = Math.min(
           grid.counts[bar] - 1,
           Math.max(0, Math.floor(tInBar / slotDur)),
@@ -2784,6 +2864,719 @@
         return Number.isFinite(n) ? n : fallback;
       }
 
+      function performanceModeValue(v, kind, fallback) {
+        if (v && typeof v === 'object' && v.kind === kind) return v;
+        if (typeof v === 'string') return { kind, mode: v, ornament: v, raw: v };
+        return fallback;
+      }
+
+      function ornamentValue(v) {
+        const fallback = { kind: 'ornament', ornament: 'none', raw: '.' };
+        if (v && typeof v === 'object' && v.kind === 'ornament') return v;
+        if (typeof v === 'string') return { kind: 'ornament', ornament: v || 'none', raw: v || '.' };
+        return fallback;
+      }
+
+      function ornamentName(v) {
+        const o = ornamentValue(v);
+        return String((o && (o.ornament || o.mode || o.raw)) || 'none').toLowerCase();
+      }
+
+      function chordRippleMode(v) {
+        if (v && typeof v === 'object' && v.kind === 'chord-roll') return String(v.mode || 'none').toLowerCase();
+        if (typeof v === 'string') return v.toLowerCase();
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0.001 ? 'up' : 'none';
+      }
+
+      function chordRippleAmount(v) {
+        const n = Number(v);
+        if (Number.isFinite(n)) return clamp(n, 0, 1);
+        const mode = chordRippleMode(v);
+        return mode && mode !== 'none' ? 0.65 : 0;
+      }
+
+
+
+      // Legacy names retained for any voice code that still expects roll/rolltime.
+      function chordRollMode(v) { return chordRippleMode(v); }
+      function chordRollAmount(v) { return chordRippleAmount(v); }
+
+      function chordArpMode(v) {
+        if (v && typeof v === 'object' && v.kind === 'chord-arp') return String(v.mode || 'none').toLowerCase();
+        if (typeof v === 'string') return v.toLowerCase();
+        return 'none';
+      }
+
+      function isPerformanceNone(mode) {
+        const m = String(mode || '').toLowerCase();
+        return !m || m === 'none' || m === 'off' || m === '.' || m === '0';
+      }
+
+      function orderedChordNotes(notes, mode) {
+        const list = Array.isArray(notes) ? notes.filter(Boolean).slice() : [];
+        const m = String(mode || 'up').toLowerCase();
+        if (list.length <= 1) return list;
+        if (m === 'down' || m === 'd' || m === 'top-first' || m === 't') return list.reverse();
+        if (m === 'random' || m === 'r') {
+          for (let i = list.length - 1; i > 0; i -= 1) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const tmp = list[i]; list[i] = list[j]; list[j] = tmp;
+          }
+          return list;
+        }
+        if (m === 'out' || m === 'o') {
+          const sorted = list.slice().sort((a, b) => Number(a.midi || 0) - Number(b.midi || 0));
+          const out = [];
+          const mid = (sorted.length - 1) / 2;
+          const indices = sorted.map((_, i) => i).sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid));
+          for (const i of indices) out.push(sorted[i]);
+          return out;
+        }
+        if (m === 'in' || m === 'i') {
+          const sorted = list.slice().sort((a, b) => Number(a.midi || 0) - Number(b.midi || 0));
+          const out = [];
+          let lo = 0;
+          let hi = sorted.length - 1;
+          while (lo <= hi) {
+            if (lo === hi) out.push(sorted[lo]);
+            else { out.push(sorted[lo]); out.push(sorted[hi]); }
+            lo += 1; hi -= 1;
+          }
+          return out;
+        }
+        return list.sort((a, b) => Number(a.midi || 0) - Number(b.midi || 0));
+      }
+
+
+      function harmonyPitchClassSemitone(name) {
+        const m = String(name || '').trim().match(/^([A-Ga-g])([#b])?$/);
+        if (!m) return null;
+        const base = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[String(m[1]).toUpperCase()];
+        if (base == null) return null;
+        return (base + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) + 120) % 12;
+      }
+
+      function harmonyKeySpecAt(index) {
+        const harmony = program && program.harmony ? program.harmony : null;
+        const key = harmony && harmony.key ? harmony.key : null;
+        return key || { tonic: 'C', mode: 'major', raw: 'C major' };
+      }
+
+      function harmonyModeScale(mode) {
+        const m = String(mode || 'major').toLowerCase();
+        if (m === 'minor' || m === 'aeolian') return [0, 2, 3, 5, 7, 8, 10];
+        if (m === 'dorian') return [0, 2, 3, 5, 7, 9, 10];
+        if (m === 'phrygian') return [0, 1, 3, 5, 7, 8, 10];
+        if (m === 'lydian') return [0, 2, 4, 6, 7, 9, 11];
+        if (m === 'mixolydian') return [0, 2, 4, 5, 7, 9, 10];
+        if (m === 'locrian') return [0, 1, 3, 5, 6, 8, 10];
+        return [0, 2, 4, 5, 7, 9, 11];
+      }
+
+      function harmonyTrackValue(trackName, index, fallback) {
+        const harmony = program && program.harmony ? program.harmony : null;
+        const tracks = harmony && harmony.tracks ? harmony.tracks : null;
+        const track = tracks && tracks[trackName];
+        const values = track && Array.isArray(track.values) ? track.values : [];
+        if (!values.length) return fallback;
+        const raw = values[((Math.floor(Number(index) || 0) % values.length) + values.length) % values.length];
+        return raw == null ? fallback : raw;
+      }
+
+      function harmonyScalarValue(trackName, index, fallback) {
+        const value = harmonyTrackValue(trackName, index, null);
+        if (value == null) return fallback;
+        if (isParamAtom(value)) {
+          if (value.op === 'random') return Math.random();
+          if (value.op === 'frozen-random') {
+            if (value._frozen == null) value._frozen = Math.random();
+            return value._frozen;
+          }
+          if (value.op === 'reset') return fallback;
+          if (value.op === 'hold') return fallback;
+          if (value.op === 'gesture-random' || value.op === 'drift') return Math.random();
+        }
+        const n = Number(value);
+        return Number.isFinite(n) ? clamp(n, 0, 1) : fallback;
+      }
+
+      function harmonyTimelineValues() {
+        const harmony = program && program.harmony ? program.harmony : null;
+        const track = harmony && harmony.tracks && harmony.tracks.chord ? harmony.tracks.chord : null;
+        const values = track && Array.isArray(track.values) ? track.values : [];
+        if (!values.length) return [];
+        const out = [];
+        let activeKey = harmony && harmony.key ? harmony.key : { tonic: 'C', mode: 'major', raw: 'C major' };
+        for (const value of values) {
+          if (value && value.kind === 'harmony-command') {
+            if (value.command === 'mod' && value.key) activeKey = value.key;
+            continue;
+          }
+          if (value && typeof value === 'object') out.push({ ...value, _key: activeKey });
+          else out.push(value);
+        }
+        return out;
+      }
+
+      function harmonyChordSpecAt(index) {
+        const values = harmonyTimelineValues();
+        if (!values.length) return null;
+        const idx = ((Math.floor(Number(index) || 0) % values.length) + values.length) % values.length;
+        let value = values[idx];
+        if (value && value.kind === 'harmony-hold') {
+          for (let i = idx - 1; i >= 0; i -= 1) {
+            if (values[i] && values[i].kind !== 'harmony-hold') return values[i];
+          }
+          return null;
+        }
+        return value;
+      }
+
+      function harmonyRomanDegree(raw) {
+        const source = String(raw || '').trim();
+        const m = source.match(/^(bb|b|##|#)?(vii|vi|iv|iii|ii|i|VII|VI|IV|III|II|I)(.*)$/);
+        if (!m) return null;
+        const roman = m[2];
+        const lower = roman.toLowerCase();
+        const degreeMap = { i: 0, ii: 1, iii: 2, iv: 3, v: 4, vi: 5, vii: 6 };
+        const degree = degreeMap[lower];
+        if (degree == null) return null;
+        const accidental = m[1] || '';
+        const accSemi = accidental === 'b' ? -1 : accidental === 'bb' ? -2 : accidental === '#' ? 1 : accidental === '##' ? 2 : 0;
+        return { degree, accidental: accSemi, majorCase: roman === roman.toUpperCase(), suffix: m[3] || '' };
+      }
+
+      function harmonyChordChoiceFromGlob(spec, risk, index) {
+        const raw = String(spec && spec.raw || '').replace(/[!~]$/, '');
+        const fam = raw.replace('*', '').toUpperCase();
+        const tonic = ['I', 'I6', 'Imaj7', 'Iadd9', 'Imaj9', 'I6/9', 'vi7'];
+        const predom = ['ii', 'ii7', 'ii9', 'IV', 'IVmaj7', 'iv6', 'iiø7'];
+        const dom = ['V', 'V7', 'V9', 'V13', 'V7b9', 'V13b9', 'viiø7'];
+        const modal = ['bVII', 'bVII7', 'iv', 'iv6', 'bVI', 'bIII', 'IVmaj7'];
+        const outside = ['bII7', 'bV7', 'III7#5', 'bVII13', 'V7#11', 'bIImaj7'];
+        let pool = tonic;
+        if (fam === 'H' || fam === 'ANY' || fam === '') pool = tonic.concat(predom, dom);
+        else if (fam === 'PD' || fam === 'II' || fam === 'IV') pool = predom;
+        else if (fam === 'D' || fam === 'V' || fam === 'VII') pool = dom;
+        else if (fam === 'T' || fam === 'I' || fam === 'VI') pool = tonic;
+        else if (fam === 'M') pool = modal;
+        else if (fam === 'X') pool = outside;
+        const max = Math.max(1, Math.min(pool.length, 2 + Math.round(clamp(risk, 0, 1) * (pool.length - 2))));
+        const allowed = pool.slice(0, max);
+        const frozen = /!$/.test(String(spec && spec.raw || ''));
+        if (frozen) {
+          if (spec._frozenChoice == null) spec._frozenChoice = allowed[Math.floor(Math.random() * allowed.length)] || allowed[0];
+          return spec._frozenChoice;
+        }
+        return allowed[Math.abs(Math.floor((Number(index) || 0) + Math.random() * allowed.length)) % allowed.length] || allowed[0];
+      }
+
+      function harmonyRoleForInterval(interval) {
+        const n = Math.round(Number(interval));
+        if (!Number.isFinite(n)) return null;
+        const abs = ((n % 24) + 24) % 24;
+        if (abs === 13 || abs === 14 || abs === 15) return 'ninth';
+        if (abs === 17 || abs === 18) return 'eleventh';
+        if (abs === 20 || abs === 21) return 'thirteenth';
+        const mod = ((n % 12) + 12) % 12;
+        if (mod === 0) return 'root';
+        if (mod === 3 || mod === 4) return 'third';
+        if (mod === 6 || mod === 7 || mod === 8) return 'fifth';
+        if (mod === 9 || mod === 10 || mod === 11) return 'seventh';
+        if (mod === 1 || mod === 2) return 'ninth';
+        if (mod === 5) return 'eleventh';
+        return null;
+      }
+
+      function withHarmonyRole(note, role, interval) {
+        if (!note) return null;
+        return {
+          ...note,
+          harmonyRole: role || note.harmonyRole || null,
+          harmonyInterval: Number.isFinite(Number(interval)) ? Number(interval) : (Number.isFinite(Number(note.harmonyInterval)) ? Number(note.harmonyInterval) : null),
+        };
+      }
+
+      function harmonyDegreeChord(raw, keySpec, risk) {
+        const parsed = harmonyRomanDegree(raw);
+        if (!parsed) return null;
+        const tonicSemi = harmonyPitchClassSemitone(keySpec && keySpec.tonic || 'C');
+        const scale = harmonyModeScale(keySpec && keySpec.mode || 'major');
+        if (tonicSemi == null) return null;
+        const rootSemi = (tonicSemi + scale[parsed.degree] + parsed.accidental + 120) % 12;
+        const rootName = PITCH_CLASS_BY_SEMITONE[rootSemi];
+        const suffix = parsed.suffix || '';
+        let quality = parsed.majorCase ? '' : 'm';
+        if (parsed.degree === 6 && !parsed.majorCase) quality = 'dim';
+        return `${rootName}${quality}${suffix}`;
+      }
+
+      function harmonyParseChordSymbol(raw, keySpec, risk, index) {
+        let source = String(raw || '').trim();
+        if (!source || source === '.') return null;
+        if (source.includes('+') && source.split('+').every((part) => /^([A-Ga-g])([#b])?(-?\d{1,2})$/.test(part.trim()))) {
+          const roleByIndex = ['root', 'third', 'fifth', 'seventh', 'ninth', 'eleventh', 'thirteenth'];
+          return source.split('+').map((part, i) => {
+            const m = part.trim().match(/^([A-Ga-g])([#b])?(-?\d{1,2})$/);
+            return withHarmonyRole(noteObjectFromMidi(noteToMidi(m[1], m[2] || '', Number(m[3])), null), roleByIndex[i] || null, null);
+          }).filter(Boolean);
+        }
+        const roman = harmonyDegreeChord(source, keySpec, risk);
+        if (roman) source = roman;
+        const slashParts = source.split('/');
+        const chordPart = slashParts[0];
+        const m = chordPart.match(/^([A-Ga-g])([#b])?([^\s]*)$/);
+        if (!m) return null;
+        const root = `${m[1].toUpperCase()}${m[2] || ''}`;
+        const suffix = String(m[3] || '');
+        const rootSemi = harmonyPitchClassSemitone(root);
+        if (rootSemi == null) return null;
+        const lower = suffix.toLowerCase();
+        let intervals = [0, 4, 7];
+        if (/^(m|min|-)/.test(lower)) intervals = [0, 3, 7];
+        if (/dim|°|o/.test(lower)) intervals = [0, 3, 6];
+        if (/aug|\+/.test(lower)) intervals = [0, 4, 8];
+        if (/sus2/.test(lower)) intervals = [0, 2, 7];
+        else if (/sus/.test(lower)) intervals = [0, 5, 7];
+        if (/maj7|Δ/.test(suffix)) intervals.push(11);
+        else if (/7|9|11|13/.test(lower) || /ø/.test(lower)) intervals.push(10);
+        if (/6/.test(lower) && !intervals.includes(9)) intervals.push(9);
+        if (/9|add9/.test(lower) && !intervals.includes(14)) intervals.push(14);
+        if (/11/.test(lower) && !intervals.includes(17)) intervals.push(17);
+        if (/13/.test(lower) && !intervals.includes(21)) intervals.push(21);
+        if (/b5/.test(lower)) intervals = intervals.map((x) => x === 7 ? 6 : x);
+        if (/#5/.test(lower)) intervals = intervals.map((x) => x === 7 ? 8 : x);
+        if (/b9/.test(lower)) intervals.push(13);
+        if (/#9/.test(lower)) intervals.push(15);
+        if (/#11/.test(lower)) intervals.push(18);
+        if (/b13/.test(lower)) intervals.push(20);
+        intervals = Array.from(new Set(intervals)).sort((a, b) => a - b);
+        const register = Math.round(harmonyTrackValue('register', index, null) == null ? 3 : Number(harmonyTrackValue('register', index, 3)) || 3);
+        const baseMidi = 12 * (register + 1) + rootSemi;
+        let notes = intervals
+          .map((interval) => withHarmonyRole(noteObjectFromMidi(baseMidi + interval, null), harmonyRoleForInterval(interval), interval))
+          .filter(Boolean);
+        if (slashParts[1]) {
+          const bassSemi = harmonyPitchClassSemitone(slashParts[1]);
+          if (bassSemi != null) {
+            const bass = withHarmonyRole(noteObjectFromMidi(12 * (Math.max(1, register) + 1) + bassSemi, null), 'bass', null);
+            if (bass) notes.unshift(bass);
+          }
+        }
+        return notes;
+      }
+
+      function harmonyUniqueNotes(notes) {
+        const out = [];
+        const seen = new Set();
+        for (const note of Array.isArray(notes) ? notes : []) {
+          if (!note) continue;
+          const midi = Number(note.midi);
+          const key = Number.isFinite(midi) ? `m${Math.round(midi * 1000)}` : `n${String(note.name || note.freq || out.length)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(note);
+        }
+        return out;
+      }
+
+      function harmonyBuildChordMembers(rawNotes) {
+        const source = Array.isArray(rawNotes)
+          ? rawNotes.filter(Boolean).slice().sort((a, b) => Number(a.midi || 0) - Number(b.midi || 0))
+          : [];
+        const byRole = (name, fallbackIndex) => {
+          const found = source.find((note) => String(note && note.harmonyRole || '').toLowerCase() === name);
+          if (found) return found;
+          return Number.isFinite(Number(fallbackIndex)) ? (source[fallbackIndex] || null) : null;
+        };
+        const root = byRole('root', 0);
+        const third = byRole('third', 1);
+        const fifth = byRole('fifth', 2);
+        const seventh = byRole('seventh', 3);
+        const ninth = byRole('ninth', 4);
+        const eleventh = byRole('eleventh', 5);
+        const thirteenth = byRole('thirteenth', 6);
+        const bass = byRole('bass', null) || root || source[0] || null;
+        const top = source[source.length - 1] || null;
+        return { root, third, fifth, seventh, ninth, eleventh, thirteenth, bass, top, source };
+      }
+
+      function harmonyRootlessVoicing(members, rawNotes) {
+        const m = members || {};
+        const preferred = harmonyUniqueNotes([
+          m.third,
+          m.seventh,
+          m.ninth,
+          m.thirteenth,
+          m.eleventh,
+          m.fifth,
+        ]);
+        if (preferred.length >= 2) return preferred;
+        if (preferred.length === 1) {
+          const seedMidi = Number(preferred[0] && preferred[0].midi);
+          const fallback = [m.fifth, m.seventh, m.ninth, m.root]
+            .filter(Boolean)
+            .find((note) => !Number.isFinite(seedMidi) || Number(note && note.midi) !== seedMidi);
+          return fallback ? harmonyUniqueNotes([preferred[0], fallback]) : preferred;
+        }
+        const raw = Array.isArray(rawNotes) ? rawNotes.filter(Boolean).slice().sort((a, b) => Number(a.midi || 0) - Number(b.midi || 0)) : [];
+        return raw.length > 1 ? raw.slice(1) : raw;
+      }
+
+      function harmonyApplyVoicing(notes, index, members) {
+        let list = Array.isArray(notes) ? notes.filter(Boolean).slice() : [];
+        if (list.length <= 1) return list;
+        const voicing = String(harmonyTrackValue('voicing', index, 'close') || 'close').toLowerCase();
+        const open = harmonyScalarValue('chordOpen', index, voicing === 'open' || voicing === 'spread' ? 0.65 : 0.25);
+        list.sort((a, b) => Number(a.midi || 0) - Number(b.midi || 0));
+        if (voicing === 'rootless') list = harmonyRootlessVoicing(members, list);
+        if (voicing === 'shell' && list.length > 3) {
+          const m = members || {};
+          list = harmonyUniqueNotes([m.root || list[0], m.third || list[1], m.seventh || list[3] || list[2]]).filter(Boolean);
+        }
+        if (voicing === 'drop2' && list.length >= 4) list[list.length - 2] = withHarmonyRole(noteObjectFromMidi(Number(list[list.length - 2].midi) - 12, null), list[list.length - 2].harmonyRole, list[list.length - 2].harmonyInterval) || list[list.length - 2];
+        if (voicing === 'drop3' && list.length >= 4) list[list.length - 3] = withHarmonyRole(noteObjectFromMidi(Number(list[list.length - 3].midi) - 12, null), list[list.length - 3].harmonyRole, list[list.length - 3].harmonyInterval) || list[list.length - 3];
+        if (open > 0.48) {
+          list = list.map((note, i) => {
+            if (i === 0) return note;
+            const lift = Math.round(open * i * 0.7) * 12;
+            return lift ? (withHarmonyRole(noteObjectFromMidi(Number(note.midi) + lift, null), note.harmonyRole, note.harmonyInterval) || note) : note;
+          });
+        }
+        return harmonyUniqueNotes(list).sort((a, b) => Number(a.midi || 0) - Number(b.midi || 0));
+      }
+
+      function harmonyResolvedChordAt(index, block) {
+        const spec = harmonyChordSpecAt(index);
+        if (!spec) return null;
+        const keySpec = spec && spec._key ? spec._key : harmonyKeySpecAt(index);
+        const risk = harmonyScalarValue('harmonicRisk', index, 0.25);
+        let raw = spec.raw || '';
+        if (spec.kind === 'harmony-wildcard' || spec.kind === 'harmony-glob') raw = harmonyChordChoiceFromGlob(spec, risk, index);
+        if (spec.kind === 'harmony-cadence') raw = spec.name === 'backdoor' ? 'bVII13' : 'V7';
+        const rawNotes = harmonyParseChordSymbol(raw, keySpec, risk, index);
+        if (!rawNotes || !rawNotes.length) return null;
+        const members = harmonyBuildChordMembers(rawNotes);
+        const notes = harmonyApplyVoicing(rawNotes, index, members);
+        return { raw, rawNotes: rawNotes.slice(), members, notes, key: keySpec };
+      }
+
+      function harmonyNotesForRender(roleRaw, index, block) {
+        const role = String(roleRaw || 'chord').toLowerCase();
+        const resolved = harmonyResolvedChordAt(index, block);
+        const voiced = resolved && Array.isArray(resolved.notes) ? resolved.notes.slice().sort((a, b) => Number(a.midi || 0) - Number(b.midi || 0)) : [];
+        const m = resolved && resolved.members ? resolved.members : {};
+        if (!voiced.length && !(m && (m.root || m.third || m.fifth))) return null;
+        if (role === 'chord' || role === 'stab' || role === 'arp') return voiced;
+
+        const roleMap = {
+          root: [m.root],
+          '1': [m.root],
+          bass: [m.bass || m.root],
+          third: [m.third],
+          '3': [m.third],
+          fifth: [m.fifth],
+          '5': [m.fifth],
+          seventh: [m.seventh],
+          '7': [m.seventh],
+          ninth: [m.ninth],
+          '9': [m.ninth],
+          eleventh: [m.eleventh],
+          '11': [m.eleventh],
+          thirteenth: [m.thirteenth],
+          '13': [m.thirteenth],
+          top: [voiced[voiced.length - 1] || m.top],
+          guide: [m.third, m.seventh],
+          shell: [m.root, m.third, m.seventh],
+          color: [m.ninth, m.eleventh, m.thirteenth],
+          upper: [m.seventh, m.ninth, m.eleventh, m.thirteenth],
+          lower: [m.root, m.third, m.fifth],
+        };
+        const selected = harmonyUniqueNotes(roleMap[role] || [m.root || voiced[0]]).filter(Boolean);
+        return selected.length ? selected : (voiced.length ? voiced : null);
+      }
+
+      function inegalesRatioValue() {
+        const spec = program && program.inegales ? program.inegales : null;
+        if (!spec || spec.enabled === false) return 1;
+        const mode = String(spec.mode || spec.raw || '').toLowerCase();
+        if (mode === 'off' || mode === 'none') return 1;
+        if (mode === 'light') return 1.25;
+        if (mode === 'medium' || mode === 'french' || mode === '3:2') return 1.5;
+        if (mode === 'heavy' || mode === '2:1') return 2;
+        const m = mode.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+        if (m) {
+          const a = Number(m[1]);
+          const b = Number(m[2]);
+          if (Number.isFinite(a) && Number.isFinite(b) && a > 0 && b > 0) return Math.max(1, a / b);
+        }
+        return 1;
+      }
+
+      function rationalDurationSeconds(duration) {
+        if (!duration || !Number.isFinite(Number(duration.numerator)) || !Number.isFinite(Number(duration.denominator))) return null;
+        const den = Number(duration.denominator);
+        if (den <= 0 || !program || Number(program.tempo) <= 0) return null;
+        const beatSeconds = 60 / Number(program.tempo);
+        const seconds = (Number(duration.numerator) / den) * 4 * beatSeconds;
+        return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+      }
+
+      function swingSpecValue() {
+        const spec = program && program.swing ? program.swing : null;
+        if (!spec || spec.enabled === false) return { enabled: false, ratio: 1, targetPairSeconds: null };
+        const ratio = Math.max(1, Number(spec.ratio) || 1);
+        if (!Number.isFinite(ratio) || ratio <= 1.0001) return { enabled: false, ratio: 1, targetPairSeconds: null };
+        const targetSeconds = rationalDurationSeconds(spec.targetDuration || { numerator: 1, denominator: 8 });
+        return {
+          enabled: true,
+          ratio,
+          targetPairSeconds: targetSeconds ? targetSeconds * 2 : null,
+        };
+      }
+
+      function swingEligibleDuration(duration, pairCount, targetPairSeconds) {
+        if (!Number.isFinite(Number(duration)) || Number(duration) <= 0) return false;
+        if (!Number.isFinite(Number(pairCount)) || Number(pairCount) <= 0) return false;
+        if (!Number.isFinite(Number(targetPairSeconds)) || Number(targetPairSeconds) <= 0) return true;
+        const expected = Number(targetPairSeconds) * Number(pairCount);
+        if (!Number.isFinite(expected) || expected <= 0) return false;
+        const tolerance = Math.max(0.018, expected * 0.18);
+        return Math.abs(Number(duration) - expected) <= tolerance;
+      }
+
+      function performanceTimingRatio(children, duration, opts) {
+        const n = Array.isArray(children) ? children.length : 0;
+        if (n < 2 || n % 2 !== 0) return 1;
+        const swing = swingSpecValue();
+        if (swing.enabled) {
+          const ignoreTarget = Boolean(opts && opts.ignoreTarget);
+          if (ignoreTarget || swingEligibleDuration(duration, n / 2, swing.targetPairSeconds)) return swing.ratio;
+          return 1;
+        }
+        return inegalesRatioValue();
+      }
+
+      function groupedDurationsWithTimingWarp(children, duration, opts) {
+        const n = Array.isArray(children) ? children.length : 0;
+        if (n <= 0) return [];
+        const ratio = performanceTimingRatio(children, duration, opts);
+        if (!Number.isFinite(ratio) || ratio <= 1 || n < 2 || n % 2 !== 0) {
+          return children.map((_, i) => ({ timeOffset: (duration / n) * i, duration: duration / n }));
+        }
+        const pairDur = duration / (n / 2);
+        const longDur = pairDur * (ratio / (ratio + 1));
+        const shortDur = pairDur - longDur;
+        const out = [];
+        let offset = 0;
+        for (let i = 0; i < n; i += 2) {
+          out.push({ timeOffset: offset, duration: longDur });
+          out.push({ timeOffset: offset + longDur, duration: shortDur });
+          offset += pairDur;
+        }
+        return out;
+      }
+
+      function auxiliaryNote(note, direction, block) {
+        if (!note || !Number.isFinite(Number(note.midi))) return null;
+        const dir = direction === 'lower' || direction === 'down' ? -1 : 1;
+        const name = String(note.name || '');
+        const m = name.match(/^([A-G])([#b]?)(-?\d+)$/i);
+        if (m) {
+          const letters = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+          const current = m[1].toUpperCase();
+          const idx = letters.indexOf(current);
+          if (idx >= 0) {
+            let nextIdx = idx + dir;
+            let octave = Number(m[3]);
+            if (nextIdx >= letters.length) { nextIdx = 0; octave += 1; }
+            if (nextIdx < 0) { nextIdx = letters.length - 1; octave -= 1; }
+            const midi = noteToMidi(letters[nextIdx], '', octave);
+            const resolved = noteObjectFromMidi(midi, block);
+            if (resolved) return resolved;
+          }
+        }
+        return noteObjectFromMidi(Number(note.midi) + (dir > 0 ? 1 : -1), block);
+      }
+
+      function ornamentStyleDefaultSpeed(style) {
+        const st = String(style || 'default').toLowerCase();
+        // ornament-speed is intentional velocity/tightness: 0 = broad/slow,
+        // 1 = quick/tight. Defaults are intentionally quicker than the old
+        // ornament-open defaults so Baroque figures stay inside the written leaf.
+        if (st === 'bach') return 0.72;
+        if (st === 'rameau') return 0.66;
+        if (st === 'couperin') return 0.62;
+        if (st === 'french') return 0.62;
+        return 0.68;
+      }
+
+      function ornamentSpeedValue(value, style) {
+        const fallback = ornamentStyleDefaultSpeed(style);
+        if (value == null) return fallback;
+        return clamp(numericParamValue(value, fallback), 0, 1);
+      }
+
+      function ornamentLegacyOpenValue(value, style) {
+        // Backwards-compatible support for older ornament-open / orn-open rows.
+        if (value == null) return null;
+        const n = numericParamValue(value, NaN);
+        return Number.isFinite(n) ? clamp(n, 0, 1) : null;
+      }
+
+      function ornamentHumanValue(value, human) {
+        const fallback = clamp(numericParamValue(human, 0) * 0.65, 0, 1);
+        if (value == null) return fallback;
+        return clamp(numericParamValue(value, fallback), 0, 1);
+      }
+
+      function ornamentEffectiveSpeed(speedValue, humanValue) {
+        const speed = clamp(Number.isFinite(Number(speedValue)) ? Number(speedValue) : 0.68, 0, 1);
+        const human = clamp(Number.isFinite(Number(humanValue)) ? Number(humanValue) : 0, 0, 1);
+        const jitter = human * 0.08;
+        if (jitter <= 0.0001) return speed;
+        return clamp(speed + (Math.random() * 2 - 1) * jitter, 0, 1);
+      }
+
+      function ornamentEffectiveOpenFromControls(speedSpec, legacyOpenSpec, style, humanSpec, human) {
+        const ornHuman = ornamentHumanValue(humanSpec, human);
+        const legacyOpen = ornamentLegacyOpenValue(legacyOpenSpec, style);
+        if (legacyOpen != null) {
+          const jitter = ornHuman * 0.10;
+          return clamp(legacyOpen + (jitter > 0.0001 ? (Math.random() * 2 - 1) * jitter : 0), 0, 1);
+        }
+        const speed = ornamentEffectiveSpeed(ornamentSpeedValue(speedSpec, style), ornHuman);
+        return clamp(1 - speed, 0, 1);
+      }
+
+      function ornamentEventPlan(note, ornamentSpec, style, totalDuration, block, speedSpec, legacyOpenSpec, humanSpec, human) {
+        const name = ornamentName(ornamentSpec);
+        if (isPerformanceNone(name) || !note || !Number.isFinite(Number(note.midi))) return null;
+        const dur = Number.isFinite(Number(totalDuration)) && Number(totalDuration) > 0 ? Number(totalDuration) : 0.25;
+        const upper = auxiliaryNote(note, 'upper', block) || note;
+        const lower = auxiliaryNote(note, 'lower', block) || note;
+        const spec = ornamentValue(ornamentSpec);
+        const st = String(style || 'default').toLowerCase();
+        const open = ornamentEffectiveOpenFromControls(speedSpec, legacyOpenSpec, st, humanSpec, human);
+
+        function mix(a, b, t) {
+          return a + (b - a) * clamp(t, 0, 1);
+        }
+
+        function mk(n, start, len, forceMul) {
+          const safeStart = Math.max(0, Math.min(0.999, Number(start) || 0));
+          const remaining = Math.max(0, dur - safeStart * dur);
+          if (remaining <= 0.0005) return null;
+          const requested = Number.isFinite(Number(len)) ? Math.max(0, Number(len) * dur) : remaining;
+          const safeDuration = Math.max(0.001, Math.min(remaining, requested));
+          return {
+            note: n || note,
+            offset: safeStart * dur,
+            duration: safeDuration,
+            forceMul: Number.isFinite(Number(forceMul)) ? Number(forceMul) : 1,
+          };
+        }
+
+        function finalizePlan(plan) {
+          const events = Array.isArray(plan) ? plan.filter(Boolean) : [];
+          if (!events.length) return null;
+          const ratio = inegalesRatioValue();
+          let shaped = events;
+          if (Number.isFinite(ratio) && ratio > 1 && events.length >= 2 && events.length % 2 === 0) {
+            const start = Math.max(0, Math.min(...events.map((ev) => Math.max(0, Number(ev.offset) || 0))));
+            const end = Math.min(dur, Math.max(...events.map((ev) => Math.max(0, (Number(ev.offset) || 0) + (Number(ev.duration) || 0)))));
+            const span = Math.max(0.001, end - start);
+            const timing = groupedDurationsWithTimingWarp(events, span, { ignoreTarget: true });
+            shaped = events.map((ev, i) => ({
+              ...ev,
+              offset: start + (timing[i] ? timing[i].timeOffset : 0),
+              duration: timing[i] ? timing[i].duration : ev.duration,
+            }));
+          }
+          return shaped
+            .map((ev) => {
+              const offset = Math.max(0, Math.min(dur, Number(ev.offset) || 0));
+              const remaining = Math.max(0, dur - offset);
+              if (remaining <= 0.0005) return null;
+              return {
+                ...ev,
+                offset,
+                duration: Math.max(0.001, Math.min(remaining, Number(ev.duration) || remaining)),
+              };
+            })
+            .filter(Boolean);
+        }
+
+        function threeNoteFigure(auxNote) {
+          const firstLen = mix(0.035, 0.17, open);
+          const auxLen = mix(0.035, 0.15, open);
+          const finalStart = Math.min(0.72, firstLen + auxLen);
+          return [
+            mk(note, 0, firstLen, 1.04),
+            mk(auxNote, firstLen, auxLen, 0.9),
+            mk(note, finalStart, 1 - finalStart, 0.96),
+          ];
+        }
+
+        if (name === 'mordent') return finalizePlan(threeNoteFigure(upper));
+        if (name === 'lower-mordent') return finalizePlan(threeNoteFigure(lower));
+
+        if (name === 'turn' || name === 'lower-turn') {
+          const window = mix(0.18, 0.70, open);
+          const a = name === 'lower-turn' ? lower : upper;
+          const b = name === 'lower-turn' ? upper : lower;
+          const step = window / 4;
+          return finalizePlan([
+            mk(a, 0, step, 0.95),
+            mk(note, step, step, 1.02),
+            mk(b, step * 2, step, 0.9),
+            mk(note, step * 3, 1 - step * 3, 0.96),
+          ]);
+        }
+
+        if (name === 'appoggiatura') {
+          const explicitLong = spec && spec.mod === 'long';
+          const lean = explicitLong ? mix(0.36, 0.62, open) : mix(0.12, 0.48, open);
+          return finalizePlan([mk(upper, 0, lean, 1.06), mk(note, lean, 1 - lean, 0.94)]);
+        }
+
+        if (name === 'acciaccatura' || name === 'grace') {
+          const grace = mix(0.024, 0.12, open);
+          return finalizePlan([mk(upper, 0, grace, 0.75), mk(note, grace, 1 - grace, 1)]);
+        }
+
+        if (name === 'slide') {
+          const slide = mix(0.04, 0.18, open);
+          return finalizePlan([mk(lower, 0, slide, 0.75), mk(note, slide, 1 - slide, 1)]);
+        }
+
+        if (name === 'trill' || name === 'shake') {
+          const requested = spec && Number.isFinite(Number(spec.count)) ? Math.round(Number(spec.count)) : null;
+          const window = mix(name === 'shake' ? 0.24 : 0.20, name === 'shake' ? 0.82 : 0.76, open);
+          const gapTarget = mix(0.030, 0.075, open);
+          const count = requested || (name === 'shake'
+            ? Math.max(6, Math.min(14, Math.round(window * dur / Math.max(0.026, gapTarget))))
+            : Math.max(4, Math.min(12, Math.round(window * dur / Math.max(0.030, gapTarget)))));
+          const startUpper = spec && spec.mod === 'lower' ? false : (spec && spec.mod === 'upper' ? true : (st === 'bach' || st === 'rameau' || st === 'couperin' || st === 'french' || st === 'default'));
+          const out = [];
+          const n = Math.max(2, Math.min(16, count));
+          for (let i = 0; i < n; i += 1) {
+            const useAux = (i % 2 === 0) === startUpper;
+            const start = (i / n) * window;
+            const len = window / n;
+            out.push(mk(useAux ? upper : note, start, len, i === 0 ? 1.05 : 0.92));
+          }
+          if (out.length) {
+            out[out.length - 1].note = note;
+            out[out.length - 1].duration = Math.max(out[out.length - 1].duration, Math.max(0.008, (1 - out[out.length - 1].offset / dur) * dur));
+          }
+          return finalizePlan(out);
+        }
+
+        return null;
+      }
+
       // Convert a glide-span duration to seconds using the active program's
       // bar/beat math. Falls back to the legacy `.seconds` field when no
       // count/unit pair is present (older parsed values).
@@ -3179,11 +3972,15 @@
           case 'sympathetic': return 0.18;
           case 'release': return 0.35;
           case 'human': return 0;
+          case 'ornament-speed': return null;
+          case 'ornament-open': return null; // legacy
+          case 'ornament-human': return null;
           case 'stretch': return 0;
           case 'layer': return 'hard';
           case 'poly': return 64;
             case 'mallet': return 'yarn';
             case 'deadstroke': return 0;
+            case 'ripple':
             case 'roll': return 0;
             case 'spread': return 0.012;
             case 'motor': return 0;
@@ -3238,8 +4035,12 @@
           case 'sympathetic':
           case 'release':
           case 'human':
+            case 'ornament-speed':
+            case 'ornament-open':
+            case 'ornament-human':
             case 'stretch':
             case 'deadstroke':
+            case 'ripple':
             case 'roll':
             case 'spread':
             case 'motor':
@@ -3354,6 +4155,15 @@
 
             case 'start':
               return attractorBiasRange(block, 'start', 0, 0.85);
+
+            case 'ornament-speed':
+              return attractorBiasRange(block, 'ornament-speed', 0.52, 0.96);
+
+            case 'ornament-open':
+              return attractorBiasRange(block, 'ornament-open', 0.04, 0.52);
+
+            case 'ornament-human':
+              return attractorBiasRange(block, 'ornament-human', 0, 0.45);
 
             case 'speed':
               return attractorChoice(block, [0.25, 1 / 3, 0.5, 0.75, 1, 4 / 3, 1.5, 2, 3, 4], (v, i, a) => {
@@ -3575,6 +4385,8 @@
         return out;
       }
       function resolveParamsForEvent(block, eventIndex, time) {
+        const ripple = paramForIndex(block, 'ripple', eventIndex, { kind: 'chord-roll', mode: 'none', raw: '.' }, time);
+        const rippleTime = paramForIndex(block, 'ripple-time', eventIndex, 0.045, time);
         return {
           force: paramForIndex(block, 'force', eventIndex, 0.7, time),
           decay: paramForIndex(block, 'decay', eventIndex, 4.2, time),
@@ -3587,6 +4399,15 @@
           gain: paramForIndex(block, 'gain', eventIndex, 1, time),
           glide: paramForIndex(block, 'glide', eventIndex, 0, time),
           rate: paramForIndex(block, 'rate', eventIndex, 1, time),
+          ornament: paramForIndex(block, 'ornament', eventIndex, { kind: 'ornament', ornament: 'none', raw: '.' }, time),
+          ornamentStyle: paramForIndex(block, 'ornament-style', eventIndex, 'default', time),
+          ornamentSpeed: paramForIndex(block, 'ornament-speed', eventIndex, null, time),
+          ornamentOpenLegacy: paramForIndex(block, 'ornament-open', eventIndex, null, time),
+          ornamentHuman: paramForIndex(block, 'ornament-human', eventIndex, null, time),
+          arp: paramForIndex(block, 'arp', eventIndex, { kind: 'chord-arp', mode: 'none', raw: '.' }, time),
+          arprate: paramForIndex(block, 'arprate', eventIndex, 0.125, time),
+          rippleTime,
+          rolltime: rippleTime,
           start: paramForIndex(block, 'start', eventIndex, 0, time),
           monitor: paramForIndex(block, 'monitor', eventIndex, 1, time),
           listen: paramForIndex(block, 'listen', eventIndex, 1, time),
@@ -3629,7 +4450,8 @@
 
             mallet: paramForIndex(block, 'mallet', eventIndex, 'yarn', time),
             deadstroke: paramForIndex(block, 'deadstroke', eventIndex, 0, time),
-            roll: paramForIndex(block, 'roll', eventIndex, 0, time),
+            ripple,
+            roll: ripple,
             spread: paramForIndex(block, 'spread', eventIndex, 0.012, time),
             motor: paramForIndex(block, 'motor', eventIndex, 0, time),
             depth: paramForIndex(block, 'depth', eventIndex, 0.35, time),
@@ -3732,8 +4554,11 @@
       }
 
       function countLeaves(node) {
-        if (!node) return 0;
-        if (node.kind === 'leaf') return 1;
+        if (!node || node.kind === 'pickup-gap') return 0;
+        if (node.kind === 'leaf') {
+          const tok = node.token || {};
+          return tok.kind === 'pickup-gap' ? 0 : 1;
+        }
         if (node.kind !== 'group' || !Array.isArray(node.children)) return 0;
 
         let total = 0;
@@ -4088,8 +4913,11 @@
       function dispatchSlotTree(node, time, duration, ctx) {
         if (!node) return;
 
+        if (node.kind === 'pickup-gap') return;
+
         if (node.kind === 'leaf') {
           const tok = node.token;
+          if (tok && tok.kind === 'pickup-gap') return;
           const leafIndex = ctx.leafCursor.index;
           ctx.leafCursor.index += 1;
           const sourceLeafCursor = ctx.sourceLeafCursor || ctx.leafCursor;
@@ -4437,7 +5265,7 @@ if (isPitchedSynthVoice(ctx.voice)) {
                 spanEvent = resolvePitchSpanHit(node, tok, ctx.block, spanState, params, time);
                 note = spanEvent && spanEvent.note ? spanEvent.note : null;
               } else if (tok.kind === 'chord') {
-                if ((isViolinVoice || isCelloVoice || isMarimbaVoice || isVibraphoneVoice || isVoiceVoice) && Array.isArray(tok.value)) {
+                if (isPitchedSynthVoice(ctx.voice) && Array.isArray(tok.value)) {
                   chordNotes = tok.value
                     .map((base) => {
                       const midi = base && Number.isFinite(Number(base.midi)) ? Number(base.midi) : null;
@@ -4445,6 +5273,14 @@ if (isPitchedSynthVoice(ctx.voice)) {
                       return base && Number.isFinite(tunedFreq) ? { ...base, midi, freq: tunedFreq } : null;
                     })
                     .filter(Boolean);
+                }
+              } else if (tok.kind === 'harmony-render') {
+                const rendered = harmonyNotesForRender(tok.role || 'chord', eventIndex, ctx.block);
+                if (Array.isArray(rendered) && rendered.length >= 2) {
+                  chordNotes = rendered;
+                  tok.chordRaw = tok.raw || tok.role || 'chord';
+                } else if (Array.isArray(rendered) && rendered.length === 1) {
+                  note = rendered[0];
                 }
               } else if (tok.kind === 'note') {
                 const base = tok.value || null;
@@ -4457,6 +5293,217 @@ if (isPitchedSynthVoice(ctx.voice)) {
                 node._blockForAttractor = ctx.block;
                 note = resolveRandomPitch(node, tok.value);
               }
+
+                function playHarmonyNoteForCurrentVoice(n, noteTime, noteDuration, noteGateDuration) {
+                  if (!n || !Number.isFinite(Number(n.freq))) return false;
+                  const opts = {
+                    audioCtx,
+                    masterBus: eventBus,
+                    time: noteTime,
+                    freq: n.freq,
+                    midi: Number.isFinite(Number(n.midi)) ? Number(n.midi) : null,
+                    force: params.force,
+                    decay: params.decay,
+                    crush: params.crush,
+                    resolution: params.resolution,
+                    tone: params.tone,
+                    harm: params.harm,
+                    octave: params.octave,
+                    pan: params.pan,
+                    gain: params.gain,
+                    pedal: params.pedal,
+                    una: params.una,
+                    lid: params.lid,
+                    sympathetic: effects.sympathetic || params.sympathetic,
+                    release: params.release,
+                    human: params.human,
+                    stretch: params.stretch,
+                    layer: params.layer,
+                    poly: params.poly,
+                    articulation: params.articulation,
+                    string: params.sul,
+                    vibrato: params.vibrato,
+                    vibratoRate: params.vibratorate,
+                    vibratoOnset: params.vibratoonset,
+                    tremolo: params.tremolo,
+                    tremoloRate: params.tremolorate,
+                    bow: params.bow,
+                    wood: params.wood,
+                    mallet: params.mallet,
+                    resonance: effects.resonance,
+                    body: effects.body,
+                    deadstroke: params.deadstroke,
+                    spread: params.spread,
+                    motor: params.motor,
+                    depth: params.depth,
+                    damp: params.damp,
+                    bowpressure: params.bowpressure,
+                    vowel: params.vowel,
+                    syllable: params.syllable,
+                    carrier: params.carrier,
+                    robot: params.robot,
+                    vocoder: params.vocoder,
+                    breath: params.breath,
+                    mouth: params.mouth,
+                    formant: params.formant,
+                    roughness: params.roughness,
+                    ensemble: params.ensemble,
+                    gateDuration: Math.max(0.012, Number(noteGateDuration) || Number(noteDuration) || 0.05),
+                    eventDuration: Math.max(0.012, Number(noteDuration) || 0.05),
+                    panGestureDuration,
+                    blockId: ctx.block && ctx.block._blockId,
+                  };
+                  if (isStringVoice && root.StringVoice && root.StringVoice.playString) { root.StringVoice.playString(opts); return true; }
+                  if (isSineVoice && root.SineVoice && root.SineVoice.playSine) { root.SineVoice.playSine(opts); return true; }
+                  if (isPluckVoice && root.PluckVoice && root.PluckVoice.playPluck) { root.PluckVoice.playPluck(opts); return true; }
+                  if (isDroneVoice && root.DroneVoice && root.DroneVoice.playDrone) { root.DroneVoice.playDrone(opts); return true; }
+                  if (isPianoVoice && root.PianoVoice && root.PianoVoice.playPiano) { root.PianoVoice.playPiano(opts); return true; }
+                  if (isViolinVoice && root.ViolinVoice && root.ViolinVoice.playViolin) { root.ViolinVoice.playViolin(opts); return true; }
+                  if (isCelloVoice && root.CelloVoice && root.CelloVoice.playCello) { root.CelloVoice.playCello(opts); return true; }
+                  if (isMarimbaVoice && root.MarimbaVoice && root.MarimbaVoice.playMarimba) { root.MarimbaVoice.playMarimba(opts); return true; }
+                  if (isVibraphoneVoice && root.VibraphoneVoice && root.VibraphoneVoice.playVibraphone) { root.VibraphoneVoice.playVibraphone(opts); return true; }
+                  if (isVoiceVoice) {
+                    const engine = voiceEngine();
+                    const play = engine && (engine.playVoice || engine.playRobotVoice || engine.playVocal);
+                    if (play) { play.call(engine, opts); return true; }
+                  }
+                  return false;
+                }
+
+                function scheduleHarmonyChordForCurrentVoice(notesForChord, tokForChord) {
+                  if (!Array.isArray(notesForChord) || notesForChord.length < 2 || !isPitchedSynthVoice(ctx.voice)) return false;
+                  const renderRole = tokForChord && tokForChord.kind === 'harmony-render' ? String(tokForChord.role || '').toLowerCase() : '';
+                  const arpMode = isPerformanceNone(chordArpMode(params.arp)) && renderRole === 'arp' ? 'up' : chordArpMode(params.arp);
+                  const rollMode = chordRippleMode(params.ripple);
+                  const useArp = !isPerformanceNone(arpMode);
+                  const useRoll = !useArp && !isPerformanceNone(rollMode);
+                  const ordered = orderedChordNotes(notesForChord, useArp ? arpMode : rollMode).filter((n) => n && Number.isFinite(Number(n.freq)));
+                  if (!ordered.length) return false;
+
+                  const chordLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
+                  emitPlayedLeafPulse(chordLeafIntensity);
+                  emitEditorPulse({
+                    kind: 'voice',
+                    line: blockLine(ctx.block),
+                    voice: ctx.voice,
+                    intensity: chordLeafIntensity,
+                  });
+
+                  if (useArp) {
+                    const step = Math.max(0.018, Math.min(duration, duration * Math.max(0.03125, numericParamValue(params.arprate, 0.125))));
+                    let idx = 0;
+                    for (let off = 0; off < duration - 0.001; off += step) {
+                      const n = ordered[idx % ordered.length];
+                      playHarmonyNoteForCurrentVoice(n, time + off, step, Math.min(step * 0.92, gateDuration || step * 0.92));
+                      idx += 1;
+                    }
+                    return true;
+                  }
+
+                  const rollTotal = useRoll
+                    ? Math.min(Math.max(0, numericParamValue(params.rippleTime, 0.045)) * Math.max(1, ordered.length - 1), Math.max(0, duration * 0.45))
+                    : 0;
+                  ordered.forEach((n, i) => {
+                    const off = useRoll && ordered.length > 1 ? (rollTotal / (ordered.length - 1)) * i : 0;
+                    playHarmonyNoteForCurrentVoice(n, time + off, Math.max(0.018, duration - off), Math.max(0.018, (gateDuration || duration) - off));
+                  });
+                  return true;
+                }
+
+                if (chordNotes && chordNotes.length >= 2 && scheduleHarmonyChordForCurrentVoice(chordNotes, tok)) return;
+
+                if (isPianoVoice && chordNotes && chordNotes.length >= 2) {
+                  const chordLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
+                  emitPlayedLeafPulse(chordLeafIntensity);
+                  emitEditorPulse({
+                    kind: 'voice',
+                    line: blockLine(ctx.block),
+                    voice: ctx.voice,
+                    intensity: chordLeafIntensity,
+                  });
+
+                  const renderRole = tok && tok.kind === 'harmony-render' ? String(tok.role || '').toLowerCase() : '';
+                  const arpMode = isPerformanceNone(chordArpMode(params.arp)) && renderRole === 'arp' ? 'up' : chordArpMode(params.arp);
+                  const rollMode = chordRippleMode(params.ripple);
+                  const useArp = !isPerformanceNone(arpMode);
+                  const useRoll = !useArp && !isPerformanceNone(rollMode);
+                  const ordered = orderedChordNotes(chordNotes, useArp ? arpMode : rollMode);
+                  const rollTotal = Math.min(Math.max(0, numericParamValue(params.rippleTime, 0.045)) * Math.max(1, ordered.length - 1), Math.max(0, duration * 0.45));
+                  if (useArp) {
+                    const step = Math.max(0.018, Math.min(duration, duration * Math.max(0.03125, numericParamValue(params.arprate, 0.125))));
+                    let idx = 0;
+                    for (let off = 0; off < duration - 0.001; off += step) {
+                      const n = ordered[idx % ordered.length];
+                      if (n && root.PianoVoice && root.PianoVoice.playPiano) {
+                        root.PianoVoice.playPiano({
+                          audioCtx,
+                          masterBus: eventBus,
+                          time: time + off,
+                          freq: n.freq,
+                          midi: Number.isFinite(Number(n.midi)) ? Number(n.midi) : null,
+                          force: params.force,
+                          decay: params.decay,
+                          crush: params.crush,
+                          resolution: params.resolution,
+                          tone: params.tone,
+                          harm: params.harm,
+                          octave: params.octave,
+                          pan: params.pan,
+                          gain: params.gain,
+                          pedal: params.pedal,
+                          una: params.una,
+                          lid: params.lid,
+                          sympathetic: params.sympathetic,
+                          release: params.release,
+                          human: params.human,
+                          stretch: params.stretch,
+                          layer: params.layer,
+                          poly: params.poly,
+                          gateDuration: Math.min(step * 0.92, gateDuration || step * 0.92),
+                          eventDuration: step,
+                          panGestureDuration,
+                          blockId: ctx.block && ctx.block._blockId,
+                        });
+                      }
+                      idx += 1;
+                    }
+                  } else {
+                    ordered.forEach((n, i) => {
+                      if (!n || !root.PianoVoice || !root.PianoVoice.playPiano) return;
+                      const off = useRoll && ordered.length > 1 ? (rollTotal / (ordered.length - 1)) * i : 0;
+                      root.PianoVoice.playPiano({
+                        audioCtx,
+                        masterBus: eventBus,
+                        time: time + off,
+                        freq: n.freq,
+                        midi: Number.isFinite(Number(n.midi)) ? Number(n.midi) : null,
+                        force: params.force,
+                        decay: params.decay,
+                        crush: params.crush,
+                        resolution: params.resolution,
+                        tone: params.tone,
+                        harm: params.harm,
+                        octave: params.octave,
+                        pan: params.pan,
+                        gain: params.gain,
+                        pedal: params.pedal,
+                        una: params.una,
+                        lid: params.lid,
+                        sympathetic: params.sympathetic,
+                        release: params.release,
+                        human: params.human,
+                        stretch: params.stretch,
+                        layer: params.layer,
+                        poly: params.poly,
+                        gateDuration: Math.max(0.018, (gateDuration || duration) - off),
+                        eventDuration: Math.max(0.018, duration - off),
+                        panGestureDuration,
+                        blockId: ctx.block && ctx.block._blockId,
+                      });
+                    });
+                  }
+                  return;
+                }
 
                 if (isViolinVoice && chordNotes && chordNotes.length >= 2) {
                   const chordLeafIntensity = Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1)));
@@ -4507,7 +5554,12 @@ if (isPitchedSynthVoice(ctx.voice)) {
                       resonance: params.resonance,
                       body: params.body,
                       deadstroke: params.deadstroke,
-                      roll: params.roll,
+                      roll: chordRippleAmount(params.ripple),
+                      rollMode: chordRippleMode(params.ripple),
+                      arpMode: chordArpMode(params.arp),
+                      arprate: params.arprate,
+                      rippleTime: params.rippleTime,
+                      rolltime: params.rippleTime,
                       spread: params.spread,
                     gateDuration,
                     eventDuration: duration,
@@ -4600,7 +5652,12 @@ if (isPitchedSynthVoice(ctx.voice)) {
                     resonance: effects.resonance,
                     body: effects.body,
                     deadstroke: params.deadstroke,
-                    roll: params.roll,
+                    roll: chordRippleAmount(params.ripple),
+                      rollMode: chordRippleMode(params.ripple),
+                      arpMode: chordArpMode(params.arp),
+                      arprate: params.arprate,
+                      rippleTime: params.rippleTime,
+                      rolltime: params.rippleTime,
                     spread: params.spread,
                     human: params.human,
                     release: params.release,
@@ -4805,7 +5862,12 @@ if (isPitchedSynthVoice(ctx.voice)) {
                     resonance: effects.resonance,
                     body: effects.body,
                     deadstroke: params.deadstroke,
-                    roll: params.roll,
+                    roll: chordRippleAmount(params.ripple),
+                      rollMode: chordRippleMode(params.ripple),
+                      arpMode: chordArpMode(params.arp),
+                      arprate: params.arprate,
+                      rippleTime: params.rippleTime,
+                      rolltime: params.rippleTime,
                     spread: params.spread,
                     motor: params.motor,
                     depth: params.depth,
@@ -4831,50 +5893,70 @@ if (isPitchedSynthVoice(ctx.voice)) {
                     glideSec: Number.isFinite(glideSec) && glideSec > 0 ? glideSec : null,
                   };
 
-                if (isStringVoice) {
-                  root.StringVoice.playString(voiceOpts);
-                } else if (isSineVoice && root.SineVoice.playSine) {
-                  root.SineVoice.playSine(voiceOpts);
-                } else if (isPluckVoice && root.PluckVoice.playPluck) {
-                  root.PluckVoice.playPluck(voiceOpts);
-                } else if (isDroneVoice && root.DroneVoice.playDrone) {
-                  root.DroneVoice.playDrone(voiceOpts);
-                } else if (isPianoVoice && root.PianoVoice.playPiano) {
-                  root.PianoVoice.playPiano(voiceOpts);
-                } else if (isViolinVoice && root.ViolinVoice.playViolin) {
-                  root.ViolinVoice.playViolin(voiceOpts);
-                } else if (isCelloVoice && root.CelloVoice.playCello) {
-                  root.CelloVoice.playCello(voiceOpts);
-                } else if (isMarimbaVoice) {
-                  if (root.MarimbaVoice && root.MarimbaVoice.playMarimba) {
-                    const ok = root.MarimbaVoice.playMarimba(voiceOpts);
-                    if (!ok) {
-                      console.warn('[repl] MarimbaVoice.playMarimba returned false', voiceOpts);
+                const playCurrentPitchedVoice = (opts) => {
+                  if (isStringVoice) {
+                    root.StringVoice.playString(opts);
+                  } else if (isSineVoice && root.SineVoice.playSine) {
+                    root.SineVoice.playSine(opts);
+                  } else if (isPluckVoice && root.PluckVoice.playPluck) {
+                    root.PluckVoice.playPluck(opts);
+                  } else if (isDroneVoice && root.DroneVoice.playDrone) {
+                    root.DroneVoice.playDrone(opts);
+                  } else if (isPianoVoice && root.PianoVoice.playPiano) {
+                    root.PianoVoice.playPiano(opts);
+                  } else if (isViolinVoice && root.ViolinVoice.playViolin) {
+                    root.ViolinVoice.playViolin(opts);
+                  } else if (isCelloVoice && root.CelloVoice.playCello) {
+                    root.CelloVoice.playCello(opts);
+                  } else if (isMarimbaVoice) {
+                    if (root.MarimbaVoice && root.MarimbaVoice.playMarimba) {
+                      const ok = root.MarimbaVoice.playMarimba(opts);
+                      if (!ok) console.warn('[repl] MarimbaVoice.playMarimba returned false', opts);
+                    } else {
+                      console.warn('[repl] root.MarimbaVoice exists, but playMarimba is missing', root.MarimbaVoice);
                     }
-                  } else {
-                    console.warn('[repl] root.MarimbaVoice exists, but playMarimba is missing', root.MarimbaVoice);
-                  }
-                } else if (isVibraphoneVoice) {
-                  if (root.VibraphoneVoice && root.VibraphoneVoice.playVibraphone) {
-                    const ok = root.VibraphoneVoice.playVibraphone(voiceOpts);
-                    if (!ok) {
-                      console.warn('[repl] VibraphoneVoice.playVibraphone returned false', voiceOpts);
+                  } else if (isVibraphoneVoice) {
+                    if (root.VibraphoneVoice && root.VibraphoneVoice.playVibraphone) {
+                      const ok = root.VibraphoneVoice.playVibraphone(opts);
+                      if (!ok) console.warn('[repl] VibraphoneVoice.playVibraphone returned false', opts);
+                    } else {
+                      console.warn('[repl] root.VibraphoneVoice exists, but playVibraphone is missing', root.VibraphoneVoice);
                     }
-                  } else {
-                    console.warn('[repl] root.VibraphoneVoice exists, but playVibraphone is missing', root.VibraphoneVoice);
+                  } else if (isVoiceVoice) {
+                    const engine = voiceEngine();
+                    const play = engine && (engine.playVoice || engine.playRobotVoice || engine.playVocal);
+                    if (play) {
+                      const ok = play.call(engine, opts);
+                      if (!ok) console.warn('[repl] voice engine returned false', opts);
+                    } else {
+                      console.warn('[repl] voice engine exists, but no play method is available', engine);
+                    }
                   }
-                } else if (isVoiceVoice) {
-                  const engine = voiceEngine();
-                  const play = engine && (engine.playVoice || engine.playRobotVoice || engine.playVocal);
+                };
 
-                  if (play) {
-                    const ok = play.call(engine, voiceOpts);
-                    if (!ok) {
-                      console.warn('[repl] voice engine returned false', voiceOpts);
-                    }
-                  } else {
-                    console.warn('[repl] voice engine exists, but no play method is available', engine);
+                const ornamentPlan = ornamentEventPlan(note, params.ornament, params.ornamentStyle, duration, ctx.block, params.ornamentSpeed, params.ornamentOpenLegacy, params.ornamentHuman, params.human);
+                if (Array.isArray(ornamentPlan) && ornamentPlan.length > 0) {
+                  for (const ev of ornamentPlan) {
+                    const ornamentNote = ev && ev.note ? ev.note : note;
+                    const ornamentDuration = Math.max(0.008, Number(ev && ev.duration) || duration);
+                    const ornamentTime = time + Math.max(0, Number(ev && ev.offset) || 0);
+                    const ornamentForce = numericParamValue(params.force, 0.7) * (Number.isFinite(Number(ev && ev.forceMul)) ? Number(ev.forceMul) : 1);
+                    playCurrentPitchedVoice({
+                      ...voiceOpts,
+                      time: ornamentTime,
+                      freq: ornamentNote.freq,
+                      midi: Number.isFinite(Number(ornamentNote.midi)) ? Number(ornamentNote.midi) : voiceOpts.midi,
+                      force: clamp(ornamentForce, 0, 1.2),
+                      gateDuration: Math.min(ornamentDuration * 0.92, Number(gateDuration) || ornamentDuration * 0.92),
+                      eventDuration: ornamentDuration,
+                      freqStart: null,
+                      freqEnd: null,
+                      glideSec: null,
+                      ornament: ornamentName(params.ornament),
+                    });
                   }
+                } else {
+                  playCurrentPitchedVoice(voiceOpts);
                 }
               return;
             }
@@ -5084,9 +6166,10 @@ if (isPitchedSynthVoice(ctx.voice)) {
           const n = node.children.length;
           if (n === 0) return;
 
-          const subDur = duration / n;
+          const childDurations = groupedDurationsWithTimingWarp(node.children, duration);
           for (let i = 0; i < n; i++) {
-            dispatchSlotTree(node.children[i], time + i * subDur, subDur, {
+            const entry = childDurations[i] || { timeOffset: (duration / n) * i, duration: duration / n };
+            dispatchSlotTree(node.children[i], time + entry.timeOffset, entry.duration, {
               ...ctx,
               leafPath: (Array.isArray(ctx.leafPath) ? ctx.leafPath : []).concat(i),
             });
@@ -5552,6 +6635,9 @@ if (isPitchedSynthVoice(ctx.voice)) {
         const inBlockIdx = pos.inBlockIdx;
         const node = block.slots[inBlockIdx];
         if (!node) return;
+        if (node.kind === 'pickup-gap' || (node.kind === 'leaf' && node.token && node.token.kind === 'pickup-gap')) {
+          return;
+        }
         if ((block.voice === 'video' || block.voice === 'video-gen') && block.continuousOnly === true) {
           return;
         }
@@ -5751,10 +6837,14 @@ if (isPitchedSynthVoice(ctx.voice)) {
         // quarter note. In 12/16 it counts 12 sixteenth units across a shorter
         // bar; in 12/8 it counts 12 eighth units across a longer bar.
         const totalMeterUnits = (elapsed / barSec) * meterUnitsPerBar;
-        const bar = Math.floor(elapsed / barSec);
-        const beat = totalMeterUnits - bar * meterUnitsPerBar;
+        const phaseOffset = pickupPhaseOffset(program);
+        const phasedMeterUnits = totalMeterUnits + phaseOffset;
+        const bar = Math.floor(phasedMeterUnits / meterUnitsPerBar);
+        const beat = phasedMeterUnits - bar * meterUnitsPerBar;
         const beatIndex = meterUnitsPerBar > 0 ? Math.floor(beat) % meterUnitsPerBar : 0;
         const beatProgress = beat - Math.floor(beat);
+        const pickupBeats = pickupBeatsForProgram(program);
+        const inPickup = pickupBeats > 0 && totalMeterUnits < pickupBeats - 0.000001;
         const blockStates = program.blocks.map((block, i) => {
           const lastIdx = Number.isFinite(block._lastDispatchedSlotIdx)
             ? block._lastDispatchedSlotIdx
@@ -5810,7 +6900,19 @@ if (isPitchedSynthVoice(ctx.voice)) {
                 surfaceState: block._lastSurfaceState || null,
             };
       });
-      return { bar, beat, beatIndex, beatProgress, transport: elapsed, blockStates };
+      return {
+        bar,
+        beat,
+        beatIndex,
+        beatProgress,
+        transport: elapsed,
+        pickup: {
+          beats: pickupBeats,
+          phaseOffset: pickupPhaseOffset(program),
+          active: Boolean(inPickup),
+        },
+        blockStates,
+      };
     }
 
       return {
@@ -5824,6 +6926,7 @@ if (isPitchedSynthVoice(ctx.voice)) {
         toggleBlockMutedByLine,
         getMuteStates,
         onMissingSample,
+        onEvaluateResetApplied,
         now,
         isRunning: () => running,
       };

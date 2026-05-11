@@ -4,8 +4,8 @@ tuning kirnberger-3
 //tuning type matters here, even though it's a gliss it's still weighted around notes
 
 // this is a 100:99:98 polyrhythm, with shared descending notes between each member
-// this is done through the `>>` command
-// shared >> leader: this top anchor wins for descending ramps
+// this is done through the `>>` command or the `>` command; also works in the up direction `<`
+// shared >> leader: this top anchor wins for descending ramps; the top block is the leader, it carries the ramp information
 
 // `>>6* * *`: shared descent (`>>`) from somewhere (`*`) in the sixth octave designation, taking three notes per bar/phrase.
 pluck >>6* * *
@@ -22,5 +22,12 @@ glide 60
 
 pluck >>* * *
 speed .98
+decay 0
+glide 60
+
+// this block is given its own independent channel via the `>` command
+// `>>` = shared pool of notes; `>` = independent note channel per block
+pluck >4* * *
+speed .51
 decay 0
 glide 60

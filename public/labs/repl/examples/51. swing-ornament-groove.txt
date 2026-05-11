@@ -1,0 +1,21 @@
+// swing ornament groove
+// swing is explicit groove timing: it bends eligible equal subdivisions.
+// Ornament micro-events also inherit the groove when they make even pairs.
+
+tempo 92
+meter 4/4
+swing .5 1/8
+
+piano (C5 D5) (E5 F5) | (G5 A5) (B5 C6) | C6 B5 A5 G5
+ornament (. tr) (. +) | (. ~) (. -) | app . acc .
+ornament-speed . .82 . .74 | . .60 . .78 | .68 . .90 .
+ornament-style bach
+ornament-human .22
+human .14
+force mp
+decay 2.7
+pan center
+tone bright
+body wood
+space .22
+gain .36

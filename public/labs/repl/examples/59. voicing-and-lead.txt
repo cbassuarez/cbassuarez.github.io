@@ -1,0 +1,23 @@
+// voicing + lead
+// chord identity is separate from vertical spacing and horizontal behavior.
+// chord-open is continuous spread; lead tells the engine how to connect cells.
+
+tempo 72
+meter 4/4
+key A minor
+
+chord i9 iv9 V13b9 iMaj9 | bVImaj7 iiø7 V7b9 i
+voicing close open rootless close | spread rootless rootless close
+lead smooth contrary tense settle | smooth smooth resolve settle
+chord-open .18 .52 .78 .25 | .70 .58 .75 .22
+harmonic-risk .20 .35 .80 .30 | .55 .65 .85 .20
+
+piano chord chord chord chord | chord chord chord chord
+roll . . u . | . . d .
+force mp
+decay 3
+pan center
+tone dark
+body wood
+space .26
+gain .36

@@ -1,0 +1,20 @@
+// rameau / inegales / open ornaments
+// inegales bends equal subdivisions; ornament-open broadens selected agréments.
+
+tempo 68
+meter 4/4
+inegales french
+
+piano (C5 D5) (E5 F5) G5 F5 | (E5 D5) (C5 B4) A4 G4
+ornament (tr .) (+ .) ~ . | (app .) (- .) /~ tr
+ornament-open (.55 .) (.22 .) .48 . | (.70 .) (.18 .) .52 .34
+ornament-style rameau
+human .14
+orn-human .28
+force mp
+decay 2.7
+pan center
+tone bright
+body wood
+space .22
+gain .35

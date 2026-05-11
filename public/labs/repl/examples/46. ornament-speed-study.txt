@@ -1,0 +1,20 @@
+// ornament speed study
+// ornament-speed is the one knob: 0 is slow/broad, 1 is fast/tight.
+// dot means use the ornament-style default.
+
+tempo 72
+meter 4/4
+tuning kirnberger-3
+
+piano C5 D5 E5 F5 | G5 F5 E5 D5
+ornament . tr + ~ | app acc - sh
+ornament-speed . .78 .92 .42 | .28 .95 .84 .70
+ornament-style bach
+ornament-human .18
+force mp
+decay 3
+pan center
+tone bright
+body wood
+space .24
+gain .38

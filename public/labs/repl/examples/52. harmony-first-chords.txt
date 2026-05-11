@@ -1,0 +1,23 @@
+// harmony first chords
+// key + chord create a symbolic harmony source track.
+// the piano row renders the active harmony with the word chord.
+
+tempo 76
+meter 4/4
+key C major
+
+chord Cmaj7 Dm9 G13sus Cmaj9
+voicing close open rootless close
+lead smooth smooth resolve settle
+chord-open .20 .45 .70 .25
+harmonic-risk .10 .25 .60 .10
+
+piano chord chord chord chord
+roll . . u .
+force mp
+decay 3
+pan center
+tone bright
+body wood
+space .24
+gain .38

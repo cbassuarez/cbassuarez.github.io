@@ -21,7 +21,7 @@
 
   const CM = root.CMRepl;
   const {
-    EditorState, Compartment, Prec, StateEffect,
+    EditorState, Compartment, Prec, StateEffect, StateField,
     EditorView, keymap, drawSelection, highlightActiveLine, placeholder, Decoration, ViewPlugin, RangeSetBuilder, WidgetType,
     defaultKeymap, history, historyKeymap, indentLess,
     HighlightStyle, syntaxHighlighting, StreamLanguage, bracketMatching,
@@ -38,13 +38,18 @@
   // ============================================================================
 
     const VOICE_WORDS = ['string', 'sample', 'piano', 'violin', 'cello', 'marimba', 'vibraphone', 'vibes', 'voice', 'vox', 'input', 'sine', 'osc', 'noise', 'pluck', 'pulse', 'drone', 'drum', 'video'];
-  const DIRECTIVES = ['tempo', 'meter', 'tuning', 'eval', 'evaluate'];
+  const DIRECTIVES = ['tempo', 'meter', 'pickup', 'anacrusis', 'inegales', 'swing', 'tuning', 'eval', 'evaluate'];
+  const HARMONY_HEADS = ['key', 'prog', 'chord', 'voicing', 'lead', 'register', 'chord-open', 'harmonic-risk', 'sub', 'topline', 'bassline'];
+  const HARMONY_RENDER_VALUES = ['chord', 'root', 'third', 'fifth', 'seventh', 'ninth', 'eleventh', 'thirteenth', 'bass', 'top', 'guide', 'shell', 'color', 'upper', 'lower', 'stab', 'arp', '1', '3', '5', '7', '9', '11', '13'];
+  const HARMONY_CHORD_VALUES = ['I', 'vi', 'ii', 'V', 'Imaj7', 'vi9', 'ii11', 'V13b9', 'Cmaj7', 'Dm9', 'G13sus', 'Cmaj9', 'H*', 'T*', 'PD*', 'D*', 'M*', 'X*', '@mod:Eb-major', '@pivot:vi=ii/G-major'];
+  const HARMONY_VOICING_VALUES = ['.', 'close', 'open', 'drop2', 'drop3', 'spread', 'rootless', 'shell', 'quartal', 'cluster', 'chorale'];
+  const HARMONY_LEAD_VALUES = ['.', 'smooth', 'nearest', 'contrary', 'oblique', 'parallel', 'locked', 'resolve', 'settle', 'tense', 'pivot'];
   const PARAMS = [
     'force', 'decay', 'crush', 'resolution', 'pan', 'gain',
-    'tone', 'harm', 'octave', 'rate', 'start', 'speed', 'glide', 'kit', 'pick', 'variance',
+    'tone', 'harm', 'octave', 'ornament', 'ornament-style', 'ornament-speed', 'orn-speed', 'ornament-human', 'orn-human', 'rate', 'start', 'speed', 'glide', 'kit', 'pick', 'variance',
     'pedal', 'una', 'lid', 'sympathetic', 'release', 'human', 'stretch', 'layer', 'poly',
     'articulation', 'sul', 'vibrato', 'vibratorate', 'vibratoonset', 'tremolo', 'tremolorate', 'bow', 'wood',
-    'mallet', 'deadstroke', 'roll', 'spread',
+    'mallet', 'deadstroke', 'ripple', 'rip', 'ripple-time', 'riptime', 'roll', 'rolltime', 'arp', 'arprate', 'spread',
     'motor', 'depth', 'damp', 'bowpressure',
     'vowel', 'syllable', 'carrier', 'robot', 'breath', 'mouth', 'formant', 'roughness', 'vocoder', 'ensemble',
     'monitor', 'listen',
@@ -82,6 +87,10 @@
   const GAIN_VALUES = ['quiet', 'half', 'full', 'loud'];
   const TONE_VALUES = ['dark', 'bright'];
   const HARM_VALUES = ['simple', 'pair', 'triad', 'rich'];
+  const ORNAMENT_VALUES = ['.', 'tr', '+', '-', '~', '/~', 'mord', 'lmord', 'turn', 'app', 'acc', 'gr', 'sh', 'slide'];
+  const ORNAMENT_STYLE_VALUES = ['default', 'bach', 'rameau', 'couperin', 'french'];
+  const CHORD_RIPPLE_VALUES = ['.', 'u', 'd', 'o', 'i', 'b', 't', 'r', 'up', 'down', 'out', 'in', 'bass-first', 'top-first', 'random'];
+  const CHORD_ARP_VALUES = ['.', 'u', 'd', 'ud', 'du', 'o', 'i', 'r', 'br', 'up', 'down', 'updown', 'downup', 'bass-random'];
   const EFFECT_MODES = [
     'wood', 'metal', 'glass', 'room', 'tub', 'paper', 'stone',
     'memory', 'weather', 'rupture', 'feedback', 'glue', 'clamp',
@@ -103,7 +112,7 @@
   const LIVE_FEATURE_SET = new Set(LIVE_FEATURES.map((f) => String(f).toLowerCase()));
   const LIVE_REF_RE = /^(mic|interface|tab|input|camera|screen|file|video)\.([a-zA-Z][a-zA-Z0-9_-]*)$/i;
 
-  const COMMON_OPERATORS = ['*', '*!', '*~', '*&8', '*&16', '*&30', '~', '_'];
+  const COMMON_OPERATORS = ['*', '*!', '*~', '*&8', '*&16', '*&30', '~', '_', '?', '(*)?'];
 
 
   // --------------------------------------------------------------------------
@@ -159,6 +168,62 @@
     return String(text || '').replace(/\t/g, '  ').length;
   }
 
+  function scoreGridParsePositiveNumber(raw) {
+    const source = String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
+    if (!source) return NaN;
+    const m = source.match(/^(\d+(?:\.\d+)?|\.\d+)(?:\/(\d+(?:\.\d+)?|\.\d+))?$/);
+    if (!m) return NaN;
+    const numerator = Number(m[1]);
+    const denominator = m[2] == null ? 1 : Number(m[2]);
+    if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return NaN;
+    const value = numerator / denominator;
+    return Number.isFinite(value) && value > 0 ? value : NaN;
+  }
+
+
+  function scoreGridMeterDenominator(doc) {
+    if (!doc) return 4;
+    const lineLimit = Math.min(doc.lines || 0, 80);
+    for (let lineNumber = 1; lineNumber <= lineLimit; lineNumber += 1) {
+      const raw = String(doc.line(lineNumber).text || '').trim();
+      const m = raw.match(/^meter\s+\d+\/(\d+)\b/i);
+      if (m) {
+        const den = Number(m[1]);
+        if (Number.isFinite(den) && den > 0) return den;
+      }
+    }
+    return 4;
+  }
+
+  function scoreGridDurationToBeats(raw, meterDenominator) {
+    const source = String(raw || '').trim().replace(/\s+/g, '');
+    if (!source) return NaN;
+    const den = Number.isFinite(Number(meterDenominator)) && Number(meterDenominator) > 0 ? Number(meterDenominator) : 4;
+    let total = 0;
+    const parts = source.split('+');
+    if (!parts.length) return NaN;
+    for (const part of parts) {
+      if (!part) return NaN;
+      const frac = part.match(/^(\d+(?:\.\d+)?|\.\d+)\/(\d+(?:\.\d+)?|\.\d+)$/);
+      if (frac) {
+        const n = Number(frac[1]);
+        const d = Number(frac[2]);
+        if (!Number.isFinite(n) || !Number.isFinite(d) || d <= 0) return NaN;
+        total += n * (den / d);
+        continue;
+      }
+      const bare = part.match(/^(\d+(?:\.\d+)?|\.\d+)$/);
+      if (bare) {
+        const n = Number(part);
+        if (!Number.isFinite(n) || n <= 0) return NaN;
+        total += n;
+        continue;
+      }
+      return NaN;
+    }
+    return Number.isFinite(total) && total > 0 ? total : NaN;
+  }
+
   function scoreGridTokenizeRow(line) {
     const text = String(line.text || '');
     const headInfo = scoreGridLineHead(text);
@@ -185,13 +250,19 @@
         cellIndex = 0;
         continue;
       }
+      if (text[i] === '?') {
+        tokens.push({ type: 'pickupGap', text: '?', from, to: from + 1, bar: barIndex, cell: cellIndex, trailingSpaces: 0 });
+        i += 1;
+        cellIndex += 1;
+        continue;
+      }
 
       let depth = 0;
       while (i < text.length) {
         const ch = text[i];
         if (ch === '(') depth += 1;
         else if (ch === ')' && depth > 0) depth -= 1;
-        if (depth === 0 && (ch === '|' || /\s/.test(ch))) break;
+        if (depth === 0 && (ch === '|' || ch === '?' || /\s/.test(ch))) break;
         i += 1;
       }
 
@@ -218,7 +289,7 @@
       headTo: headInfo.headTo,
       headTrailingSpaces: headInfo.headTrailingSpaces,
       tokens,
-      cells: tokens.filter((token) => token.type === 'cell'),
+      cells: tokens.filter((token) => token.type === 'cell' || token.type === 'pickupGap'),
       bars: tokens.filter((token) => token.type === 'bar'),
     };
   }
@@ -322,6 +393,30 @@
     return SCORE_GRID_DEFAULT_BEATS;
   }
 
+  function scoreGridPickupBeats(doc) {
+    if (!doc) return 0;
+    const lineLimit = Math.min(doc.lines || 0, 80);
+    for (let lineNumber = 1; lineNumber <= lineLimit; lineNumber += 1) {
+      const line = doc.line(lineNumber);
+      const row = scoreGridTokenizeRow(line);
+      const head = row ? String(row.head || '').toLowerCase() : '';
+      if (head !== 'pickup' && head !== 'anacrusis') continue;
+      const first = row.cells && row.cells.length ? String(row.cells[0].text || '') : '';
+      const beats = scoreGridDurationToBeats(first, scoreGridMeterDenominator(doc));
+      if (Number.isFinite(beats) && beats > 0) return beats;
+    }
+    return 0;
+  }
+
+  function scoreGridFirstBarWidthCh(doc) {
+    const barWidth = scoreGridBarWidthCh(doc);
+    const pickup = scoreGridPickupBeats(doc);
+    if (!Number.isFinite(pickup) || pickup <= 0) return barWidth;
+    const pickupWidth = pickup * SCORE_GRID_BEAT_CH;
+    if (!Number.isFinite(pickupWidth) || pickupWidth <= 0) return barWidth;
+    return Math.max(1, Math.min(barWidth, pickupWidth));
+  }
+
   function scoreGridBarWidthCh(doc) {
     return scoreGridBeatsPerBar(doc) * SCORE_GRID_BEAT_CH;
   }
@@ -386,20 +481,31 @@
     return maxBar;
   }
 
-  function scoreGridBarStartCh(headWidth, barWidth, barIndex) {
-    return headWidth + Math.max(0, Number(barIndex) || 0) * (barWidth + 1 + SCORE_GRID_BAR_GAP_CH);
+  function scoreGridBarStartCh(headWidth, barWidth, firstBarWidth, barIndex) {
+    const bar = Math.max(0, Number(barIndex) || 0);
+    const pickupWidth = Number.isFinite(Number(firstBarWidth)) && Number(firstBarWidth) > 0 ? Number(firstBarWidth) : barWidth;
+    if (bar === 0) return headWidth;
+    return headWidth + pickupWidth + 1 + SCORE_GRID_BAR_GAP_CH + (bar - 1) * (barWidth + 1 + SCORE_GRID_BAR_GAP_CH);
   }
 
-  function scoreGridCellTargetCh(headWidth, barWidth, rowCellCounts, token) {
+  function scoreGridBarWidthForIndex(barWidth, firstBarWidth, barIndex) {
+    const bar = Math.max(0, Number(barIndex) || 0);
+    if (bar !== 0) return barWidth;
+    return Number.isFinite(Number(firstBarWidth)) && Number(firstBarWidth) > 0 ? Number(firstBarWidth) : barWidth;
+  }
+
+  function scoreGridCellTargetCh(headWidth, barWidth, firstBarWidth, rowCellCounts, token) {
     const bar = Math.max(0, Number(token && token.bar) || 0);
     const cell = Math.max(0, Number(token && token.cell) || 0);
     const cellCount = Math.max(1, Number(rowCellCounts.get(bar)) || 1);
-    return scoreGridBarStartCh(headWidth, barWidth, bar) + ((barWidth / cellCount) * cell);
+    const width = scoreGridBarWidthForIndex(barWidth, firstBarWidth, bar);
+    return scoreGridBarStartCh(headWidth, barWidth, firstBarWidth, bar) + ((width / cellCount) * cell);
   }
 
-  function scoreGridBarTargetCh(headWidth, barWidth, token) {
+  function scoreGridBarTargetCh(headWidth, barWidth, firstBarWidth, token) {
     const bar = Math.max(0, Number(token && token.bar) || 0);
-    return scoreGridBarStartCh(headWidth, barWidth, bar) + barWidth;
+    const width = scoreGridBarWidthForIndex(barWidth, firstBarWidth, bar);
+    return scoreGridBarStartCh(headWidth, barWidth, firstBarWidth, bar) + width;
   }
 
   function scoreGridSecondaryBeatIndex(beats) {
@@ -417,9 +523,10 @@
     return 'cs-beat-weak';
   }
 
-  function scoreGridCellBeatClass(row, cell, beats) {
+  function scoreGridCellBeatClass(row, cell, beats, pickupBeats) {
     if (!row || !cell) return '';
     const text = String(cell.text || '').trim();
+    if (text === '?') return 'cs-beat-pickup-gap';
     if (isRestLikeLeafToken(text)) return 'cs-beat-rest';
 
     const rowCellCounts = scoreGridCellsByBar(row);
@@ -427,18 +534,21 @@
     const cellIndex = Math.max(0, Number(cell.cell) || 0);
     const count = Math.max(1, Number(rowCellCounts.get(bar)) || 1);
     const safeBeats = Math.max(1, Number(beats) || SCORE_GRID_DEFAULT_BEATS);
+    const pickup = Math.max(0, Number(pickupBeats) || 0);
+    const segmentBeats = bar === 0 && pickup > 0 ? Math.min(safeBeats, pickup) : safeBeats;
+    const segmentOffset = bar === 0 && pickup > 0 ? ((safeBeats - (pickup % safeBeats)) % safeBeats) : 0;
 
-    // Meter wins: if a row has more top-level cells than the meter has beats,
-    // those cells are denser subdivisions inside the same bar span. They should
-    // read quieter than beat-level cells and must not imply a wider bar.
-    if (count > safeBeats) {
+    // Meter wins: if a row has more top-level cells than this segment has beats,
+    // those cells are denser subdivisions inside the same metrical span. They
+    // should read quieter than beat-level cells and must not imply a wider bar.
+    if (count > segmentBeats) {
       if (cellIndex === 0) return 'cs-beat-subdivision cs-beat-subdivision-strong';
-      const projectedBeat = Math.floor((cellIndex / count) * safeBeats);
+      const projectedBeat = Math.floor(segmentOffset + (cellIndex / count) * segmentBeats) % safeBeats;
       if (projectedBeat === scoreGridSecondaryBeatIndex(safeBeats)) return 'cs-beat-subdivision cs-beat-subdivision-secondary';
       return 'cs-beat-subdivision';
     }
 
-    const projectedBeat = Math.floor((cellIndex / count) * safeBeats);
+    const projectedBeat = Math.floor(segmentOffset + (cellIndex / count) * segmentBeats) % safeBeats;
     return scoreGridBaseBeatClass(safeBeats, projectedBeat);
   }
 
@@ -454,7 +564,7 @@
     return text.length >= 2 && text[0] === '(' && text[text.length - 1] === ')';
   }
 
-  function scoreGridBeatClassesForRange(row, range, beats) {
+  function scoreGridBeatClassesForRange(row, range, beats, pickupBeats) {
     if (!row || !range || range.comment || range.isHead) return '';
     if (!scoreGridIsVoiceRow(row) && !scoreGridIsAttachableSequenceRow(row)) return '';
 
@@ -463,9 +573,10 @@
 
     const raw = String(range.text || '').trim();
     if (!raw || raw === '|') return '';
+    if (raw === '?') return 'cs-beat-pickup-gap';
     if (isRestLikeLeafToken(raw)) return 'cs-beat-rest';
 
-    const base = scoreGridCellBeatClass(row, cell, beats);
+    const base = scoreGridCellBeatClass(row, cell, beats, pickupBeats);
     if (!scoreGridCellLooksGrouped(cell)) return base;
 
     if (raw === '(' || raw === ')') return `${base} cs-beat-group-shell`;
@@ -486,6 +597,7 @@
 
     const ops = [];
     const barWidth = scoreGridBarWidthCh(doc);
+    const firstBarWidth = scoreGridFirstBarWidthCh(doc);
     const maxBar = scoreGridMaxBarIndex(parsed);
     const localHeadWidth = Math.max(
       ...parsed.map((row) => scoreGridRowPrefixCh(row) + scoreGridVisualLength(row.head))
@@ -498,11 +610,11 @@
       const tokens = row.tokens.slice().sort((a, b) => a.from - b.from);
       let extraCh = 0;
 
-      const firstToken = tokens.find((token) => token.type === 'cell' || token.type === 'bar');
+      const firstToken = tokens.find((token) => token.type === 'cell' || token.type === 'pickupGap' || token.type === 'bar');
       const firstTarget = firstToken
         ? (firstToken.type === 'cell'
-          ? scoreGridCellTargetCh(headWidth, barWidth, rowCellCounts, firstToken)
-          : scoreGridBarTargetCh(headWidth, barWidth, firstToken))
+          ? scoreGridCellTargetCh(headWidth, barWidth, firstBarWidth, rowCellCounts, firstToken)
+          : scoreGridBarTargetCh(headWidth, barWidth, firstBarWidth, firstToken))
         : headWidth;
       const afterHeadRawCh = rowPrefix + row.headTo + row.headTrailingSpaces;
       const headGap = firstTarget - afterHeadRawCh;
@@ -513,10 +625,10 @@
 
       for (const token of tokens) {
         let targetLeft = null;
-        if (token.type === 'cell') {
-          targetLeft = scoreGridCellTargetCh(headWidth, barWidth, rowCellCounts, token);
+        if (token.type === 'cell' || token.type === 'pickupGap') {
+          targetLeft = scoreGridCellTargetCh(headWidth, barWidth, firstBarWidth, rowCellCounts, token);
         } else if (token.type === 'bar') {
-          targetLeft = scoreGridBarTargetCh(headWidth, barWidth, token);
+          targetLeft = scoreGridBarTargetCh(headWidth, barWidth, firstBarWidth, token);
         }
         if (targetLeft == null || !Number.isFinite(targetLeft)) continue;
 
@@ -535,7 +647,7 @@
         const lastBar = Math.max(0, Number(lastToken.bar) || 0);
         if (lastBar < maxBar) {
           const rowEndActual = rowPrefix + lastToken.to + (lastToken.trailingSpaces || 0) + extraCh;
-          const rowEndTarget = scoreGridBarTargetCh(headWidth, barWidth, { bar: lastBar });
+          const rowEndTarget = scoreGridBarTargetCh(headWidth, barWidth, firstBarWidth, { bar: lastBar });
           const tailGap = rowEndTarget - rowEndActual;
           if (tailGap > 0.05) {
             scoreGridQueueSpacer(ops, row.line.from + lastToken.to, tailGap, 1);
@@ -614,45 +726,39 @@
     }
   }
 
-  function scoreGridLineTextLeftPx(view, scrollerRect) {
-    const scroller = view && view.scrollDOM ? view.scrollDOM : null;
-    const owner = view && view.dom && view.dom.ownerDocument ? view.dom.ownerDocument : document;
-    const firstLineEl = view && view.dom ? view.dom.querySelector('.cm-line') : null;
-
-    if (firstLineEl && scrollerRect) {
-      try {
+  function scoreGridLineTextLeftPx(view) {
+    if (!view || !view.contentDOM) return 0;
+    const owner = view.dom && view.dom.ownerDocument ? view.dom.ownerDocument : document;
+    const firstLineEl = view.dom ? view.dom.querySelector('.cm-line') : null;
+    try {
+      const contentRect = view.contentDOM.getBoundingClientRect();
+      if (firstLineEl) {
         const lineRect = firstLineEl.getBoundingClientRect();
         const lineStyle = owner.defaultView.getComputedStyle(firstLineEl);
         const paddingLeft = Number.parseFloat(lineStyle.paddingLeft) || 0;
-        return (lineRect.left - scrollerRect.left) + paddingLeft;
-      } catch (_) {}
-    }
-
-    try {
-      const contentRect = view.contentDOM.getBoundingClientRect();
-      return contentRect.left - scrollerRect.left;
-    } catch (_) {
-      return scroller && Number.isFinite(scroller.scrollLeft) ? -scroller.scrollLeft : 0;
-    }
+        return Math.max(0, (lineRect.left - contentRect.left) + paddingLeft);
+      }
+    } catch (_) {}
+    return 0;
   }
 
   function scoreGridOriginTopPx(view, firstOriginLine) {
-    if (!view || !view.scrollDOM || !firstOriginLine) return 0;
+    if (!view || !firstOriginLine) return 0;
 
     try {
       if (typeof view.lineBlockAt === 'function') {
         const block = view.lineBlockAt(firstOriginLine.from);
         if (block && Number.isFinite(block.top)) {
-          return block.top - view.scrollDOM.scrollTop;
+          return Math.max(0, Number(block.top));
         }
       }
     } catch (_) {}
 
     try {
       const coords = typeof view.coordsAtPos === 'function' ? view.coordsAtPos(firstOriginLine.from) : null;
-      const scrollerRect = view.scrollDOM.getBoundingClientRect();
-      if (coords && scrollerRect && Number.isFinite(coords.top)) {
-        return coords.top - scrollerRect.top;
+      const contentRect = view.contentDOM.getBoundingClientRect();
+      if (coords && contentRect && Number.isFinite(coords.top)) {
+        return Math.max(0, coords.top - contentRect.top);
       }
     } catch (_) {}
 
@@ -675,30 +781,30 @@
       view.dom.style.removeProperty('--cs-score-origin-top');
       view.dom.style.removeProperty('--cs-score-beat-width');
       view.dom.style.removeProperty('--cs-score-bar-width');
+      view.dom.style.removeProperty('--cs-score-pickup-width');
+      view.dom.style.removeProperty('--cs-score-downbeat-x');
+      view.dom.classList.remove('cs-score-has-pickup');
       return;
     }
 
-    const scroller = view.scrollDOM;
     const chPx = scoreGridMeasureChPx(view);
-    let scrollerRect = null;
-
-    try {
-      scrollerRect = scroller.getBoundingClientRect();
-    } catch (_) {
-      scrollerRect = null;
-    }
-
-    const textLeft = scoreGridLineTextLeftPx(view, scrollerRect);
+    const textLeft = scoreGridLineTextLeftPx(view);
     const originPx = textLeft + originCh * chPx;
     const originTopPx = scoreGridOriginTopPx(view, firstOriginLine);
     const beatWidthCh = Math.max(1, Number(SCORE_GRID_BEAT_CH) || 6);
     const barWidthCh = Math.max(beatWidthCh, scoreGridBarWidthCh(view.state.doc));
+    const firstBarWidthCh = Math.max(1, scoreGridFirstBarWidthCh(view.state.doc));
+    const hasPickup = scoreGridPickupBeats(view.state.doc) > 0 && firstBarWidthCh < barWidthCh - 0.01;
+    view.dom.classList.toggle('cs-score-has-pickup', hasPickup);
+
     view.dom.style.setProperty('--cs-score-origin-x', `${originPx.toFixed(2)}px`);
     view.dom.style.setProperty('--cs-score-origin-label-width', `${Math.max(0, originPx).toFixed(2)}px`);
     view.dom.style.setProperty('--cs-score-origin-ch', `${originCh.toFixed(2)}ch`);
     view.dom.style.setProperty('--cs-score-origin-top', `${originTopPx.toFixed(2)}px`);
     view.dom.style.setProperty('--cs-score-beat-width', `${beatWidthCh.toFixed(2)}ch`);
     view.dom.style.setProperty('--cs-score-bar-width', `${barWidthCh.toFixed(2)}ch`);
+    view.dom.style.setProperty('--cs-score-pickup-width', `${firstBarWidthCh.toFixed(2)}ch`);
+    view.dom.style.setProperty('--cs-score-downbeat-x', `${(originPx + firstBarWidthCh * chPx).toFixed(2)}px`);
   }
 
   const scoreOriginRulerPlugin = ViewPlugin.fromClass(class {
@@ -706,6 +812,7 @@
       this.frame = null;
       this.view = view;
       this.ruleEl = null;
+      this.downbeatEl = null;
       this.onScroll = () => this.schedule();
       this.ensureRuleLayer();
       if (view.scrollDOM) view.scrollDOM.addEventListener('scroll', this.onScroll, { passive: true });
@@ -714,24 +821,39 @@
 
     ensureRuleLayer() {
       const view = this.view;
-      const scroller = view && view.scrollDOM;
-      if (!scroller) return;
-      if (this.ruleEl && this.ruleEl.parentNode === scroller) return;
+      const host = view && view.scrollDOM ? view.scrollDOM : null;
+      if (!host) return;
+      if (this.ruleEl && this.ruleEl.parentNode === host && this.downbeatEl && this.downbeatEl.parentNode === host) return;
       this.removeRuleLayer();
 
       const owner = view.dom && view.dom.ownerDocument ? view.dom.ownerDocument : document;
       const rule = owner.createElement('div');
       rule.className = 'cm-score-origin-rule';
       rule.setAttribute('aria-hidden', 'true');
-      scroller.appendChild(rule);
+      // Never append non-CodeMirror nodes to contentDOM. CodeMirror treats
+      // contentDOM children as editable line/content blocks; adding ruler divs
+      // there makes the editor synthesize phantom/blank rows. Put the ruler
+      // layer in scrollDOM instead: it still scrolls with the text horizontally,
+      // but it is outside the editable document tree.
+      host.appendChild(rule);
       this.ruleEl = rule;
+
+      const downbeat = owner.createElement('div');
+      downbeat.className = 'cm-score-pickup-downbeat-rule';
+      downbeat.setAttribute('aria-hidden', 'true');
+      host.appendChild(downbeat);
+      this.downbeatEl = downbeat;
     }
 
     removeRuleLayer() {
       if (this.ruleEl && this.ruleEl.parentNode) {
         this.ruleEl.parentNode.removeChild(this.ruleEl);
       }
+      if (this.downbeatEl && this.downbeatEl.parentNode) {
+        this.downbeatEl.parentNode.removeChild(this.downbeatEl);
+      }
       this.ruleEl = null;
+      this.downbeatEl = null;
     }
 
     schedule() {
@@ -766,6 +888,7 @@
 
   const HEAD_VOICE = new Set(VOICE_WORDS);
   const HEAD_DIRECTIVE = new Set(DIRECTIVES);
+  const HEAD_HARMONY = new Set(HARMONY_HEADS);
   const HEAD_PARAM = new Set(PARAMS);
   const HEAD_EFFECT = new Set(EFFECTS);
   const HEAD_COUPLING = new Set(COUPLING);
@@ -773,7 +896,7 @@
 
   const NAMED_VALUE_SET = new Set([
     ...DYNAMICS, ...MALLET_VALUES, ...PAN_VALUES, ...GAIN_VALUES,
-    ...TONE_VALUES, ...HARM_VALUES, ...VIBES_ARTICULATION_VALUES, ...VOCAL_VALUES, ...EFFECT_MODES,
+    ...TONE_VALUES, ...HARM_VALUES, ...ORNAMENT_VALUES, ...ORNAMENT_STYLE_VALUES, ...CHORD_RIPPLE_VALUES, ...CHORD_ARP_VALUES, ...HARMONY_RENDER_VALUES, ...HARMONY_CHORD_VALUES, ...HARMONY_VOICING_VALUES, ...HARMONY_LEAD_VALUES, ...VIBES_ARTICULATION_VALUES, ...VOCAL_VALUES, ...EFFECT_MODES,
   ]);
 
   // Param → legal named values for completion context.
@@ -786,6 +909,12 @@
     gain: GAIN_VALUES,
     tone: TONE_VALUES,
     harm: HARM_VALUES,
+    ornament: ORNAMENT_VALUES,
+    'ornament-style': ORNAMENT_STYLE_VALUES,
+    'ornament-speed': ['.', '*', '*!', '*~', '*&8', '~', '_', '0', '0.25', '0.5', '0.75', '1'],
+    'orn-speed': ['.', '*', '*!', '*~', '*&8', '~', '_', '0', '0.25', '0.5', '0.75', '1'],
+    'ornament-human': ['.', '0', '0.18', '0.35', '0.7'],
+    'orn-human': ['.', '0', '0.18', '0.35', '0.7'],
     pedal: ['off', 'on'],
     una: ['off', 'on'],
     lid: ['off', 'on'],
@@ -798,7 +927,14 @@
     sul: ['sulC', 'sulG', 'sulD', 'sulA', 'sulE', 'auto'],
     mallet: MALLET_VALUES,
     deadstroke: ['off', 'on'],
-    roll: ['off', 'on'],
+    ripple: CHORD_RIPPLE_VALUES,
+    rip: CHORD_RIPPLE_VALUES,
+    'ripple-time': ['0.025', '0.045', '0.08'],
+    riptime: ['0.025', '0.045', '0.08'],
+    roll: CHORD_RIPPLE_VALUES,
+    rolltime: ['0.025', '0.045', '0.08'],
+    arp: CHORD_ARP_VALUES,
+    arprate: ['1/16', '1/8', '1/4'],
     motor: ['off', 'on'],
     depth: ['off', 'on'],
     damp: ['off', 'on'],
@@ -836,6 +972,12 @@
     gain: ['0.35', '0.7', '1'],
     tone: ['0.2', '0.85'],
     harm: ['0', '1', '2', '3', '4'],
+    ornament: ['tr', '+', '-', '~'],
+    'ornament-style': ['bach', 'rameau', 'couperin'],
+    'ornament-speed': ['.', '*', '*!', '*~', '*&8', '0.25', '0.5', '0.72', '0.9'],
+    'orn-speed': ['.', '*', '*!', '*~', '*&8', '0.25', '0.5', '0.72', '0.9'],
+    'ornament-human': ['.', '0', '0.18', '0.35'],
+    'orn-human': ['.', '0', '0.18', '0.35'],
     octave: ['-1', '0', '1'],
     rate: ['0.5', '1', '2'],
     start: ['0', '0.25', '0.75'],
@@ -849,7 +991,14 @@
     stretch: ['0', '0.4', '0.8'],
     poly: ['16', '32', '64'],
     deadstroke: ['0', '0.25', '0.8'],
-    roll: ['0', '0.35', '0.75'],
+    ripple: ['u', 'd', 'o', 'i'],
+    rip: ['u', 'd', 'o', 'i'],
+    'ripple-time': ['0.025', '0.045', '0.08'],
+    riptime: ['0.025', '0.045', '0.08'],
+    roll: ['u', 'd', 'o', 'i'],
+    rolltime: ['0.025', '0.045', '0.08'],
+    arp: ['u', 'd', 'ud', 'br'],
+    arprate: ['1/16', '1/8', '1/4'],
     motor: ['0', '0.35', '0.7'],
     depth: ['0', '0.35', '0.8'],
     damp: ['0', '0.35', '0.85'],
@@ -889,6 +1038,12 @@
     gain: '0..1.5',
     tone: '0..1',
     harm: '0..4 or simple/pair/triad/rich',
+    ornament: '., tr, +, -, ~, /~, app, acc, gr, sh',
+    'ornament-style': 'default | bach | rameau | couperin | french',
+    'ornament-speed': '. / 0..1 / *, *!, *~, *&N timing: 0 slow/broad, 1 fast/tight',
+    'orn-speed': 'alias for ornament-speed',
+    'ornament-human': '. or 0..1 ornament-only human variation',
+    'orn-human': 'alias for ornament-human',
     octave: '-2..2',
     rate: '0.25..4',
     start: '>= 0',
@@ -904,7 +1059,14 @@
     poly: '8..128 (max voices)',
     mallet: 'yarn | cord | rubber',
     deadstroke: 'off/on or 0..1 (bar damping)',
-    roll: 'off/on or 0..1 (roll density)',
+    ripple: '., u, d, o, i, b, t, r one-shot chord ripple',
+    rip: 'alias for ripple',
+    'ripple-time': 'seconds of onset spread',
+    riptime: 'alias for ripple-time',
+    roll: 'legacy alias for ripple',
+    rolltime: 'legacy alias for ripple-time',
+    arp: '., u, d, ud, du, o, i, r, br arpeggiation',
+    arprate: 'fraction like 1/8 or 1/16',
     spread: '0..1 (chord timing spread)',
     motor: 'off/on or 0..1 (vibraphone motor speed)',
     depth: 'off/on or 0..1 (vibraphone motor depth)',
@@ -945,7 +1107,7 @@
   function classifyHead(word) {
     const lower = word.toLowerCase();
     if (HEAD_VOICE.has(lower)) return 'voice';
-    if (HEAD_DIRECTIVE.has(lower)) return 'directive';
+    if (HEAD_DIRECTIVE.has(lower) || HEAD_HARMONY.has(lower)) return 'directive';
     if (HEAD_PARAM.has(lower)) return 'param';
     if (HEAD_EFFECT.has(lower)) return 'effect';
     if (HEAD_COUPLING.has(lower)) return 'coupling';
@@ -1219,7 +1381,7 @@
     const h = String(head || '').toLowerCase();
     if (h === '//' || h === '///' || h === '#') return 'metadata';
     if (h === 'string' || h === 'sample' || h === 'piano' || h === 'violin' || h === 'cello' || h === 'marimba' || h === 'vibraphone' || h === 'vibes' || h === 'voice' || h === 'vox' || h === 'input' || h === 'sine' || h === 'osc' || h === 'noise' || h === 'pluck' || h === 'pulse' || h === 'drone' || h === 'drum') return `voice-${h}`;
-    if (HEAD_DIRECTIVE.has(h)) return 'directive';
+    if (HEAD_DIRECTIVE.has(h) || HEAD_HARMONY.has(h)) return 'directive';
     if (HEAD_PARAM.has(h)) return 'param';
     if (HEAD_EFFECT.has(h)) return 'effect';
     if (h === 'attractor' || h === 'monitor' || h === 'listen') return 'routing';
@@ -1264,6 +1426,7 @@
     if (/^[()]/.test(raw)) return 'cs-token cs-bracket';
     if (/^(?:<<|>>|<|>)(?:[A-G][b#]?-?\d+|[A-G][b#]?\*!?|\*!\d|\*\d|\*!|\*|[0-8]\*)$/.test(raw)) return 'cs-token cs-pitch';
     if (/^[A-G][b#]?%$/.test(raw)) return 'cs-token cs-pitch';
+    if (raw === '?') return 'cs-token cs-pickup-gap';
     if (/^(?:\*|\*!|\*~|\*&\d+!?|\*!\d+|\*\d+|~|_|\||;|\.|-)$/.test(raw)) return 'cs-token cs-operator';
     if (/^-?\d+\/\d+$/.test(raw) || /^-?\d*\.\d+$/.test(raw) || /^-?\d+$/.test(raw) || /^\d+(?:ms|s)$/.test(raw) || /^pi(?:\/\d+)?$/.test(raw)) return 'cs-token cs-number';
     if (/^[A-G][b#]?-?\d+$/.test(raw) || /^[A-G][b#]?\*!?$/.test(raw)) return 'cs-token cs-pitch';
@@ -1283,7 +1446,7 @@
     })();
 
     const codePart = commentAt >= 0 ? lineText.slice(0, commentAt) : lineText;
-    const tokenRe = /[^\s()|;]+|[()|;]/g;
+    const tokenRe = /[^\s()|;?]+|[()|;?]/g;
     let m;
     let first = true;
     while ((m = tokenRe.exec(codePart))) {
@@ -1327,7 +1490,13 @@
   }
 
   function isLeafStructuralToken(value) {
-    return /^(?:\(|\)|\||;)$/.test(String(value || '').trim());
+    // Pickup/anacrusis bookends are structural omitted spans, not playable
+    // leaves. Keep them visible/styled by tokenRanges(), but exclude them from
+    // the source tree used for scheduler → editor highlight lookup. The
+    // scheduler's slotIndex/sourceLeafIndex now count only sounding/rest slots;
+    // if `?` remains in this tree, every highlight after an opening bookend is
+    // shifted by one cell and terminal close bars look late.
+    return /^(?:\(|\)|\||;|\?)$/.test(String(value || '').trim());
   }
 
   function isLeafTokenRange(range) {
@@ -1379,7 +1548,13 @@
   }
 
   function isLeafStructuralToken(value) {
-    return /^(?:\(|\)|\||;)$/.test(String(value || '').trim());
+    // Pickup/anacrusis bookends are structural omitted spans, not playable
+    // leaves. Keep them visible/styled by tokenRanges(), but exclude them from
+    // the source tree used for scheduler → editor highlight lookup. The
+    // scheduler's slotIndex/sourceLeafIndex now count only sounding/rest slots;
+    // if `?` remains in this tree, every highlight after an opening bookend is
+    // shifted by one cell and terminal close bars look late.
+    return /^(?:\(|\)|\||;|\?)$/.test(String(value || '').trim());
   }
 
   function buildLeafSourceTree(lineText) {
@@ -1972,13 +2147,13 @@
       if (!trimmed) return true;
       if (/^\/\//.test(trimmed)) return false;
       const head = trimmed.split(/\s+/, 1)[0].toLowerCase();
-      return head === 'string' || head === 'sample' || head === 'piano' || head === 'violin' || head === 'cello' || head === 'marimba' || head === 'vibraphone' || head === 'vibes' || head === 'voice' || head === 'vox' || head === 'input' || head === 'sine' || head === 'osc' || head === 'noise' || head === 'pluck' || head === 'pulse' || head === 'drone' || head === 'drum' || head === 'tempo' || head === 'meter' || head === 'tuning' || head === 'eval' || head === 'evaluate';
+      return head === 'string' || head === 'sample' || head === 'piano' || head === 'violin' || head === 'cello' || head === 'marimba' || head === 'vibraphone' || head === 'vibes' || head === 'voice' || head === 'vox' || head === 'input' || head === 'sine' || head === 'osc' || head === 'noise' || head === 'pluck' || head === 'pulse' || head === 'drone' || head === 'drum' || head === 'tempo' || head === 'meter' || head === 'pickup' || head === 'anacrusis' || head === 'tuning' || head === 'eval' || head === 'evaluate';
     }
 
     for (let n = selLine; n >= 1; n--) {
       const text = state.doc.line(n).text;
       if (n !== selLine && isBoundary(text)) {
-        if (!text.trim() || /^(tempo|meter|tuning|eval|evaluate)\b/i.test(text.trim())) start = n + 1;
+        if (!text.trim() || /^(tempo|meter|pickup|anacrusis|tuning|eval|evaluate)\b/i.test(text.trim())) start = n + 1;
         else start = n;
         break;
       }
@@ -2002,6 +2177,7 @@
     const builder = new RangeSetBuilder();
     const current = findCurrentBlockLines(view.state);
     const beatCount = scoreGridBeatsPerBar(view.state.doc);
+    const pickupBeats = scoreGridPickupBeats(view.state.doc);
 
     for (let i = 1; i <= view.state.doc.lines; i++) {
       const line = view.state.doc.line(i);
@@ -2052,7 +2228,7 @@
       for (const r of ranges) {
         const cls = r.comment ? 'cs-token cs-comment' : tokenCssClass(r.text, r.isHead);
         const tokenPulse = active && r.isHead ? ' cs-token-active' : '';
-        const beatClass = beatRow ? scoreGridBeatClassesForRange(beatRow, r, beatCount) : '';
+        const beatClass = beatRow ? scoreGridBeatClassesForRange(beatRow, r, beatCount, pickupBeats) : '';
         // Leaf playback is drawn by an absolute overlay plate owned by the
         // ViewPlugin. Do not add layout-affecting classes to source tokens here:
         // the code text must stay perfectly registered while the runtime stamp
@@ -2484,6 +2660,27 @@
     '&.cs-score-origin-grid .cm-scroller::before': {
       backgroundImage:
         'repeating-linear-gradient(90deg, rgba(255, 212, 0, 0.032) 0, rgba(255, 212, 0, 0.032) 1px, transparent 1px, transparent var(--cs-score-bar-width, 24ch)), repeating-linear-gradient(90deg, rgba(0, 87, 255, 0.026) 0, rgba(0, 87, 255, 0.026) 1px, transparent 1px, transparent var(--cs-score-beat-width, 6ch))',
+      backgroundPosition: '0 0, 0 0',
+    },
+    '&.cs-score-origin-grid.cs-score-has-pickup .cm-scroller::before': {
+      backgroundImage:
+        'linear-gradient(90deg, rgba(255, 212, 0, 0.028) 0, rgba(255, 212, 0, 0.028) var(--cs-score-pickup-width, 6ch), transparent var(--cs-score-pickup-width, 6ch), transparent 100%), repeating-linear-gradient(90deg, rgba(255, 212, 0, 0.032) 0, rgba(255, 212, 0, 0.032) 1px, transparent 1px, transparent var(--cs-score-bar-width, 24ch)), repeating-linear-gradient(90deg, rgba(0, 87, 255, 0.024) 0, rgba(0, 87, 255, 0.024) 1px, transparent 1px, transparent var(--cs-score-beat-width, 6ch))',
+      backgroundPosition: '0 0, var(--cs-score-pickup-width, 6ch) 0, var(--cs-score-pickup-width, 6ch) 0',
+    },
+    '.cm-score-pickup-downbeat-rule': {
+      display: 'none',
+      position: 'absolute',
+      top: 'var(--cs-score-origin-top, 0px)',
+      bottom: '0',
+      left: 'var(--cs-score-downbeat-x, 0px)',
+      width: '0',
+      borderLeft: '1px solid rgba(7, 7, 7, 0.28)',
+      boxShadow: '1px 0 0 rgba(255, 212, 0, 0.18), -1px 0 0 rgba(0, 87, 255, 0.08)',
+      pointerEvents: 'none',
+      zIndex: '75',
+    },
+    '&.cs-score-has-pickup .cm-score-pickup-downbeat-rule': {
+      display: 'block',
     },
     '&.cs-score-origin-grid .cm-score-origin-rule': {
       borderLeftColor: 'rgba(7, 7, 7, 0.24)',
@@ -2493,6 +2690,7 @@
       outline: 'none',
     },
     '.cm-scroller': {
+      position: 'relative',
       backgroundColor: '#ffffff',
       // Keep the page/staff wash horizontal only. Vertical beat/grid columns
       // are clipped to the score field via `.cs-score-origin-grid` above.
@@ -2500,6 +2698,7 @@
       backgroundSize: '32px 32px',
     },
     '.cm-content': {
+      position: 'relative',
       caretColor: '#070707',
       padding: '1.05em 1.2em 1.05em 1.05em',
       minHeight: '22em',
@@ -2806,6 +3005,14 @@
       opacity: '0.45',
       filter: 'saturate(0.55)',
     },
+    '.cs-token.cs-pickup-gap, .cs-token.cs-beat-pickup-gap': {
+      opacity: '0.52',
+      color: '#6c6255',
+      backgroundColor: 'rgba(7, 7, 7, 0.035)',
+      outline: '1px dashed rgba(7, 7, 7, 0.16)',
+      boxShadow: 'inset 0 -0.16em 0 rgba(255, 212, 0, 0.10)',
+      filter: 'saturate(0.72)',
+    },
     '.cs-token.cs-beat-group-shell': {
       backgroundColor: 'rgba(7, 7, 7, 0.035)',
     },
@@ -2928,6 +3135,29 @@
     '.cs-invalid': {
       color: '#d7263d',
       textDecoration: 'underline wavy #d7263d',
+      fontWeight: '900',
+    },
+    '.cm-line.cm-repl-diagnostic-line-preview': {
+      background: 'linear-gradient(90deg, rgba(255,212,0,0.14), rgba(255,212,0,0.035) 42%, transparent)',
+      boxShadow: 'inset 4px 0 0 rgba(255,212,0,0.86)',
+    },
+    '.cm-line.cm-repl-diagnostic-line-pin': {
+      background: 'linear-gradient(90deg, rgba(227,52,47,0.12), rgba(255,212,0,0.08) 48%, transparent)',
+      boxShadow: 'inset 4px 0 0 #e3342f, inset 7px 0 0 #ffd400',
+    },
+    '.cm-repl-diagnostic-token': {
+      color: '#ffffff !important',
+      background: '#e3342f',
+      outline: '2px solid #070707',
+      boxShadow: '3px 3px 0 #ffd400',
+      fontWeight: '900',
+      textDecoration: 'none !important',
+    },
+    '.cm-repl-diagnostic-token-preview': {
+      color: '#070707 !important',
+      background: '#ffd400',
+      outline: '2px solid rgba(7,7,7,0.78)',
+      boxShadow: '2px 2px 0 rgba(227,52,47,0.72)',
       fontWeight: '900',
     },
     '.cs-token-active': {
@@ -3701,6 +3931,9 @@
     if (HEAD_VOICE.has(head)) {
       return { kind: 'voice-body', voice: head, from, tokensSoFar, trailingSpace };
     }
+    if (HEAD_HARMONY.has(head)) {
+      return { kind: 'harmony-body', harmony: head, from, tokensSoFar, trailingSpace };
+    }
     if (HEAD_PARAM.has(head)) {
       return { kind: 'param-body', param: head, from, tokensSoFar, trailingSpace };
     }
@@ -3802,6 +4035,7 @@
       const opts = [
         ...voiceWordsForCompletion().map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'voice · opens row', replInsertText: `${w} `, replOpensRow: true }, 'voice')),
         ...DIRECTIVES.map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'directive · opens row', replInsertText: `${w} `, replOpensRow: true }, 'directive')),
+        ...HARMONY_HEADS.map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'harmony · opens row', replInsertText: `${w} `, replOpensRow: true }, 'directive')),
         ...PARAMS.map((w) => withCompletionCategory({ label: w, type: 'property', detail: 'param · opens row', replInsertText: `${w} `, replOpensRow: true }, 'param')),
         ...EFFECTS.map((w) => withCompletionCategory({ label: w, type: 'property', detail: 'effect · opens row', replInsertText: `${w} `, replOpensRow: true }, 'effect')),
         ...COUPLING.map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'coupling · opens row', replInsertText: `${w} `, replOpensRow: true }, 'coupling')),
@@ -3866,6 +4100,39 @@
         return null;
     }
 
+    if (here.kind === 'harmony-body') {
+      let opts = [];
+      if (here.harmony === 'key') {
+        opts = [
+          { label: 'C major', type: 'constant', detail: 'tonal center' },
+          { label: 'A minor', type: 'constant', detail: 'minor key' },
+          { label: 'D dorian', type: 'constant', detail: 'modal key' },
+          { label: 'Eb major', type: 'constant', detail: 'flat-side modulation target' },
+        ];
+      } else if (here.harmony === 'prog') {
+        opts = ['pop', 'jazz-turnaround', 'circle', 'blues12', 'lament', 'andalusian', 'deceptive', 'backdoor', 'minor-line-cliche']
+          .map((label) => ({ label, type: 'constant', detail: 'progression macro' }));
+      } else if (here.harmony === 'chord') {
+        opts = HARMONY_CHORD_VALUES.map((label) => ({ label, type: 'constant', detail: 'chord / harmonic wildcard' }));
+      } else if (here.harmony === 'voicing') {
+        opts = HARMONY_VOICING_VALUES.map((label) => ({ label, type: 'constant', detail: 'voicing mode' }));
+      } else if (here.harmony === 'lead') {
+        opts = HARMONY_LEAD_VALUES.map((label) => ({ label, type: 'constant', detail: 'voice-leading behavior' }));
+      } else if (here.harmony === 'chord-open' || here.harmony === 'harmonic-risk') {
+        opts = ['.', '0', '0.2', '0.5', '0.8', '1', '*', '*!', '*~', '*&8']
+          .map((label) => ({ label, type: 'constant', detail: here.harmony === 'chord-open' ? '0..1 registral spread' : '0..1 harmonic permission' }));
+      } else if (here.harmony === 'register') {
+        opts = ['.', '2', '3', '4', '5'].map((label) => ({ label, type: 'constant', detail: 'register octave' }));
+      } else if (here.harmony === 'topline' || here.harmony === 'bassline') {
+        opts = ['.', 'E5', 'F5', 'root', 'third', 'fifth', 'seventh', 'bass', 'top']
+          .map((label) => ({ label, type: 'constant', detail: 'pinned note / chord tone' }));
+      } else if (here.harmony === 'sub') {
+        opts = ['.', 'tritone', 'tri', 'backdoor', 'mediant', 'dim-pass', 'negative', 'chromatic-planing']
+          .map((label) => ({ label, type: 'constant', detail: 'substitution surface' }));
+      }
+      return { from, options: withCompletionCategoryList(opts, 'directive'), validFor: /^[A-Za-z0-9:_.#*?\-/]*$/ };
+    }
+
     if (here.kind === 'directive-body') {
       if (here.directive === 'eval' || here.directive === 'evaluate') {
         const opts = withCompletionCategoryList([
@@ -3885,6 +4152,42 @@
           { label: '7/8', type: 'constant' },
         ], 'directive');
         return { from, options: opts };
+      }
+      if (here.directive === 'swing') {
+        const opts = withCompletionCategoryList([
+          { label: 'off', type: 'constant', detail: 'straight timing' },
+          { label: 'light', type: 'constant', detail: 'subtle groove' },
+          { label: 'medium', type: 'constant', detail: 'classic 2:1 swing feel' },
+          { label: 'heavy', type: 'constant', detail: 'late offbeat shuffle' },
+          { label: '.5', type: 'constant', detail: 'classic swing amount' },
+          { label: '.35 1/16', type: 'constant', detail: 'sixteenth-note swing' },
+          { label: '2:1', type: 'constant', detail: 'ratio swing' },
+          { label: '3:1', type: 'constant', detail: 'heavy ratio swing' },
+        ], 'directive');
+        return { from, options: opts, validFor: /^[A-Za-z0-9:._/-]*$/ };
+      }
+      if (here.directive === 'inegales') {
+        const opts = withCompletionCategoryList([
+          { label: 'off', type: 'constant', detail: 'straight timing' },
+          { label: 'light', type: 'constant', detail: 'subtle long-short' },
+          { label: 'medium', type: 'constant', detail: 'notes inégales' },
+          { label: 'heavy', type: 'constant', detail: 'strong long-short' },
+          { label: 'french', type: 'constant', detail: 'French inégales profile' },
+          { label: '2:1', type: 'constant', detail: 'ratio' },
+          { label: '3:2', type: 'constant', detail: 'ratio' },
+        ], 'directive');
+        return { from, options: opts, validFor: /^[A-Za-z0-9:._-]*$/ };
+      }
+      if (here.directive === 'pickup' || here.directive === 'anacrusis') {
+        const opts = withCompletionCategoryList([
+          { label: '1', type: 'constant', detail: 'one beat pickup' },
+          { label: '1/2', type: 'constant', detail: 'half-beat pickup' },
+          { label: '3/2', type: 'constant', detail: 'beat-and-a-half pickup' },
+          { label: '3/8', type: 'constant', detail: 'fractional pickup span' },
+          { label: '5/16', type: 'constant', detail: 'sixteenth-grid pickup span' },
+          { label: '1/8+1/16+1/16', type: 'constant', detail: 'additive pickup span' },
+        ], 'directive');
+        return { from, options: opts, validFor: /^[0-9.+/]*$/ };
       }
       if (here.directive === 'tempo') {
         const opts = withCompletionCategoryList([
@@ -4003,6 +4306,7 @@
           { label: '<<6*', type: 'keyword', detail: 'shared pitch span start (up)' },
           { label: 'G%', type: 'keyword', detail: 'pitch span end (same octave)' },
           { label: 'Bb%', type: 'keyword', detail: 'pitch span end (same octave)' },
+          ...HARMONY_RENDER_VALUES.map((label) => ({ label, type: 'class', detail: 'active chord tone / harmony source' })),
           ...COMMON_OPERATORS.map((op) => ({ label: op, type: 'keyword', detail: opDescription(op) })),
           { label: '*4', type: 'keyword', detail: 'random pitch in oct 4' },
           { label: '*!4', type: 'keyword', detail: 'frozen random pitch in oct 4' },
@@ -4124,6 +4428,75 @@
 
   // Capture-by-reference for completion source so callbacks see live env.
   const editorEnvRef = {};
+
+  // ============================================================================
+  // console diagnostic reveal — editor-local pinned/preview source ranges.
+  // ============================================================================
+
+  const setConsoleDiagnosticEffect = StateEffect.define();
+  const clearConsoleDiagnosticEffect = StateEffect.define();
+
+  function normalizeConsoleDiagnosticSpec(state, spec) {
+    if (!state || !state.doc || !spec) return null;
+    const doc = state.doc;
+    const docLen = doc.length;
+    let from = Number(spec.from);
+    let to = Number(spec.to);
+    const lineNumber = Number(spec.line);
+    let line = null;
+    if (Number.isFinite(lineNumber) && lineNumber >= 1 && lineNumber <= doc.lines) {
+      line = doc.line(Math.floor(lineNumber));
+    }
+    if (!Number.isFinite(from) || !Number.isFinite(to)) {
+      if (!line) return null;
+      from = line.from;
+      to = line.to;
+    }
+    from = Math.max(0, Math.min(docLen, Math.floor(from)));
+    to = Math.max(from, Math.min(docLen, Math.floor(to)));
+    if (to <= from && line) {
+      const text = line.text || '';
+      const first = text.search(/\S/);
+      from = line.from + Math.max(0, first < 0 ? 0 : first);
+      to = first < 0 ? line.to : Math.min(line.to, from + Math.max(1, String(spec.token || '').length || 1));
+    }
+    if (to <= from) to = Math.min(docLen, from + 1);
+    if (!line) line = doc.lineAt(from);
+    const mode = spec.mode === 'preview' ? 'preview' : 'pin';
+    return { from, to, lineFrom: line.from, mode };
+  }
+
+  function buildConsoleDiagnosticDecorations(state, spec) {
+    const normalized = normalizeConsoleDiagnosticSpec(state, spec);
+    if (!normalized) return Decoration.none;
+    const builder = new RangeSetBuilder();
+    const lineClass = normalized.mode === 'preview'
+      ? 'cm-repl-diagnostic-line-preview'
+      : 'cm-repl-diagnostic-line-pin';
+    const tokenClass = normalized.mode === 'preview'
+      ? 'cm-repl-diagnostic-token cm-repl-diagnostic-token-preview'
+      : 'cm-repl-diagnostic-token cm-repl-diagnostic-token-pin';
+    builder.add(normalized.lineFrom, normalized.lineFrom, Decoration.line({ class: lineClass }));
+    builder.add(normalized.from, normalized.to, Decoration.mark({
+      class: tokenClass,
+      attributes: { 'data-repl-diagnostic': normalized.mode },
+    }));
+    return builder.finish();
+  }
+
+  const consoleDiagnosticField = StateField.define({
+    create() { return Decoration.none; },
+    update(value, tr) {
+      let next = value.map(tr.changes);
+      if (tr.docChanged) next = Decoration.none;
+      for (const effect of tr.effects) {
+        if (effect.is(clearConsoleDiagnosticEffect)) next = Decoration.none;
+        if (effect.is(setConsoleDiagnosticEffect)) next = buildConsoleDiagnosticDecorations(tr.state, effect.value);
+      }
+      return next;
+    },
+    provide: (field) => EditorView.decorations.from(field),
+  });
 
   // ============================================================================
   // diagnostics — debounced parser run mapped to CodeMirror linter.
@@ -4372,6 +4745,7 @@
       blockMuteDecorationsPlugin,
       blockMuteMousePlugin,
       dslSelectionMousePlugin,
+      consoleDiagnosticField,
       autocompletion({
         override: [completionSource],
         activateOnTyping: true,
@@ -4507,6 +4881,27 @@
         const f = Math.max(0, Math.min(max, from | 0));
         const tt = Math.max(0, Math.min(max, to | 0));
         view.dispatch({ selection: { anchor: f, head: tt }, scrollIntoView: true });
+      },
+
+      revealDiagnosticRange(range, options) {
+        const spec = range || {};
+        const opts = options || {};
+        const mode = opts.mode === 'preview' ? 'preview' : 'pin';
+        const normalized = normalizeConsoleDiagnosticSpec(view.state, { ...spec, mode });
+        if (!normalized) return false;
+        const effects = [setConsoleDiagnosticEffect.of({ ...normalized, mode })];
+        const shouldFocus = opts.focus !== false && mode !== 'preview';
+        view.dispatch({
+          selection: shouldFocus ? { anchor: normalized.from } : undefined,
+          effects,
+          scrollIntoView: mode !== 'preview',
+        });
+        if (shouldFocus) view.focus();
+        return true;
+      },
+
+      clearDiagnosticRange() {
+        view.dispatch({ effects: clearConsoleDiagnosticEffect.of(null) });
       },
 
       dispatchTextChange(from, to, text) {

@@ -1,22 +1,17 @@
 tempo 84
 meter 4/4
 
-// LIVE INPUT MODULATION
-// Press play. The browser should ask for mic permission before transport starts.
-// This input block is silent: it listens/analyzes, but does not route mic audio to speakers.
-//
-// Try clapping, humming, whispering, scraping, or speaking.
-// Loudness drives gain.
-// Density bends local beat pressure.
-// Sharp attacks drive leaf choice and sample triggering.
-// Bright/noisy sound drives grain, blur, scar, and sample behavior.
+// LIVE INPUT MODULATION DEMO
+// Press play. A patch with `input mic` should request permission and arm the mic before transport starts.
+// This first input block is silent: it listens/analyzes, but does not route mic audio to speakers.
 input mic
 gain      0
 monitor   off
 listen    on
 
-// MIC -> TIME / BEAT / LEAF / VOLUME / EFFECTS
-// Global transport stays stable. These rows deform this block locally.
+// MIC DRIVES TIME / BEAT / LEAF / VOLUME / EFFECTS
+// `time` and `beat` bend this block's local scheduling only; the global transport clock remains stable.
+// `leaf` lets mic rupture/onsets shove the phrase toward other leaves in the pattern.
 string    *!4   (*4 A*)   ~   C*!   ~
 attractor mic
 time      mic.intensity 0.18
@@ -29,9 +24,9 @@ space     mic.silence 0.20 0.85
 blur      mic.flux 0.00 0.35
 body      glass
 
-// MIC -> SAMPLE CHOICE / TRIGGERING / EFFECTS
-// `choose` biases wildcard selection.
-// `trigger` makes live attacks articulate the sample body.
+// MIC DRIVES SAMPLE CHOICE / TRIGGERING / EFFECTS
+// `choose mic.brightness` biases wildcard selection.
+// `trigger mic.rupture` gates sample articulation to live attacks.
 sample    snm-*&24   ~   tub-*&32   ~
 attractor mic
 choose    mic.brightness 0.85

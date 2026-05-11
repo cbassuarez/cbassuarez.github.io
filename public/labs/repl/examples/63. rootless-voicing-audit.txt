@@ -1,0 +1,22 @@
+// rootless voicing audit
+// rootless is a rendering recipe for chord cells.
+// chord-tone addresses still mean semantic chord members.
+
+tempo 80
+meter 4/4
+key C major
+
+chord   ii9      V13b9     Imaj9      V13b9
+voicing rootless rootless  rootless   rootless
+lead    smooth   resolve   settle     tense
+
+piano chord third guide shell
+ripple .     .     u     d
+ripple-time .04
+force mp
+decay 3
+pan center
+tone bright
+body wood
+space .24
+gain .42

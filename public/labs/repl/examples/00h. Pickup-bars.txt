@@ -1,0 +1,32 @@
+// pickup / anacrusis
+// use this when a phrase begins before the first full bar.
+// do not write leading rests just to fill the bar.
+// pickup changes meter phase; it does not insert silence.
+
+tempo 76
+meter 4/4
+pickup 1
+
+// score starts here     bar 1 starts here
+//        ↓                    ↓
+string G4 | C5 B4 A4 G4 | E4 F4 G4 A4 | G4
+speed  1 | 1  1  1  1  | 1  1  1  1  | 4
+force mp
+decay 2.6
+pan center
+tone bright
+body glass
+space .22
+gain .36
+
+// two cells inside a one-beat pickup subdivide that pickup.
+// the pickup span is still only one beat wide.
+string E4 F4 | G4 A4 B4 C5 | D5 C5 B4 A4 | G4
+speed  1  1  | 1  1  1  1  | 1  1  1  1  | 4
+force p
+decay 2.2
+pan right
+tone dark
+body wood
+space .18
+gain .24

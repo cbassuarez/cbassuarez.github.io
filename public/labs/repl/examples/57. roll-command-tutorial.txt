@@ -1,0 +1,22 @@
+// roll command tutorial
+// roll is one onset ripple inside a chord cell.
+// u=up, d=down, o=outward, i=inward, b=bass-first, t=top-first, r=random.
+
+tempo 68
+meter 4/4
+key C major
+
+chord C3+G3+E4+B4 D3+A3+F4+C5 | E3+B3+G4+D5 F3+C4+A4+E5
+voicing close close | close close
+lead locked locked | locked locked
+
+piano chord chord | chord chord
+roll  u     d     | o     i
+rolltime .055
+force mp
+decay 4
+pan center
+tone dark
+body wood
+space .30
+gain .36

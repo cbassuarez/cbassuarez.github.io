@@ -59,7 +59,10 @@
     const examplePopoverSearch = document.getElementById('example-popover-search');
     const examplePopoverCount = document.getElementById('example-popover-count');
     const exampleCurrentLabel = document.getElementById('example-current-label');
-
+    const tutorialNav = document.getElementById('tutorial-nav');
+    const tutorialPrevBtn = document.getElementById('tutorial-prev');
+    const tutorialNextBtn = document.getElementById('tutorial-next');
+    const tutorialNavLabel = document.getElementById('tutorial-nav-label');
     const commandPopover = document.getElementById('command-popover');
     const commandPopoverTabs = document.getElementById('command-popover-tabs');
     const commandPopoverList = document.getElementById('command-popover-list');
@@ -69,6 +72,11 @@
     const replSkeletonStatus = document.getElementById('repl-skeleton-status');
   let videoExamplesEnabled = true;
   const errorList = document.getElementById('errors');
+  const consoleRoot = document.getElementById('console-output');
+  const consoleLinesEl = document.getElementById('console-lines');
+  const consoleStateEl = document.getElementById('console-state');
+  const consoleCopyBtn = document.getElementById('console-copy');
+  const consoleClearBtn = document.getElementById('console-clear');
   const patchTitleChip = document.getElementById('patch-title-chip');
   const beatDotsEl = document.getElementById('beat-dots');
   const blockRowsEl = document.getElementById('block-rows');
@@ -107,8 +115,6 @@
     const samplesLocalStatus = document.getElementById('samples-local-status');
     const replWorkspace = document.getElementById('repl-workspace');
     const referenceToggleBtn = document.getElementById('reference-toggle');
-    const referencePanel = document.getElementById('reference-panel');
-    const referenceCloseBtn = document.getElementById('reference-close');
     const fieldReportDialog = document.getElementById('field-report-dialog');
     const fieldReportForm = document.getElementById('field-report-form');
     const fieldReportPreview = document.getElementById('field-report-preview');
@@ -119,7 +125,7 @@
 
     const SAMPLES_MANIFEST_URL = './samples/manifest.json';
     const DEFAULT_EXAMPLE_URL = './examples/default.txt';
-    const REFERENCE_SEEN_KEY = 'replReferenceSeen';
+    const REFERENCE_POPUP_FEATURES = 'popup,width=520,height=900,menubar=no,toolbar=no,location=no,status=no';
     const LOCAL_SAMPLES_DB_NAME = 'replLocalSamples';
     const LOCAL_SAMPLES_DB_VERSION = 1;
     const LOCAL_SAMPLES_STORE = 'handles';
@@ -192,6 +198,268 @@
         }
       }, 140);
     }
+
+    function createReplConsole(opts) {
+      const rootEl = opts && opts.root;
+      const linesEl = opts && opts.lines;
+      const stateEl = opts && opts.state;
+      const copyBtn = opts && opts.copy;
+      const clearBtn = opts && opts.clear;
+      const getEditor = typeof (opts && opts.getEditor) === 'function' ? opts.getEditor : () => editorAPI;
+      const maxLines = 42;
+      const entries = [];
+      let pinnedDiagnostic = null;
+      const glyphs = {
+        error: '×',
+        warn: '⚠',
+        queued: '⧖',
+        success: '✓',
+        info: '▌',
+      };
+
+      function normalizedLevel(level) {
+        const raw = String(level || 'info').toLowerCase();
+        if (raw === 'error' || raw === 'warn' || raw === 'queued' || raw === 'success' || raw === 'info') return raw;
+        return 'info';
+      }
+
+      function stateFor(level) {
+        if (level === 'error') return 'error';
+        if (level === 'warn') return 'warn';
+        if (level === 'queued') return 'queued';
+        if (level === 'success') return 'ok';
+        return 'msg';
+      }
+
+      function sanitizeMessage(message) {
+        return String(message == null ? '' : message)
+          .replace(/\r\n?/g, '\n')
+          .trim();
+      }
+
+      function lineStartOffsets(text) {
+        const out = [0];
+        const src = String(text || '');
+        for (let i = 0; i < src.length; i += 1) {
+          if (src.charCodeAt(i) === 10) out.push(i + 1);
+        }
+        return out;
+      }
+
+      function diagnosticTokenFromMessage(message) {
+        const m = String(message || '').match(/'([^']+)'/);
+        return m && m[1] ? m[1] : '';
+      }
+
+      function sourceRangeForMeta(meta, message) {
+        const api = getEditor();
+        if (!api || typeof api.getValue !== 'function') return null;
+        const text = api.getValue();
+        const starts = lineStartOffsets(text);
+        const lineNumber = Number(meta && meta.line);
+        if (!Number.isFinite(lineNumber) || lineNumber < 1 || lineNumber > starts.length) return null;
+
+        const lineFrom = starts[Math.floor(lineNumber) - 1];
+        const nextStart = starts[Math.floor(lineNumber)] == null ? text.length + 1 : starts[Math.floor(lineNumber)];
+        const lineTo = Math.max(lineFrom, nextStart - 1);
+        const lineText = text.slice(lineFrom, lineTo);
+
+        const explicitFrom = Number(meta && meta.from);
+        const explicitTo = Number(meta && meta.to);
+        if (Number.isFinite(explicitFrom) && Number.isFinite(explicitTo) && explicitTo > explicitFrom) {
+          return {
+            line: Math.floor(lineNumber),
+            from: Math.max(0, explicitFrom),
+            to: Math.min(text.length, explicitTo),
+            token: meta && meta.token ? String(meta.token) : text.slice(explicitFrom, explicitTo),
+          };
+        }
+
+        const token = meta && meta.token ? String(meta.token) : diagnosticTokenFromMessage(message);
+        if (token) {
+          const idx = lineText.indexOf(token);
+          if (idx >= 0) {
+            return { line: Math.floor(lineNumber), from: lineFrom + idx, to: lineFrom + idx + token.length, token };
+          }
+        }
+
+        const first = lineText.search(/\S/);
+        const from = lineFrom + Math.max(0, first < 0 ? 0 : first);
+        return {
+          line: Math.floor(lineNumber),
+          from,
+          to: Math.max(from + 1, lineTo),
+          token: token || '',
+        };
+      }
+
+      function isDiagnosticEntry(entry) {
+        return Boolean(entry && entry.range && Number.isFinite(Number(entry.range.from)) && Number.isFinite(Number(entry.range.to)));
+      }
+
+      function clearEditorDiagnostic() {
+        const api = getEditor();
+        if (api && typeof api.clearDiagnosticRange === 'function') {
+          try { api.clearDiagnosticRange(); } catch (_) {}
+        }
+      }
+
+      function revealEntry(entry, mode) {
+        if (!isDiagnosticEntry(entry)) return false;
+        const api = getEditor();
+        if (!api) return false;
+        const opts = { mode: mode === 'preview' ? 'preview' : 'pin', focus: mode !== 'preview' };
+        if (typeof api.revealDiagnosticRange === 'function') {
+          try { return api.revealDiagnosticRange(entry.range, opts) === true; } catch (_) { return false; }
+        }
+        if (typeof api.selectRange === 'function' && mode !== 'preview') {
+          try { api.selectRange(entry.range.from, entry.range.to); return true; } catch (_) { return false; }
+        }
+        return false;
+      }
+
+      function restorePinnedOrClear() {
+        if (pinnedDiagnostic) revealEntry(pinnedDiagnostic, 'pin');
+        else clearEditorDiagnostic();
+      }
+
+      function appendDiagnosticAction(row) {
+        const action = document.createElement('span');
+        action.className = 'console-action';
+        action.textContent = '⌖ SCORE ↵';
+        action.setAttribute('aria-hidden', 'true');
+        row.appendChild(action);
+      }
+
+      function wireDiagnosticRow(row, entry) {
+        if (!isDiagnosticEntry(entry)) return;
+        row.dataset.diagnostic = 'true';
+        row.tabIndex = 0;
+        row.setAttribute('role', 'button');
+        row.setAttribute('aria-label', `Show diagnostic in score: ${entry.message}`);
+        row.title = 'Show in score';
+        row.addEventListener('mouseenter', () => revealEntry(entry, 'preview'));
+        row.addEventListener('mouseleave', restorePinnedOrClear);
+        row.addEventListener('focus', () => revealEntry(entry, 'preview'));
+        row.addEventListener('blur', restorePinnedOrClear);
+        row.addEventListener('click', () => {
+          pinnedDiagnostic = entry;
+          revealEntry(entry, 'pin');
+        });
+        row.addEventListener('keydown', (event) => {
+          if (!(event instanceof KeyboardEvent)) return;
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          pinnedDiagnostic = entry;
+          revealEntry(entry, 'pin');
+        });
+        appendDiagnosticAction(row);
+      }
+
+      function render() {
+        if (rootEl) rootEl.classList.toggle('transport-console--active', entries.length > 0);
+        if (!linesEl) return;
+        linesEl.innerHTML = '';
+        if (!entries.length) return;
+        for (const entry of entries) {
+          const level = normalizedLevel(entry.level);
+          const row = document.createElement('div');
+          row.className = `console-line console-line--${level}`;
+          if (entry.line != null) row.dataset.line = String(entry.line);
+          if (entry.source) row.dataset.source = String(entry.source);
+
+          const glyph = document.createElement('span');
+          glyph.className = 'console-glyph';
+          glyph.textContent = glyphs[level] || glyphs.info;
+
+          const msg = document.createElement('span');
+          msg.className = 'console-message';
+          msg.textContent = entry.message || '';
+
+          row.appendChild(glyph);
+          row.appendChild(msg);
+          wireDiagnosticRow(row, entry);
+          linesEl.appendChild(row);
+        }
+        try { linesEl.scrollTop = linesEl.scrollHeight; } catch (_) {}
+      }
+
+      function push(level, message, meta) {
+        const nextLevel = normalizedLevel(level);
+        const msg = sanitizeMessage(message);
+        if (!msg) return;
+        if (nextLevel === 'success' && (/^complete\.?$/i.test(msg) || /^eval reset applied\b/i.test(msg))) {
+          pinnedDiagnostic = null;
+          clearEditorDiagnostic();
+        }
+        const range = (nextLevel === 'error' || nextLevel === 'warn')
+          ? sourceRangeForMeta(meta || {}, msg)
+          : null;
+        const entry = {
+          level: nextLevel,
+          message: msg,
+          source: meta && meta.source ? String(meta.source) : '',
+          line: meta && meta.line != null ? meta.line : null,
+          range,
+          time: Date.now(),
+        };
+        entries.push(entry);
+        while (entries.length > maxLines) entries.shift();
+        if (stateEl) {
+          stateEl.textContent = stateFor(nextLevel);
+          stateEl.className = `transport-console-state transport-console-state--${nextLevel}`;
+        }
+        render();
+      }
+
+      function clear() {
+        entries.length = 0;
+        pinnedDiagnostic = null;
+        clearEditorDiagnostic();
+        if (stateEl) {
+          stateEl.textContent = '';
+          stateEl.className = 'transport-console-state';
+        }
+        render();
+      }
+
+      async function copy() {
+        const text = entries.map((entry) => {
+          const line = entry.line != null ? `line ${entry.line}: ` : '';
+          return `[${normalizedLevel(entry.level)}] ${line}${entry.message}`;
+        }).join('\n');
+        if (!text) return;
+        try {
+          await navigator.clipboard.writeText(text);
+          push('success', 'console copied.', { source: 'runtime' });
+        } catch (_) {
+          push('warn', 'could not copy console output.', { source: 'runtime' });
+        }
+      }
+
+      if (copyBtn) copyBtn.addEventListener('click', copy);
+      if (clearBtn) clearBtn.addEventListener('click', clear);
+      if (rootEl && linesEl) render();
+
+      return {
+        push,
+        clear,
+        info: (message, meta) => push('info', message, meta),
+        warn: (message, meta) => push('warn', message, meta),
+        queued: (message, meta) => push('queued', message, meta),
+        error: (message, meta) => push('error', message, meta),
+        success: (message, meta) => push('success', message, meta),
+      };
+    }
+
+    const replConsole = createReplConsole({
+      root: consoleRoot,
+      lines: consoleLinesEl,
+      state: consoleStateEl,
+      copy: consoleCopyBtn,
+      clear: consoleClearBtn,
+      getEditor: () => editorAPI,
+    });
 
     function renderCommandSampleLoadingSkeleton(shell) {
       const grid = document.createElement('div');
@@ -559,6 +827,7 @@
 
       loadedExampleLabel = '';
       currentExampleFile = '';
+        clearTutorialNav();
       return title;
     }
 
@@ -699,7 +968,7 @@
     const t = scheduler.now();
     const transport = formatTime(t.transport);
     const tempo = lastGoodProgram ? Math.round(lastGoodProgram.tempo) : 110;
-    const meter = lastGoodProgram ? `${lastGoodProgram.meter.num}/${lastGoodProgram.meter.den}` : '4/4';
+    const meter = lastGoodProgram ? `${lastGoodProgram.meter.num}/${lastGoodProgram.meter.den}${pickupStatusText(lastGoodProgram)}` : '4/4';
     const tunings = collectProgramTunings(lastGoodProgram);
     let tuningPart = '';
     if (tunings.length === 1) {
@@ -715,6 +984,15 @@
     const bar = t.bar + 1; // human-readable: bar 1 = first bar
     statusEl.textContent = `${tempo} bpm · ${meter}${tuningPart} · ${stateLabel} · ${transport} · bar ${bar}`;
     refreshVideoStatus();
+  }
+
+  function setStatus(message, level) {
+    const text = String(message || '').trim();
+    if (!text) return;
+    if (statusEl) statusEl.textContent = text;
+    const kind = level || 'info';
+    if (replConsole && typeof replConsole[kind] === 'function') replConsole[kind](text, { source: 'runtime' });
+    else if (replConsole) replConsole.info(text, { source: 'runtime' });
   }
 
   function formatTime(s) {
@@ -738,14 +1016,21 @@
         const li = document.createElement('li');
         li.textContent = `line ${e.line}: ${e.message}`;
         errorList.appendChild(li);
+        if (replConsole) {
+          replConsole.error(`line ${e.line}: ${e.message}`, {
+            source: 'parser',
+            line: e && e.line,
+          });
+        }
       }
     }
 
-  function showWarning(text) {
+  function showWarning(text, meta) {
     const li = document.createElement('li');
     li.textContent = text;
     li.style.color = '#a04';
     errorList.appendChild(li);
+    if (replConsole) replConsole.warn(text, meta || { source: 'runtime' });
   }
 
   function videoDebugEnabled() {
@@ -1115,6 +1400,19 @@
       return `scoped tuning active (${tunings.length} regions) · ${list}${more}`;
     }
 
+    function pickupStatusText(program) {
+      const beats = program && program.pickup && Number.isFinite(Number(program.pickup.beats))
+        ? Number(program.pickup.beats)
+        : Number(program && program.pickupBeats);
+      if (!Number.isFinite(beats) || beats <= 0) return '';
+      const raw = program && program.pickup && program.pickup.raw ? String(program.pickup.raw) : String(beats);
+      return ` · pickup ${raw}`;
+    }
+
+    function programWarnings(program) {
+      return program && Array.isArray(program.warnings) ? program.warnings : [];
+    }
+
     async function evaluateAndRun() {
       const text = editorAPI ? editorAPI.getValue() : '';
       const result = window.ReplDSL.parse(text);
@@ -1133,10 +1431,14 @@
 
       const tuningActivation = tuningActivationText(result.program);
       const tuningWarning = tuningWarningText(result.program);
-      if (tuningActivation || tuningWarning) {
+      const parseWarnings = programWarnings(result.program);
+      if (tuningActivation || tuningWarning || parseWarnings.length) {
         if (tuningActivation) showWarning(tuningActivation);
         if (tuningWarning) showWarning(tuningWarning);
-        setTimeout(clearErrors, 2400);
+        for (const warning of parseWarnings) {
+          if (warning && warning.message) showWarning(`line ${warning.line || '?'}: ${warning.message}`);
+        }
+        setTimeout(clearErrors, 3200);
       }
 
       try {
@@ -1167,12 +1469,14 @@
         if (scheduler.isRunning() && evaluatePolicy.mode === 'reset' && typeof scheduler.queueEvaluateAtReset === 'function') {
           const when = scheduler.queueEvaluateAtReset(result.program, { stopVoices: evaluatePolicy.cutOnReset });
           if (Number.isFinite(Number(when))) {
-            showWarning(
-              evaluatePolicy.cutOnReset
-                ? 'evaluate queued — next bar reset will cut previous audio (eval reset cut)'
-                : 'evaluate queued — next bar reset keeps previous tails (eval reset keep)'
-            );
-            setTimeout(clearErrors, 1800);
+            const resetMode = evaluatePolicy.cutOnReset ? 'cut' : 'keep tails';
+            const message = `eval reset armed — next bar / ${resetMode}`;
+            if (replConsole && typeof replConsole.queued === 'function') {
+              replConsole.queued(message, { source: 'scheduler' });
+            } else if (replConsole) {
+              replConsole.info(message, { source: 'scheduler' });
+            }
+            setStatusLine();
           }
           syncEditorBlockMuteLines();
           lastRuntimeErrorText = '';
@@ -1186,10 +1490,11 @@
         scheduler.update(result.program);
         scheduler.start();
         syncEditorBlockMuteLines();
+        if (replConsole) replConsole.success('complete.', { source: 'runtime' });
         lastRuntimeErrorText = '';
       } catch (err) {
         lastRuntimeErrorText = err && err.stack ? err.stack : String(err || 'unknown runtime error');
-        showWarning(`runtime error — ${err && err.message ? err.message : 'see field report diagnostics'}`);
+        showWarning(`runtime error — ${err && err.message ? err.message : 'see field report diagnostics'}`, { source: 'runtime' });
       }
     }
 
@@ -1203,7 +1508,7 @@
 
       const currentText = editorAPI ? String(editorAPI.getValue() || '') : '';
       if (currentText !== String(lastEvaluatedText || '')) {
-        showWarning('patch changed since last evaluate — running evaluate');
+        showWarning('patch changed since last evaluate — running evaluate', { source: 'runtime' });
         await evaluateAndRun();
         return;
       }
@@ -1219,6 +1524,7 @@
         // Fallback for stale cached scheduler.js.
         scheduler.stop();
         scheduler.start();
+        if (replConsole) replConsole.info('replay.', { source: 'runtime' });
       }
       syncEditorBlockMuteLines();
     }
@@ -1229,13 +1535,14 @@
       }
       syncEditorBlockMuteLines();
       setStatusLine();
+      if (replConsole) replConsole.info('stopped.', { source: 'runtime' });
       clearActiveClasses();
     }
 
     function bootScheduler() {
       const audioCtx = window.StringVoice.ensureAudio();
     if (!audioCtx) {
-      showWarning('this browser doesn\'t support the Web Audio API');
+      showWarning('this browser doesn\'t support the Web Audio API', { source: 'runtime' });
       return;
     }
     window.StringVoice.resume();
@@ -1257,6 +1564,15 @@
     const masterBus = window.StringVoice.getMasterBus();
     scheduler = window.ReplScheduler.create({ audioCtx, masterBus });
     syncEditorBlockMuteLines();
+    if (typeof scheduler.onEvaluateResetApplied === 'function') {
+      scheduler.onEvaluateResetApplied((detail) => {
+        const cut = Boolean(detail && detail.stopVoices);
+        const message = cut
+          ? 'eval reset applied — previous audio cut.'
+          : 'eval reset applied — tails preserved.';
+        if (replConsole) replConsole.success(message, { source: 'scheduler' });
+      });
+    }
     scheduler.onMissingSample((name) => {
       if (typeof name === 'string' && name.startsWith('drum-kit:')) {
         const id = name.slice('drum-kit:'.length) || '(missing)';
@@ -1558,6 +1874,7 @@
 
       loadedExampleLabel = '';
       currentExampleFile = '';
+        clearTutorialNav();
       lastGoodProgram = null;
       lastEvaluatedText = '';
       lastParseErrorText = '';
@@ -1641,6 +1958,7 @@
         try {
           loadedExampleLabel = '';
           currentExampleFile = '';
+            clearTutorialNav();
           if (editorAPI) editorAPI.setValue(shared.code);
             patchLinkState.lastSavedCode = shared.code;
             patchLinkState.lastSavedTitle = shared.title || '';
@@ -1674,42 +1992,18 @@
     }
   }
 
-    // ---------------- reference sidebar ----------------
+    // ---------------- reference / manual windows ----------------
 
-    function setReferenceOpen(open, opts) {
-      const options = opts || {};
-      const shouldOpen = Boolean(open);
-
-      if (referencePanel) {
-        referencePanel.hidden = !shouldOpen;
-      }
-
-      if (referenceToggleBtn) {
-        referenceToggleBtn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
-      }
-
-      if (replWorkspace) {
-        replWorkspace.classList.toggle('reference-closed', !shouldOpen);
-      }
-
-      if (!shouldOpen && options.markSeen !== false) {
-        try { localStorage.setItem(REFERENCE_SEEN_KEY, '1'); } catch (_) {}
-      }
+    function openReferenceWindow() {
+      const win = window.open('reference.html', 'replReference', REFERENCE_POPUP_FEATURES);
+      if (win) win.focus();
     }
 
-    function toggleReference() {
-      const isOpen = referencePanel ? !referencePanel.hidden : false;
-      setReferenceOpen(!isOpen, { markSeen: isOpen });
-      if (editorAPI) editorAPI.focus();
+    function openManualTab() {
+      window.open('manual.html', '_blank', 'noopener,noreferrer');
     }
 
-    function initReferencePanel() {
-      let seen = false;
-      try { seen = localStorage.getItem(REFERENCE_SEEN_KEY) === '1'; } catch (_) {}
-      setReferenceOpen(!seen, { markSeen: false });
-      shouldAutofocusEditor = seen;
-    }
-    
+
   // ---------------- editor keybindings ----------------
   //
   // Editor-local keymap (Cmd-Enter, Cmd-Shift-Enter, Esc, Tab, Cmd-/, Cmd-S,
@@ -1744,15 +2038,25 @@
       });
     }
     if (referenceToggleBtn) {
-      referenceToggleBtn.addEventListener('click', toggleReference);
-    }
-
-    if (referenceCloseBtn) {
-      referenceCloseBtn.addEventListener('click', () => {
-        setReferenceOpen(false);
+      referenceToggleBtn.addEventListener('click', () => {
+        openReferenceWindow();
         if (editorAPI) editorAPI.focus();
       });
     }
+
+    const docsToggleBtn = document.getElementById('docs-toggle');
+    if (docsToggleBtn) {
+      docsToggleBtn.addEventListener('click', () => {
+        openManualTab();
+        if (editorAPI) editorAPI.focus();
+      });
+    }
+
+    document.querySelectorAll('[data-docs-open]').forEach((button) => {
+      button.addEventListener('click', () => {
+        openManualTab();
+      });
+    });
 
     if (patchTitleChip) {
       patchTitleChip.addEventListener('click', (e) => {
@@ -2037,6 +2341,12 @@
             detail: 'voice · syllable · carrier · vocoder',
             accent: 'voice',
           },
+          {
+            file: '00h. Pickup-bars.txt',
+            label: '00c. pickup bars',
+            detail: 'anacrusis · pickup',
+            accent: 'yellow',
+          },
         ],
       },
     { id: 'foundations', label: 'foundations', examples: [
@@ -2096,6 +2406,20 @@
       { file: '34. tuning-performance-organism.txt', label: 'tuning performance organism' },
       { file: '35. pitch-span-glide.txt', label: 'pitch ramps' },
     ] },
+    { id: 'harmony', label: 'harmony', examples: [
+      { file: '52. harmony-first-chords.txt', label: '52. first harmony source' },
+      { file: '53. roman-progression.txt', label: '53. roman progression' },
+      { file: '54. smart-chord-globs.txt', label: '54. smart chord globs' },
+      { file: '55. modulation-pivot.txt', label: '55. modulation + pivot' },
+      { file: '56. chord-tone-rendering.txt', label: '56. chord-tone rendering' },
+      { file: '57. ripple-command-tutorial.txt', label: '57. ripple command' },
+      { file: '58. arp-command-tutorial.txt', label: '58. arp command' },
+      { file: '59. voicing-and-lead.txt', label: '59. voicing + lead' },
+      { file: '60. harmonic-risk-study.txt', label: '60. harmonic risk' },
+      { file: '61. harmony-wildcard-glyphs.txt', label: '61. wildcard glyphs' },
+      { file: '62. chord-operator-audit.txt', label: '62. chord operator audit' },
+      { file: '63. rootless-voicing-audit.txt', label: '63. rootless voicing audit' },
+    ] },
     { id: 'piano', label: 'piano', examples: [
       { file: '36. iowa-piano-body.txt', label: '36. iowa piano body' },
       { file: '36c. piano-layer-xfade.txt', label: '36c. layer xfade (pp / mf / ff)' },
@@ -2128,6 +2452,14 @@
       { file: '41b. marimba-resonance-and-damping.txt', label: '41b. resonance + damping' },
       { file: '41c. marimba-rolls.txt', label: '41c. rolls + four mallets' },
       { file: '41d. marimba-arrangement.txt', label: '41d. wooden machine arrangement' },
+    ] },
+    { id: 'ornaments', label: 'ornaments', examples: [
+      { file: '46. ornament-speed-study.txt', label: '46. ornament speed study' },
+      { file: '47. fast-vs-broad-trills.txt', label: '47. fast vs broad trills' },
+      { file: '48. ornament-human-bach.txt', label: '48. ornament human / Bach' },
+      { file: '49. rameau-inegales-speed.txt', label: '49. Rameau inégales speed' },
+      { file: '50. pickup-ornament-speed.txt', label: '50. pickup ornament speed' },
+      { file: '51. swing-ornament-groove.txt', label: '51. swing ornament groove' },
     ] },
     { id: 'vibraphone', label: 'vibraphone', examples: [
       { file: '43a. vibraphone-sustain.txt', label: '43a. sustain + pedal' },
@@ -2168,6 +2500,15 @@
     let currentExampleFile = '';
     let activeExampleFocusIndex = 0;
     let exampleSearchQuery = '';
+    const TUTORIAL_NAV_ARM_MS = 2200;
+
+    const tutorialNavState = {
+      categoryId: '',
+      index: -1,
+      file: '',
+      armedDirection: '',
+      armTimer: null,
+    };
 
     let activeCommandGroupId = 'actions';
     let activeCommandFocusIndex = 0;
@@ -2660,6 +3001,7 @@
       stop();
       loadedExampleLabel = '';
       currentExampleFile = '';
+        clearTutorialNav();
       lastGoodProgram = null;
       lastEvaluatedText = '';
       lastParseErrorText = '';
@@ -2746,6 +3088,7 @@
       if (!record || !editorAPI) return;
       loadedExampleLabel = '';
       currentExampleFile = '';
+        clearTutorialNav();
       editorAPI.setValue(String(record.code || ''));
       if (record.hash && record.hash.startsWith('#patch=v1.')) {
         try { history.pushState(null, '', `${window.location.pathname}${window.location.search}${record.hash}`); } catch (_) {}
@@ -2942,6 +3285,177 @@
         card.querySelector('[data-action="copy"]').addEventListener('click', () => copySavedPatchUrl(record));
         card.querySelector('[data-action="delete"]').addEventListener('click', () => deleteSavedPatch(record));
         examplePopoverList.appendChild(card);
+      });
+    }
+    function tutorialCategoryForFile(file) {
+      if (!file) return null;
+
+      const cats = visibleExampleCategories();
+      const preferred = cats.find((cat) =>
+        cat.id === activeExampleCategoryId
+        && Array.isArray(cat.examples)
+        && cat.examples.some((ex) => ex.file === file)
+      );
+
+      if (preferred) return preferred;
+
+      const found = findExampleByFile(file);
+      if (found && found.category && cats.some((cat) => cat.id === found.category.id)) {
+        return found.category;
+      }
+
+      return null;
+    }
+
+    function tutorialIndexInCategory(cat, file) {
+      if (!cat || !Array.isArray(cat.examples)) return -1;
+      return cat.examples.findIndex((ex) => ex.file === file);
+    }
+
+    function tutorialNavReadout(cat, ex, index) {
+      if (!cat || !ex) return 'TUTORIAL';
+      const num = exampleNumber(ex);
+      const label = cleanExampleTitle(ex);
+      const count = Array.isArray(cat.examples) ? cat.examples.length : 0;
+      const ordinal = index >= 0 && count ? `${index + 1}/${count}` : '';
+      const prefix = num && num !== '•' ? `${num}` : ordinal;
+      const title = label || ex.label || ex.file || 'tutorial';
+      return [prefix, title].filter(Boolean).join(' · ').toUpperCase();
+    }
+
+    function currentPatchIsModifiedForTutorialNav() {
+      if (!editorAPI || !currentExampleFile) return false;
+      if (!patchLinkState || typeof patchLinkState.lastSavedCode !== 'string') return false;
+      return editorAPI.getValue() !== patchLinkState.lastSavedCode;
+    }
+
+    function clearTutorialNavArm() {
+      window.clearTimeout(tutorialNavState.armTimer);
+      tutorialNavState.armedDirection = '';
+      tutorialNavState.armTimer = null;
+
+      if (tutorialNav) tutorialNav.classList.remove('is-armed');
+
+      if (tutorialPrevBtn) {
+        tutorialPrevBtn.textContent = '‹';
+        tutorialPrevBtn.setAttribute('aria-label', 'Previous tutorial');
+      }
+
+      if (tutorialNextBtn) {
+        tutorialNextBtn.textContent = '›';
+        tutorialNextBtn.setAttribute('aria-label', 'Next tutorial');
+      }
+    }
+    function clearTutorialNav() {
+      clearTutorialNavArm();
+      tutorialNavState.categoryId = '';
+      tutorialNavState.index = -1;
+      tutorialNavState.file = '';
+
+      if (tutorialNav) tutorialNav.hidden = true;
+      if (tutorialNavLabel) tutorialNavLabel.textContent = 'TUTORIAL';
+      if (tutorialPrevBtn) tutorialPrevBtn.disabled = true;
+      if (tutorialNextBtn) tutorialNextBtn.disabled = true;
+    }
+
+    function syncTutorialNavForFile(file) {
+      clearTutorialNavArm();
+
+      const cat = tutorialCategoryForFile(file);
+      const index = tutorialIndexInCategory(cat, file);
+      const ex = cat && index >= 0 ? cat.examples[index] : null;
+
+      if (!cat || !ex || index < 0) {
+        clearTutorialNav();
+        return;
+      }
+
+      tutorialNavState.categoryId = cat.id;
+      tutorialNavState.index = index;
+      tutorialNavState.file = ex.file;
+
+        if (tutorialNav) tutorialNav.hidden = false;
+        if (tutorialNavLabel) tutorialNavLabel.textContent = tutorialNavReadout(cat, ex, index);
+
+        if (tutorialPrevBtn) {
+          tutorialPrevBtn.textContent = '‹';
+          tutorialPrevBtn.disabled = index <= 0;
+          tutorialPrevBtn.title = index <= 0 ? 'First tutorial' : 'Previous tutorial';
+          tutorialPrevBtn.setAttribute('aria-label', index <= 0 ? 'First tutorial' : 'Previous tutorial');
+        }
+
+        if (tutorialNextBtn) {
+          tutorialNextBtn.textContent = '›';
+          tutorialNextBtn.disabled = index >= cat.examples.length - 1;
+          tutorialNextBtn.title = index >= cat.examples.length - 1 ? 'Last tutorial' : 'Next tutorial';
+          tutorialNextBtn.setAttribute('aria-label', index >= cat.examples.length - 1 ? 'Last tutorial' : 'Next tutorial');
+        }
+    }
+
+    function armTutorialNav(direction) {
+      const dir = direction === 'prev' ? 'prev' : 'next';
+      clearTutorialNavArm();
+
+      tutorialNavState.armedDirection = dir;
+      if (tutorialNav) tutorialNav.classList.add('is-armed');
+
+      const targetBtn = dir === 'prev' ? tutorialPrevBtn : tutorialNextBtn;
+      if (targetBtn) {
+        targetBtn.textContent = dir === 'prev' ? '‹?' : '›?';
+        targetBtn.setAttribute(
+          'aria-label',
+          `${dir === 'prev' ? 'Previous' : 'Next'} tutorial? Modified patch. Press again to confirm.`
+        );
+        targetBtn.title = `${dir === 'prev' ? 'Previous' : 'Next'}? modified — click again to confirm`;
+      }
+
+      if (tutorialNavLabel) {
+        tutorialNavLabel.textContent = `${dir === 'prev' ? 'PREV' : 'NEXT'}? MODIFIED`;
+      }
+
+      tutorialNavState.armTimer = window.setTimeout(() => {
+        tutorialNavState.armedDirection = '';
+        if (tutorialNav) tutorialNav.classList.remove('is-armed');
+        syncTutorialNavForFile(currentExampleFile);
+      }, TUTORIAL_NAV_ARM_MS);
+    }
+
+    async function navigateTutorial(direction, opts) {
+      const dir = direction === 'prev' ? -1 : 1;
+      const rawDirection = direction === 'prev' ? 'prev' : 'next';
+      const options = opts || {};
+
+      const cat = tutorialCategoryForFile(currentExampleFile || tutorialNavState.file);
+      const currentIndex = tutorialIndexInCategory(cat, currentExampleFile || tutorialNavState.file);
+
+      if (!cat || currentIndex < 0) {
+        clearTutorialNav();
+        return;
+      }
+
+      const nextIndex = currentIndex + dir;
+      if (nextIndex < 0 || nextIndex >= cat.examples.length) {
+        syncTutorialNavForFile(currentExampleFile);
+        return;
+      }
+
+      if (!options.confirmed && currentPatchIsModifiedForTutorialNav()) {
+        if (tutorialNavState.armedDirection !== rawDirection) {
+          armTutorialNav(rawDirection);
+          return;
+        }
+      }
+
+      clearTutorialNavArm();
+
+      activePatchBrowserTab = 'examples';
+      activeExampleCategoryId = cat.id;
+      activeExampleFocusIndex = nextIndex;
+
+      await loadExampleByFile(cat.examples[nextIndex].file, {
+        categoryId: cat.id,
+        index: nextIndex,
+        fromTutorialNav: true,
       });
     }
 
@@ -3193,7 +3707,8 @@
     return '';
   }
 
-  async function loadExampleByFile(file) {
+    async function loadExampleByFile(file, options) {
+      const opts = options || {};
     if (!file) return;
     const found = findExampleByFile(file);
     if (found && found.example.isVideo && !videoExamplesEnabled) return;
@@ -3205,20 +3720,39 @@
           loadedExampleLabel = label;
           currentExampleFile = file;
 
-          if (found && found.category) activeExampleCategoryId = found.category.id;
-          if (exampleCurrentLabel) exampleCurrentLabel.textContent = 'examples / saved';
-          if (editorAPI) editorAPI.setValue(text);
+            if (found && found.category) {
+              const preferredCategoryId = opts.categoryId || found.category.id;
+              const visibleCats = visibleExampleCategories();
 
-          refreshPatchTitle();
-          writeExampleHash(file);
+              const preferredCategory = visibleCats.find((cat) =>
+                cat.id === preferredCategoryId
+                && Array.isArray(cat.examples)
+                && cat.examples.some((ex) => ex.file === file)
+              ) || found.category;
 
-          patchLinkState.lastSavedCode = editorAPI ? editorAPI.getValue() : '';
-          patchLinkState.lastSavedTitle = getPatchTitleForShare();
-          refreshPatchTitle();
+              const preferredIndex = Number.isFinite(Number(opts.index))
+                ? Math.max(0, Math.min(preferredCategory.examples.length - 1, Math.floor(Number(opts.index))))
+                : tutorialIndexInCategory(preferredCategory, file);
 
-          if (examplePopover && !examplePopover.hidden) {
-            renderExamplePopover();
-          }
+              activePatchBrowserTab = 'examples';
+              activeExampleCategoryId = preferredCategory.id;
+              activeExampleFocusIndex = preferredIndex >= 0 ? preferredIndex : 0;
+            }
+
+            if (exampleCurrentLabel) exampleCurrentLabel.textContent = 'examples / saved';
+            if (editorAPI) editorAPI.setValue(text);
+
+            refreshPatchTitle();
+            writeExampleHash(file);
+
+            patchLinkState.lastSavedCode = editorAPI ? editorAPI.getValue() : '';
+            patchLinkState.lastSavedTitle = getPatchTitleForShare();
+            refreshPatchTitle();
+            syncTutorialNavForFile(file);
+
+            if (examplePopover && !examplePopover.hidden) {
+              renderExamplePopover();
+            }
         }
     } catch (err) {
       console.warn('[repl] failed to load example:', file, err);
@@ -3227,6 +3761,39 @@
       if (editorAPI) editorAPI.focus();
   }
 
+    if (tutorialPrevBtn) {
+      tutorialPrevBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        void navigateTutorial('prev');
+      });
+    }
+
+    if (tutorialNextBtn) {
+      tutorialNextBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        void navigateTutorial('next');
+      });
+    }
+
+    document.addEventListener('keydown', (event) => {
+      const target = event.target;
+      const tag = target && target.tagName ? String(target.tagName).toLowerCase() : '';
+      const isTyping = tag === 'input' || tag === 'textarea' || tag === 'select' || (target && target.isContentEditable);
+
+      if (isTyping) return;
+      if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+
+      if (event.key === '[') {
+        event.preventDefault();
+        void navigateTutorial('prev');
+      }
+
+      if (event.key === ']') {
+        event.preventDefault();
+        void navigateTutorial('next');
+      }
+    });
+    
     if (exampleTrigger && examplePopover) {
       exampleTrigger.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -4029,15 +4596,37 @@
             { test: () => true, text: 'open ringing stroke' },
           ],
         },
+        ripple: {
+          label: 'RIPPLE',
+          role: 'one-shot onset spread across a simultaneity',
+          bends: ['gesture', 'time', 'chord order'],
+          units: ['u', 'd', 'o', 'i', 'b', 't', 'r'],
+          cues: [
+            { test: (item) => /\bD(OWN)?\b/.test(item.displayText), text: 'top-to-bottom ripple' },
+            { test: (item) => /\bO(UT)?\b/.test(item.displayText), text: 'center-out ripple' },
+            { test: (item) => /\bI(N)?\b/.test(item.displayText), text: 'outside-in ripple' },
+            { test: (item) => /\bR(ANDOM)?\b/.test(item.displayText), text: 'randomized onset order' },
+            { test: () => true, text: 'upward onset ripple' },
+          ],
+        },
+        'ripple-time': {
+          label: 'RIPPLE-TIME',
+          role: 'seconds of one-shot onset spread',
+          bends: ['time', 'gesture'],
+          units: ['seconds'],
+          cues: [
+            { test: (item) => numericAverage(item.values) >= 0.08, text: 'broad ripple spread' },
+            { test: (item) => numericAverage(item.values) > 0.03, text: 'audible ripple spread' },
+            { test: () => true, text: 'tight ripple spread' },
+          ],
+        },
         roll: {
           label: 'ROLL',
-          role: 'marimba roll density / tremolo sustain',
-          bends: ['density', 'time', 'resonance'],
-          units: ['0–1', 'off', 'on'],
+          role: 'legacy alias for ripple; use tremolo for sustained roll behavior',
+          bends: ['gesture', 'time'],
+          units: ['u', 'd', 'o', 'i', 'b', 't', 'r'],
           cues: [
-            { test: (item) => numericAverage(item.values) >= 0.7, text: 'dense sustained roll' },
-            { test: (item) => numericAverage(item.values) > 0, text: 'light roll / tremolo sustain' },
-            { test: () => true, text: 'single strike / no roll' },
+            { test: () => true, text: 'legacy ripple row' },
           ],
         },
         spread: {
@@ -4842,7 +5431,7 @@
       if (block.fade && block.fade.mode && block.fade.mode !== 'clear') push('fade');
       if (block.speed && (hasParamControlStream(block.speed) || block.speed.kind === 'vector')) push('speed');
 
-        for (const name of ['pan', 'gain', 'rate', 'start', 'crush', 'resolution', 'variance', 'force', 'decay', 'tone', 'harm', 'octave', 'pedal', 'una', 'lid', 'sympathetic', 'release', 'human', 'stretch', 'layer', 'poly', 'articulation', 'sul', 'vibrato', 'vibratorate', 'vibratoonset', 'tremolo', 'tremolorate', 'bow', 'wood', 'mallet', 'deadstroke', 'roll', 'spread', 'motor', 'depth', 'damp', 'bowpressure', 'vowel', 'syllable', 'carrier', 'robot', 'breath', 'mouth', 'formant', 'roughness', 'vocoder', 'ensemble']) {
+        for (const name of ['pan', 'gain', 'rate', 'start', 'crush', 'resolution', 'variance', 'force', 'decay', 'tone', 'harm', 'octave', 'pedal', 'una', 'lid', 'sympathetic', 'release', 'human', 'stretch', 'layer', 'poly', 'articulation', 'sul', 'vibrato', 'vibratorate', 'vibratoonset', 'tremolo', 'tremolorate', 'bow', 'wood', 'mallet', 'deadstroke', 'ripple', 'rip', 'ripple-time', 'riptime', 'roll', 'spread', 'motor', 'depth', 'damp', 'bowpressure', 'vowel', 'syllable', 'carrier', 'robot', 'breath', 'mouth', 'formant', 'roughness', 'vocoder', 'ensemble']) {
         if (hasParamControlStream(params[name])) push(name);
       }
       for (const name of ['opacity', 'threshold', 'edges', 'posterize', 'invert', 'contrast', 'saturate', 'displace', 'feedback', 'delay', 'slitscan', 'trail', 'mask', 'key', 'color', 'blend', 'monitor', 'listen']) {
@@ -4876,7 +5465,7 @@
         push('resonance');
         push('body');
         push('deadstroke');
-        push('roll');
+        push('ripple');
         push('spread');
         push('human');
       }
@@ -4968,7 +5557,7 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
                 push('resonance');
                 push('body');
                 push('deadstroke');
-                push('roll');
+                push('ripple');
                 push('spread');
                 push('human');
               }
@@ -5501,6 +6090,7 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
       syncEditorBlockMuteLines();
       if (transportVizEl) {
         transportVizEl.dataset.running = 'true';
+        transportVizEl.dataset.pickup = t.pickup && t.pickup.active ? 'active' : (lastGoodProgram && lastGoodProgram.pickup && Number(lastGoodProgram.pickup.beats) > 0 ? 'armed' : 'none');
         transportVizEl.style.setProperty('--beat-progress', String(Math.max(0, Math.min(1, Number(t.beatProgress) || 0))));
       }
 
@@ -6580,7 +7170,7 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
   const COMMAND_INSERT_PARAM_HEADS = new Set([
     'gain', 'pan', 'force', 'speed', 'rate', 'start', 'decay', 'space', 'body',
     'sympathetic', 'compress', 'crush', 'resolution', 'tone', 'filter', 'color',
-    'mallet', 'roll', 'deadstroke', 'pedal', 'motor', 'depth', 'damp',
+    'mallet', 'ripple', 'rip', 'ripple-time', 'riptime', 'roll', 'deadstroke', 'pedal', 'motor', 'depth', 'damp',
     'bowpressure', 'articulation', 'sul', 'vibrato', 'carrier', 'syllable',
     'vocoder', 'robot', 'mouth', 'formant', 'roughness', 'kit', 'variance',
     'listen', 'monitor', 'opacity', 'feedback', 'edges', 'blend', 'vowel',
@@ -7086,7 +7676,7 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
         label: 'open reference',
         detail: 'surface map and syntax rail',
         action: 'open',
-        run: () => referenceToggleBtn && referenceToggleBtn.click(),
+        run: openReferenceWindow,
       },
       {
         id: 'action.docs',
@@ -7095,10 +7685,7 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
         label: 'open docs',
         detail: 'manual · language · voices · examples',
         action: 'open',
-        run: () => {
-          const btn = document.getElementById('docs-toggle');
-          if (btn) btn.click();
-        },
+        run: openManualTab,
       },
       {
         id: 'action.score-grid',
@@ -7205,8 +7792,8 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
         kind: 'instrument',
         label: 'marimba',
         detail: 'struck wooden bars / mallet body',
-        insert: 'marimba C3 E3 G3 C4\nmallet yarn\nresonance .65\nbody .45\nroll 0\ndeadstroke 0',
-        params: 'MALLET · RESONANCE · BODY · ROLL · DEADSTROKE',
+        insert: 'marimba C3 E3 G3 C4\nmallet yarn\nresonance .65\nbody .45\ntremolo 0\ndeadstroke 0',
+        params: 'MALLET · RESONANCE · BODY · TREMOLO · DEADSTROKE',
       },
       {
         id: 'voice.vibraphone',
@@ -7373,7 +7960,8 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
         ['filter', 'filter color / spectral leaning', 'filter bright'],
         ['color', 'video color pressure', 'color .5'],
         ['mallet', 'marimba mallet family', 'mallet yarn'],
-        ['roll', 'marimba repeated soft strike density', 'roll .55'],
+        ['ripple', 'one-shot onset spread across a simultaneity', 'ripple u'],
+        ['ripple-time', 'seconds of ripple spread', 'ripple-time .045'],
         ['deadstroke', 'marimba damping after attack', 'deadstroke .8'],
         ['pedal', 'piano/vibes damper openness', 'pedal .85'],
         ['motor', 'vibraphone rotating resonator speed', 'motor .45'],
@@ -7436,7 +8024,7 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
       const hay = `${entry.id || ''} ${entry.group || ''} ${entry.kind || ''} ${entry.label || ''} ${entry.detail || ''} ${entry.params || ''}`.toLowerCase();
 
       if (hay.includes(ctx)) return 12;
-      if (ctx === 'marimba' && /(mallet|roll|deadstroke|resonance|body|spread|human)/.test(hay)) return 8;
+      if (ctx === 'marimba' && /(mallet|tremolo|ripple|rip|deadstroke|resonance|body|spread|human)/.test(hay)) return 8;
       if (ctx === 'vibraphone' && /(pedal|motor|depth|damp|bowpressure|articulation|body|spread)/.test(hay)) return 8;
       if (ctx === 'voice' && /(vowel|syllable|carrier|vocoder|robot|mouth|formant|roughness|breath|ensemble)/.test(hay)) return 8;
       if ((ctx === 'violin' || ctx === 'cello') && /(articulation|sul|vibrato|bow|wood|sympathetic|release)/.test(hay)) return 8;
@@ -8607,7 +9195,7 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
       summary.textContent = commandSampleSummaryText();
       shell.appendChild(summary);
       const info = document.createElement('div');
-      info.className = 'reference-section-note';
+      info.className = 'command-surface-note';
       info.textContent = commandSampleSurfaceInfoText();
       shell.appendChild(info);
       if (!libs.length && commandSampleLibraryState.loading) {
@@ -8949,7 +9537,7 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
       commandPopoverList.appendChild(section);
 
       const info = document.createElement('div');
-      info.className = 'reference-section-note command-surface-note';
+      info.className = 'command-surface-note';
       info.textContent = commandSurfaceCopy(active.id);
       commandPopoverList.appendChild(info);
 
@@ -9513,7 +10101,6 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
 
     async function bootRepl() {
       setLoadingPhase('boot');
-      initReferencePanel();
 
       setLoadingPhase('parser');
       mountEditor();
@@ -9564,4 +10151,6 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
         finishLoadingPhase('READY');
       }
     }, 4500);
+    if (currentExampleFile) syncTutorialNavForFile(currentExampleFile);
+    else clearTutorialNav();
   })();

@@ -1,0 +1,23 @@
+// harmony wildcard glyphs
+// ? is reserved for pickup/anacrusis bookends in voice rows.
+// use H*, T*, PD*, D*, M*, and X* for harmony wildcards/globs.
+
+tempo 84
+meter 4/4
+key C major
+
+chord         H*      T*      PD*     D*      | M*      D*~     T*!
+harmonic-risk .18     .20     .40     .75     | .58     .82     .22
+voicing       close   open    drop2   rootless| open    rootless close
+lead          smooth  smooth  smooth  resolve | pivot   tense    settle
+chord-open    .20     .38     .52     .72     | .55     .78     .24
+
+piano chord chord chord chord | chord chord chord
+roll  .     .     .     u     | .     d     .
+force mp
+decay 3
+pan center
+tone bright
+body wood
+space .24
+gain .38

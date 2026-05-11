@@ -1,0 +1,21 @@
+// pickup ornament speed
+// ? is structural pickup space; ornament-speed only shapes the sounding leaf.
+// the pickup trill is fast enough to resolve before bar 1.
+
+tempo 76
+meter 4/4
+pickup 1
+tuning kirnberger-3
+
+piano ? G4 | C5 B4 A4 G4 | F#4 G4 A4 ?
+ornament tr | + . ~ . | app - .
+ornament-speed .82 | .88 . .48 . | .36 .86 .
+ornament-style bach
+ornament-human .18
+force mp
+decay 3
+pan center
+tone bright
+body wood
+space .24
+gain .36

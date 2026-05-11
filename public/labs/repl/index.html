@@ -22,13 +22,9 @@
 
     .repl-workspace {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(17rem, 23rem);
+      grid-template-columns: minmax(0, 1fr);
       gap: 1rem;
       align-items: start;
-    }
-
-    .repl-workspace.reference-closed {
-      grid-template-columns: minmax(0, 1fr);
     }
 
     .repl-main {
@@ -351,11 +347,6 @@
         .repl-main {
           max-width: none;
         }
-
-        .reference-panel {
-          position: static;
-          max-height: 32em;
-        }
       }
       
     @media (max-width: 720px) {
@@ -375,107 +366,6 @@
       }
     }
 
-      /* reference sidebar */
-      .reference-panel {
-        border: 1px solid #ddd;
-        background: #f7f7f3;
-        color: #555;
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.84em;
-        line-height: 1.35;
-        padding: 0.72em 0.78em 0.86em;
-        position: sticky;
-        top: 1rem;
-        max-height: calc(100vh - 2rem);
-        overflow: auto;
-      }
-
-      .reference-section-note {
-        margin-top: 0.42em;
-        color: #666;
-        border-top: 1px solid #e0e0d8;
-        padding-top: 0.42em;
-      }
-      
-      .reference-panel[hidden] {
-        display: none !important;
-      }
-
-      .reference-panel-head {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 1em;
-        margin-bottom: 0.72em;
-        padding-bottom: 0.45em;
-        border-bottom: 1px solid #e0e0d8;
-      }
-
-      .reference-title {
-        color: #222;
-        font-weight: 600;
-      }
-
-      .reference-subtitle {
-        color: #777;
-        font-size: 0.92em;
-        margin-top: 0.12em;
-      }
-
-      .reference-close {
-        font-family: inherit;
-        font-size: inherit;
-        background: transparent;
-        border: 0;
-        color: #666;
-        cursor: pointer;
-        padding: 0;
-        white-space: nowrap;
-      }
-
-      .reference-close:hover,
-      .reference-close:focus {
-        color: #0000cc;
-        outline: none;
-      }
-
-      .reference-section {
-        margin-top: 0.82em;
-      }
-
-      .reference-section:first-of-type {
-        margin-top: 0;
-      }
-
-      .reference-section-title {
-        color: #777;
-        font-size: 0.92em;
-        letter-spacing: 0.02em;
-        margin-bottom: 0.22em;
-      }
-
-      .reference-table {
-        display: grid;
-        grid-template-columns: max-content minmax(0, 1fr);
-        gap: 0.16em 0.75em;
-      }
-
-      .reference-key {
-        color: #222;
-        white-space: nowrap;
-      }
-
-      .reference-value {
-        color: #666;
-        min-width: 0;
-      }
-
-      .reference-panel code {
-        background: transparent;
-        color: #222;
-        padding: 0;
-      }
-      
     /* samples browse panel */
     .samples-panel {
       margin: 0.6em 0 0;
@@ -1531,7 +1421,6 @@ margin-top: var(--editor-label-rail, 0px);
       text-transform: uppercase;
     }
 
-    .reference-panel,
     .samples-panel,
     .input-panel {
       background: var(--cs-white);
@@ -1541,7 +1430,6 @@ margin-top: var(--editor-label-rail, 0px);
       box-shadow: 5px 5px 0 var(--cs-line);
     }
 
-    .reference-panel-head,
     .samples-panel-head,
     .input-panel-row:first-child {
       margin: -0.72em -0.78em 0.72em;
@@ -1555,7 +1443,6 @@ margin-top: var(--editor-label-rail, 0px);
       margin: -0.55em -0.7em 0.55em;
     }
 
-    .reference-title,
     .samples-panel-title,
     .input-panel strong {
       color: var(--cs-white);
@@ -1564,7 +1451,6 @@ margin-top: var(--editor-label-rail, 0px);
       text-transform: uppercase;
     }
 
-    .reference-subtitle,
     .samples-panel-hint {
       color: var(--cs-yellow);
       font-weight: 900;
@@ -1579,7 +1465,6 @@ margin-top: var(--editor-label-rail, 0px);
       font-size: 0.68rem;
     }
 
-    .reference-close,
     .input-panel button,
     .input-panel select,
     #samples-filter {
@@ -1636,7 +1521,6 @@ margin-top: var(--editor-label-rail, 0px);
       font-weight: 800;
     }
 
-    .reference-section-title,
     .samples-group-head {
       display: inline-block;
       background: var(--cs-line);
@@ -1648,18 +1532,6 @@ margin-top: var(--editor-label-rail, 0px);
       text-transform: uppercase;
     }
 
-    .reference-section-note,
-    .reference-panel-head {
-      border-color: var(--cs-line);
-    }
-
-    .reference-key,
-    .reference-panel code {
-      color: var(--cs-ink);
-      font-weight: 900;
-    }
-
-    .reference-value,
     .samples-panel-hint,
     .input-status {
       color: var(--cs-muted);
@@ -2573,205 +2445,6 @@ margin-top: var(--editor-label-rail, 0px);
       outline-offset: 2px;
     }
 
-    .docs-panel {
-      grid-area: samples;
-      margin: 0.2rem 0 0;
-      background: var(--cs-white);
-      color: var(--cs-ink);
-      border: 2px solid var(--cs-line);
-      box-shadow: 7px 7px 0 var(--cs-line), 12px 12px 0 rgba(0, 87, 255, 0.2);
-      font-family: "Courier New", Courier, monospace;
-    }
-
-    .docs-panel[hidden] {
-      display: none !important;
-    }
-
-    .docs-frame {
-      min-height: min(44rem, 82vh);
-      display: flex;
-      flex-direction: column;
-      background:
-        linear-gradient(90deg, rgba(0,0,0,0.035) 1px, transparent 1px) 0 0 / 2rem 2rem,
-        linear-gradient(180deg, rgba(0,0,0,0.035) 1px, transparent 1px) 0 0 / 2rem 2rem,
-        var(--cs-white);
-    }
-
-    .docs-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 1rem;
-      padding: clamp(1rem, 2.2vw, 1.8rem);
-      border-bottom: 2px solid var(--cs-line);
-      background: var(--cs-white);
-      position: relative;
-    }
-
-    .docs-head::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 0.72rem;
-      background: linear-gradient(180deg, var(--cs-red) 0 33%, var(--cs-yellow) 33% 66%, var(--cs-blue) 66% 100%);
-      border-right: 2px solid var(--cs-line);
-    }
-
-    .docs-eyebrow {
-      display: inline-block;
-      margin: 0 0 0.35rem 0.8rem;
-      padding: 0.12rem 0.36rem;
-      background: var(--cs-line);
-      color: var(--cs-white);
-      font-size: 0.7rem;
-      font-weight: 900;
-      letter-spacing: 0.13em;
-      text-transform: uppercase;
-    }
-
-    .docs-title {
-      margin: 0 0 0.2rem 0.8rem;
-      font-family: Georgia, "Times New Roman", Times, serif;
-      font-size: clamp(3rem, 6vw, 6.2rem);
-      font-weight: 400;
-      letter-spacing: -0.065em;
-      line-height: 0.86;
-      text-transform: lowercase;
-    }
-
-    .docs-subtitle {
-      max-width: 46rem;
-      margin: 0.45rem 0 0 0.85rem;
-      font-size: clamp(0.88rem, 1.2vw, 1.05rem);
-      font-weight: 900;
-      letter-spacing: 0.02em;
-      line-height: 1.35;
-    }
-
-    .docs-close {
-      flex: 0 0 auto;
-      min-height: 2.25rem;
-      padding: 0.35rem 0.75rem;
-      background: var(--cs-white);
-      color: var(--cs-ink);
-      border: 2px solid var(--cs-line);
-      box-shadow: 3px 3px 0 var(--cs-line);
-      font: inherit;
-      font-weight: 900;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      cursor: pointer;
-    }
-
-    .docs-close:hover,
-    .docs-close:focus {
-      background: var(--cs-red);
-      color: var(--cs-white);
-      outline: 2px solid var(--cs-line);
-      outline-offset: 2px;
-    }
-
-    .docs-close:active {
-      transform: translate(2px, 2px);
-      box-shadow: 1px 1px 0 var(--cs-line);
-    }
-
-    .docs-tools {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.65rem clamp(1rem, 2.2vw, 1.8rem);
-      border-bottom: 2px solid var(--cs-line);
-      background: var(--cs-white);
-    }
-
-    .docs-search-label {
-      display: inline-flex;
-      align-items: center;
-      align-self: stretch;
-      margin: -0.65rem 0;
-      padding: 0 0.65rem;
-      background: var(--cs-line);
-      color: var(--cs-yellow);
-      font-weight: 900;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-
-    .docs-search {
-      flex: 1 1 auto;
-      min-width: 0;
-      min-height: 2.1rem;
-      padding: 0.34rem 0.55rem;
-      border: 2px solid var(--cs-line);
-      background: var(--cs-white);
-      color: var(--cs-ink);
-      box-shadow: 3px 3px 0 var(--cs-line);
-      font: inherit;
-      font-weight: 900;
-    }
-
-    .docs-search:focus {
-      outline: 2px solid var(--cs-blue);
-      outline-offset: 2px;
-    }
-
-    .docs-layout {
-      display: grid;
-      grid-template-columns: minmax(13rem, 18rem) minmax(0, 1fr);
-      min-height: 0;
-      flex: 1 1 auto;
-    }
-
-    .docs-nav {
-      border-right: 2px solid var(--cs-line);
-      background: var(--cs-white);
-      padding: 0.8rem;
-      overflow: auto;
-    }
-
-    .docs-nav-button {
-      width: 100%;
-      display: grid;
-      grid-template-columns: 2.2rem minmax(0, 1fr);
-      gap: 0.45rem;
-      align-items: center;
-      margin: 0 0 0.42rem;
-      padding: 0.36rem 0.45rem;
-      border: 2px solid var(--cs-line);
-      background: var(--cs-white);
-      color: var(--cs-ink);
-      box-shadow: 2px 2px 0 var(--cs-line);
-      font: inherit;
-      font-size: 0.82rem;
-      font-weight: 900;
-      letter-spacing: 0.045em;
-      text-align: left;
-      text-transform: uppercase;
-      cursor: pointer;
-    }
-
-    .docs-nav-button:nth-child(3n + 1):hover,
-    .docs-nav-button:nth-child(3n + 1):focus { background: var(--cs-red); color: var(--cs-white); }
-    .docs-nav-button:nth-child(3n + 2):hover,
-    .docs-nav-button:nth-child(3n + 2):focus { background: var(--cs-yellow); color: var(--cs-ink); }
-    .docs-nav-button:nth-child(3n):hover,
-    .docs-nav-button:nth-child(3n):focus { background: var(--cs-blue); color: var(--cs-white); }
-
-    .docs-nav-button.is-active {
-      background: var(--cs-line);
-      color: var(--cs-white);
-      box-shadow: 4px 4px 0 var(--cs-blue);
-    }
-
-    .docs-nav-num {
-      color: inherit;
-      font-variant-numeric: tabular-nums;
-    }
-
       /* neo-brutal score-bank popover */
       .example-popover {
         --example-accent: var(--cs-blue);
@@ -3046,6 +2719,13 @@ margin-top: var(--editor-label-rail, 0px);
         background-size: 24px 24px;
       }
 
+      .command-surface-note {
+        margin-top: 0.42em;
+        color: #666;
+        border-top: 1px solid #e0e0d8;
+        padding-top: 0.42em;
+      }
+
       .example-popover-section-label {
         display: inline-flex;
         align-self: flex-start;
@@ -3313,195 +2993,6 @@ margin-top: var(--editor-label-rail, 0px);
           transition: none !important;
         }
       }
-
-    .docs-content {
-      overflow: auto;
-      padding: clamp(1rem, 2.5vw, 2.2rem);
-      max-height: min(52rem, 82vh);
-      background: rgba(255, 255, 255, 0.92);
-    }
-
-    .docs-section {
-      max-width: 68rem;
-      margin: 0 auto 2.2rem;
-      padding-bottom: 2rem;
-      border-bottom: 2px solid var(--cs-line);
-    }
-
-    .docs-section:last-child {
-      border-bottom: 0;
-      padding-bottom: 0;
-    }
-
-    .docs-section-kicker {
-      display: inline-flex;
-      align-items: center;
-      padding: 0.14rem 0.42rem;
-      background: var(--cs-line);
-      color: var(--cs-yellow);
-      font-weight: 900;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-    }
-
-    .docs-content h3 {
-      margin: 0.55rem 0 0.65rem;
-      font-family: Georgia, "Times New Roman", Times, serif;
-      font-size: clamp(2.1rem, 4vw, 4.4rem);
-      font-weight: 400;
-      letter-spacing: -0.055em;
-      line-height: 0.92;
-      text-transform: lowercase;
-    }
-
-    .docs-content h4 {
-      display: inline-flex;
-      margin: 1.25rem 0 0.5rem;
-      padding: 0.13rem 0.45rem;
-      background: var(--cs-white);
-      color: var(--cs-ink);
-      border: 2px solid var(--cs-line);
-      box-shadow: 3px 3px 0 var(--cs-line);
-      font-size: 0.92rem;
-      font-weight: 900;
-      letter-spacing: 0.09em;
-      text-transform: uppercase;
-    }
-
-    .docs-content p,
-    .docs-content li {
-      font-family: Georgia, "Times New Roman", Times, serif;
-      font-size: 1.04rem;
-      line-height: 1.55;
-    }
-
-    .docs-content p {
-      margin: 0.55rem 0;
-    }
-
-    .docs-content ul,
-    .docs-content ol {
-      margin: 0.55rem 0 0.9rem;
-      padding-left: 1.35rem;
-    }
-
-    .docs-content code {
-      font-family: "Courier New", Courier, monospace;
-      font-weight: 900;
-      background: var(--cs-white);
-      border: 1.5px solid var(--cs-line);
-      box-shadow: 2px 2px 0 var(--cs-line);
-      padding: 0.02rem 0.26rem;
-    }
-
-    .docs-code {
-      margin: 0.85rem 0 1rem;
-      border: 2px solid var(--cs-line);
-      border-left: 0.75rem solid var(--cs-blue);
-      box-shadow: 4px 4px 0 var(--cs-line);
-      background: var(--cs-white);
-      overflow: auto;
-    }
-
-    .docs-code pre {
-      margin: 0;
-      padding: 0.82rem 0.95rem;
-      font: 900 0.92rem/1.42 "Courier New", Courier, monospace;
-      white-space: pre;
-    }
-
-    .docs-callout {
-      margin: 1rem 0;
-      padding: 0.8rem 0.9rem;
-      border: 2px solid var(--cs-line);
-      border-left: 0.75rem solid var(--cs-yellow);
-      background: var(--cs-white);
-      box-shadow: 4px 4px 0 var(--cs-line);
-      font-family: Georgia, "Times New Roman", Times, serif;
-      font-size: 1.06rem;
-      line-height: 1.5;
-    }
-
-    .docs-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 0.9rem 0 1.1rem;
-      background: var(--cs-white);
-      box-shadow: 4px 4px 0 var(--cs-line);
-    }
-
-    .docs-table th,
-    .docs-table td {
-      border: 2px solid var(--cs-line);
-      padding: 0.42rem 0.55rem;
-      vertical-align: top;
-    }
-
-    .docs-table th {
-      background: var(--cs-line);
-      color: var(--cs-white);
-      font-size: 0.78rem;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      text-align: left;
-    }
-
-    .docs-table td:first-child {
-      font-family: "Courier New", Courier, monospace;
-      font-weight: 900;
-      white-space: nowrap;
-    }
-
-    .docs-empty {
-      display: none;
-      max-width: 38rem;
-      margin: 3rem auto;
-      padding: 1rem;
-      border: 2px solid var(--cs-line);
-      box-shadow: 4px 4px 0 var(--cs-line);
-      background: var(--cs-white);
-      font-weight: 900;
-      text-transform: uppercase;
-    }
-
-    .docs-content.is-empty .docs-empty {
-      display: block;
-    }
-
-    .docs-content.is-empty .docs-section {
-      display: none;
-    }
-
-    @media (max-width: 54rem) {
-      .docs-layout {
-        grid-template-columns: minmax(0, 1fr);
-      }
-
-      .docs-nav {
-        border-right: 0;
-        border-bottom: 2px solid var(--cs-line);
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-        gap: 0.42rem;
-        max-height: 16rem;
-      }
-
-      .docs-nav-button {
-        margin: 0;
-      }
-
-      .docs-tools {
-        align-items: stretch;
-        flex-direction: column;
-      }
-
-      .docs-search-label {
-        margin: 0;
-        min-height: 1.7rem;
-      }
-    }
-
-  
 
     /* Transport command captions — each control carries its execution shortcut/action. */
     .controls button,
@@ -7480,7 +6971,13 @@ margin-top: var(--editor-label-rail, 0px);
     ------------------------------------------------------------------ */
     .controls.transport-strip {
       display: grid !important;
-      grid-template-columns: 7.2rem minmax(15rem, 18rem) minmax(6.8rem, 7.6rem) minmax(7.2rem, 8.8rem) minmax(16rem, 1fr) !important;
+      grid-template-columns:
+        7.2rem
+        minmax(15rem, 18rem)
+        minmax(6.8rem, 7.6rem)
+        minmax(7.2rem, 8.8rem)
+        1.65rem
+        minmax(18rem, 1fr) !important;
       grid-template-rows: 3.15rem 2.65rem !important;
       grid-auto-flow: row !important;
       gap: 0.52rem !important;
@@ -7778,21 +7275,38 @@ margin-top: var(--editor-label-rail, 0px);
       color: #ffffff !important;
     }
 
-    /* REFERENCE / DOCS — stacked Button E controls at far right */
+    /* REFERENCE / DOCS — stacked controls at far right.
+       The divider owns the separation; do not add a second left stripe here. */
     .controls.transport-strip #reference-toggle {
-      grid-column: 5 !important;
+      grid-column: 6 !important;
       grid-row: 1 !important;
-      border-left: 7px solid var(--cs-yellow, #ffd400) !important;
+      border-left: 2px solid var(--cs-line, #070707) !important;
       background: #ffffff !important;
       color: #070707 !important;
     }
 
     .controls.transport-strip #docs-toggle {
-      grid-column: 5 !important;
+      grid-column: 6 !important;
       grid-row: 2 !important;
-      border-left: 7px solid var(--cs-line, #070707) !important;
+      border-left: 2px solid var(--cs-line, #070707) !important;
       background: #ffffff !important;
       color: #070707 !important;
+    }
+
+    .controls.transport-strip::after {
+      content: "" !important;
+      display: block !important;
+      grid-column: 5 !important;
+      grid-row: 1 / 3 !important;
+      align-self: stretch !important;
+      justify-self: center !important;
+      width: 0 !important;
+      min-width: 0 !important;
+      margin: 0 !important;
+      border-left: 3px solid var(--cs-line, #070707) !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      pointer-events: none !important;
     }
 
     .controls.transport-strip #reference-toggle:hover,
@@ -7826,6 +7340,11 @@ margin-top: var(--editor-label-rail, 0px);
         grid-template-columns: 6.8rem minmax(12rem, 1fr) 7rem 8rem !important;
         grid-template-rows: 3.15rem 2.65rem 2.65rem 2.65rem !important;
         max-width: none !important;
+      }
+
+      .controls.transport-strip::after {
+        display: none !important;
+        content: none !important;
       }
 
       .controls.transport-strip .transport-rail { grid-column: 1 !important; grid-row: 1 / 5 !important; }
@@ -10080,42 +9599,150 @@ margin-top: var(--editor-label-rail, 0px);
         100% { clip-path: inset(0 0 0 0); transform: translate(0, 0); }
       }
 
-      .transport-help,
-      #onboarding-help {
-        min-width: 4.2rem;
-        border-left-width: 8px !important;
-        border-left-color: var(--cs-violet, #6c2cff) !important;
-        background: #ffffff !important;
-        color: #070707 !important;
+      /* Utility buttons v2 — exact Button E/F machine slabs.
+         COMMAND PALETTE is Button F: blue, square-left, rounded-right.
+         FIELD MANUAL is Button E: yellow, square slab. Existing IDs and
+         click handlers stay intact; rollups below intentionally beat older
+         transport/button reset rules. */
+      .controls.transport-strip #samples-toggle,
+      .controls.transport-strip #onboarding-help {
+        isolation: isolate !important;
+        position: relative !important;
+        display: grid !important;
+        grid-template-rows: auto auto !important;
+        place-items: center !important;
+        align-content: center !important;
+        justify-content: stretch !important;
+        gap: 0.18rem !important;
+        width: 100% !important;
+        height: 100% !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        box-sizing: border-box !important;
+        margin: 0 !important;
+        padding: 0.38rem 0.62rem 0.34rem !important;
+        border: 3px solid #070707 !important;
+        font-family: "Courier New", Courier, monospace !important;
+        font-weight: 900 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.14em !important;
+        line-height: 1 !important;
+        cursor: pointer !important;
+        overflow: visible !important;
+        appearance: none !important;
+        transform: translate(0, 0) !important;
+        box-shadow: 7px 7px 0 rgba(7, 7, 7, 0.24) !important;
       }
 
-      #onboarding-help .button-main {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 1.2rem;
-        min-height: 1.2rem;
-        margin-right: 0.28rem;
-        border: 2px solid #070707;
-        background: #ffd400;
-        color: #070707;
-        box-shadow: 2px 2px 0 #070707;
-        font-family: "Courier New", Courier, monospace;
-        font-weight: 900;
-        line-height: 1;
+      .controls.transport-strip #samples-toggle::before,
+      .controls.transport-strip #samples-toggle::after,
+      .controls.transport-strip #onboarding-help::before,
+      .controls.transport-strip #onboarding-help::after {
+        content: none !important;
+        display: none !important;
       }
 
-      #onboarding-help:hover,
-      #onboarding-help:focus {
+      .controls.transport-strip #samples-toggle .button-main,
+      .controls.transport-strip #samples-toggle .button-shortcut,
+      .controls.transport-strip #onboarding-help .button-main,
+      .controls.transport-strip #onboarding-help .button-shortcut {
+        position: relative !important;
+        z-index: 2 !important;
+        display: block !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        color: inherit !important;
+        text-align: center !important;
+        line-height: 1 !important;
+        white-space: nowrap !important;
+        pointer-events: none !important;
+      }
+
+      .controls.transport-strip #samples-toggle {
+        grid-column: 2 !important;
+        grid-row: 2 !important;
+        background: #0b66b8 !important;
+        color: #ffffff !important;
+        /* Button F: square-left, square top-right, rounded bottom-right only. */
+        border-radius: 0 0 1.25rem 0 !important;
+      }
+
+      .controls.transport-strip #samples-toggle .button-main {
+        font-size: clamp(0.9rem, 1.55vw, 1.12rem) !important;
+        letter-spacing: 0.17em !important;
+      }
+
+      .controls.transport-strip #samples-toggle .button-shortcut {
+        font-size: clamp(0.5rem, 0.82vw, 0.64rem) !important;
+        letter-spacing: 0.14em !important;
+        opacity: 0.98 !important;
+      }
+
+      .controls.transport-strip #onboarding-help {
+        grid-column: 4 !important;
+        grid-row: 2 !important;
         background: #ffd400 !important;
         color: #070707 !important;
-        outline: 2px solid #070707;
-        outline-offset: 2px;
+        /* Button E: rounded top corners, square bottom edge. */
+        border-radius: 1.05rem 1.05rem 0 0 !important;
+        grid-template-rows: 0.72rem auto !important;
+        gap: 0.10rem !important;
+        padding: 0.34rem 0.42rem 0.38rem !important;
       }
 
-      #onboarding-help:hover .button-main,
-      #onboarding-help:focus .button-main {
-        background: #ffffff;
+      .controls.transport-strip #onboarding-help .button-main {
+        font-size: clamp(0.7rem, 1.05vw, 0.86rem) !important;
+        letter-spacing: 0.06em !important;
+      }
+
+      .controls.transport-strip #onboarding-help .button-shortcut {
+        font-size: clamp(0.58rem, 0.92vw, 0.76rem) !important;
+        letter-spacing: 0.13em !important;
+        white-space: nowrap !important;
+      }
+
+      .controls.transport-strip #samples-toggle:hover,
+      .controls.transport-strip #samples-toggle:focus-visible,
+      .controls.transport-strip #onboarding-help:hover,
+      .controls.transport-strip #onboarding-help:focus-visible {
+        transform: translate(-1px, -1px) !important;
+        box-shadow: 8px 8px 0 rgba(7, 7, 7, 0.30) !important;
+        outline: 2px solid #070707 !important;
+        outline-offset: 2px !important;
+        filter: contrast(1.04) !important;
+      }
+
+      .controls.transport-strip #samples-toggle:active,
+      .controls.transport-strip #onboarding-help:active {
+        transform: translate(3px, 3px) !important;
+        box-shadow: 2px 2px 0 rgba(7, 7, 7, 0.26) !important;
+        filter: none !important;
+      }
+
+      @media (max-width: 74rem) {
+        .controls.transport-strip #samples-toggle {
+          grid-column: 2 !important;
+          grid-row: 2 !important;
+        }
+
+        .controls.transport-strip #onboarding-help {
+          grid-column: 4 !important;
+          grid-row: 2 !important;
+        }
+      }
+
+      @media (max-width: 52rem) {
+        .controls.transport-strip #samples-toggle,
+        .controls.transport-strip #onboarding-help {
+          grid-column: auto !important;
+          grid-row: auto !important;
+          min-height: 2.7rem !important;
+        }
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -10127,6 +9754,675 @@ margin-top: var(--editor-label-rail, 0px);
       }
 
 
+    /* ------------------------------------------------------------------
+       Final transport button polish — exact requested edits only.
+       - evaluate hover flips stripe direction and uses green, not blue
+       - I/O hover is black/white and shortcut is keycap glyphs
+       - STOP shortcut is a keycap glyph
+       - separator divides the left control cluster from REFERENCE/DOCS
+    ------------------------------------------------------------------ */
+    .controls.transport-strip {
+      position: relative !important;
+    }
+
+    .controls.transport-strip .transport-cluster-divider {
+      grid-column: 5 !important;
+      grid-row: 1 / 3 !important;
+      align-self: stretch !important;
+      justify-self: start !important;
+      width: 0 !important;
+      min-width: 0 !important;
+      margin: -0.08rem 0 -0.08rem calc(-0.28rem - 2px) !important;
+      border-left: 3px solid var(--cs-line, #070707) !important;
+      box-shadow: 2px 0 0 var(--cs-yellow, #ffd400) !important;
+      pointer-events: none !important;
+      z-index: 8 !important;
+    }
+
+    .controls.transport-strip #play.transport-evaluate:hover,
+    .controls.transport-strip #play.transport-evaluate:focus-visible,
+    .controls.transport-strip #play:hover,
+    .controls.transport-strip #play:focus-visible {
+      --eval-center: var(--cs-green, #008f5a) !important;
+      background:
+        linear-gradient(var(--eval-center), var(--eval-center)) center / calc(100% - (var(--eval-guard) * 2)) 100% no-repeat,
+        repeating-linear-gradient(
+          45deg,
+          #ffffff 0 10px,
+          #ffffff 10px 20px,
+          #070707 20px 30px,
+          #070707 30px 40px
+        ) left center / var(--eval-guard) 100% no-repeat,
+        repeating-linear-gradient(
+          45deg,
+          #ffffff 0 10px,
+          #ffffff 10px 20px,
+          #070707 20px 30px,
+          #070707 30px 40px
+        ) right center / var(--eval-guard) 100% no-repeat !important;
+      box-shadow: 5px 5px 0 var(--cs-green, #008f5a), 8px 8px 0 var(--cs-line, #070707) !important;
+      outline: 2px solid var(--cs-green, #008f5a) !important;
+    }
+
+    .controls.transport-strip #input-toggle:hover,
+    .controls.transport-strip #input-toggle:focus-visible,
+    .controls.transport-strip #input-toggle[aria-expanded="true"] {
+      background: var(--cs-line, #070707) !important;
+      color: var(--cs-white, #ffffff) !important;
+      box-shadow: 5px 5px 0 rgba(7, 7, 7, 0.28) !important;
+      outline: 2px solid var(--cs-line, #070707) !important;
+      outline-offset: 2px !important;
+    }
+
+    .controls.transport-strip #input-toggle .button-shortcut,
+    .controls.transport-strip #stop .button-shortcut {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 0.16rem !important;
+      margin: 0.12rem 0 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+    }
+
+    .controls.transport-strip #input-toggle .button-shortcut kbd,
+    .controls.transport-strip #stop .button-shortcut kbd {
+      display: inline-grid !important;
+      place-items: center !important;
+      min-width: 1.04rem !important;
+      min-height: 0.88rem !important;
+      padding: 0 0.16rem !important;
+      border: 2px solid var(--cs-line, #070707) !important;
+      background: var(--cs-white, #ffffff) !important;
+      color: var(--cs-line, #070707) !important;
+      box-shadow: 2px 2px 0 rgba(7, 7, 7, 0.28) !important;
+      font-family: "Courier New", Courier, monospace !important;
+      font-size: 0.56rem !important;
+      font-weight: 900 !important;
+      line-height: 1 !important;
+      letter-spacing: 0.02em !important;
+      text-transform: uppercase !important;
+    }
+
+    .controls.transport-strip #input-toggle:hover .button-shortcut kbd,
+    .controls.transport-strip #input-toggle:focus-visible .button-shortcut kbd,
+    .controls.transport-strip #input-toggle[aria-expanded="true"] .button-shortcut kbd {
+      border-color: var(--cs-line, #070707) !important;
+      background: var(--cs-white, #ffffff) !important;
+      color: var(--cs-line, #070707) !important;
+      box-shadow: 2px 2px 0 var(--cs-yellow, #ffd400) !important;
+    }
+
+    .controls.transport-strip #stop .button-shortcut kbd {
+      box-shadow: 2px 2px 0 rgba(255, 255, 255, 0.28) !important;
+    }
+
+    @media (max-width: 74rem) {
+      .controls.transport-strip .transport-cluster-divider {
+        display: none !important;
+      }
+    }
+
+
+    /* ------------------------------------------------------------------
+       Transport console module repair — one divider, one console, narrow docs.
+       This block intentionally comes late to defeat older transport strip rules.
+    ------------------------------------------------------------------ */
+    .controls.transport-strip {
+      grid-template-columns:
+        7.2rem
+        minmax(15rem, 18rem)
+        minmax(6.8rem, 7.6rem)
+        minmax(7.2rem, 8.8rem)
+        1.35rem
+        minmax(18rem, 1fr)
+        minmax(10rem, 14rem) !important;
+      grid-template-rows: 3.15rem 2.65rem !important;
+    }
+
+    .controls.transport-strip::before,
+    .controls.transport-strip::after {
+      display: none !important;
+      content: none !important;
+    }
+
+    .controls.transport-strip .transport-cluster-divider {
+      grid-column: 5 !important;
+      grid-row: 1 / 3 !important;
+      align-self: stretch !important;
+      justify-self: center !important;
+      display: block !important;
+      width: 0 !important;
+      min-width: 0 !important;
+      margin: 0 !important;
+      border-left: 3px solid var(--cs-line, #070707) !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      pointer-events: none !important;
+      z-index: 8 !important;
+    }
+
+    .controls.transport-strip .transport-console {
+      grid-column: 6 !important;
+      grid-row: 1 / 3 !important;
+      display: grid !important;
+      grid-template-rows: 1.18rem minmax(0, 1fr) !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      box-sizing: border-box !important;
+      border: 3px solid var(--cs-line, #070707) !important;
+      background: #050505 !important;
+      color: #f7f7f7 !important;
+      box-shadow: 6px 6px 0 rgba(7, 7, 7, 0.32) !important;
+      overflow: hidden !important;
+      font-family: "Courier New", Courier, monospace !important;
+      text-transform: none !important;
+      letter-spacing: 0.02em !important;
+    }
+
+    .transport-console-head {
+      position: relative !important;
+      display: grid !important;
+      grid-template-columns: minmax(0, 1fr) auto max-content max-content !important;
+      align-items: center !important;
+      gap: 0.14rem !important;
+      min-width: 0 !important;
+      height: 1.18rem !important;
+      max-height: 1.18rem !important;
+      box-sizing: border-box !important;
+      padding: 0.03rem 0.24rem 0.03rem !important;
+      overflow: hidden !important;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+      background: #101010 !important;
+      color: var(--cs-white, #ffffff) !important;
+      font-size: 0.54rem !important;
+      font-weight: 900 !important;
+      line-height: 1 !important;
+      letter-spacing: 0.12em !important;
+      text-transform: uppercase !important;
+    }
+
+    .transport-console-title {
+      color: var(--cs-white, #ffffff) !important;
+      opacity: 0.58 !important;
+      transform: translateY(0) !important;
+    }
+
+    .transport-console--active .transport-console-title,
+    .transport-console:focus-within .transport-console-title {
+      opacity: 1 !important;
+    }
+
+    .transport-console-state {
+      justify-self: start !important;
+      padding-left: 0.32rem !important;
+      border-left: 2px solid rgba(255, 255, 255, 0.28) !important;
+      color: var(--cs-yellow, #ffd400) !important;
+      opacity: 0.72 !important;
+      transform: translateY(0) !important;
+    }
+
+    .transport-console-state:empty {
+      display: none !important;
+    }
+
+    .transport-console-state--success,
+    .transport-console-state--ok {
+      color: #00d084 !important;
+    }
+
+    .transport-console-state--warn {
+      color: var(--cs-yellow, #ffd400) !important;
+    }
+
+    .transport-console-state--queued {
+      color: #9ad7ff !important;
+    }
+
+    .transport-console-state--error {
+      color: var(--cs-red, #e3342f) !important;
+    }
+
+    .transport-console-tool,
+    .transport-console-mini {
+      display: inline-grid !important;
+      place-items: center !important;
+      width: 1.12rem !important;
+      height: 0.78rem !important;
+      min-width: 1.12rem !important;
+      min-height: 0.78rem !important;
+      padding: 0 !important;
+      border: 1px solid rgba(255, 255, 255, 0.42) !important;
+      background: #050505 !important;
+      color: rgba(255, 255, 255, 0.72) !important;
+      box-shadow: none !important;
+      font: inherit !important;
+      font-size: 0.66rem !important;
+      line-height: 1 !important;
+      letter-spacing: 0 !important;
+      text-transform: none !important;
+      cursor: pointer !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      transform: translateY(0) !important;
+      transition: opacity 120ms ease, transform 120ms ease, color 120ms ease, border-color 120ms ease !important;
+    }
+
+    .transport-console--active .transport-console-tool,
+    .transport-console--active .transport-console-mini,
+    .transport-console:focus-within .transport-console-tool,
+    .transport-console:focus-within .transport-console-mini {
+      opacity: 0.58 !important;
+      pointer-events: auto !important;
+      transform: translateY(0) !important;
+    }
+
+    .transport-console-tool:hover,
+    .transport-console-tool:focus-visible,
+    .transport-console-mini:hover,
+    .transport-console-mini:focus-visible {
+      opacity: 1 !important;
+      background: var(--cs-yellow, #ffd400) !important;
+      border-color: var(--cs-yellow, #ffd400) !important;
+      color: var(--cs-line, #070707) !important;
+      outline: none !important;
+    }
+
+    .transport-console-lines {
+      display: none !important;
+      min-height: 0 !important;
+      max-height: none !important;
+      overflow: auto !important;
+      padding: 0.14rem 0.38rem 0.28rem !important;
+      border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+      background:
+        repeating-linear-gradient(0deg, rgba(255,255,255,0.026) 0 1px, transparent 1px 1.04rem),
+        #050505 !important;
+      color: var(--cs-white, #ffffff) !important;
+      font-size: 0.66rem !important;
+      line-height: 1.28 !important;
+      text-transform: none !important;
+    }
+
+    .transport-console--active .transport-console-lines {
+      display: block !important;
+    }
+
+    .console-line {
+      display: grid !important;
+      grid-template-columns: 1rem max-content max-content !important;
+      gap: 0.28rem !important;
+      align-items: baseline !important;
+      margin: 0.06rem 0 !important;
+      min-width: 100% !important;
+      width: max-content !important;
+      white-space: pre !important;
+    }
+
+    .console-glyph {
+      font-weight: 900 !important;
+      text-align: center !important;
+    }
+
+    .console-message {
+      min-width: max-content !important;
+      max-width: none !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      white-space: pre !important;
+    }
+
+    .console-line--error { color: var(--cs-red, #e3342f) !important; }
+    .console-line--warn { color: var(--cs-yellow, #ffd400) !important; }
+    .console-line--queued { color: #9ad7ff !important; }
+    .console-line--success { color: #00d084 !important; }
+    .console-line--info { color: var(--cs-white, #ffffff) !important; }
+
+    .console-line[data-diagnostic="true"] {
+      cursor: pointer !important;
+      position: relative !important;
+    }
+
+    .console-line[data-diagnostic="true"]:hover,
+    .console-line[data-diagnostic="true"]:focus-visible {
+      background: rgba(255, 212, 0, 0.09) !important;
+      box-shadow: inset 4px 0 0 var(--cs-yellow, #ffd400) !important;
+      outline: none !important;
+    }
+
+    .console-action {
+      display: inline-block !important;
+      margin-left: 0.72rem !important;
+      padding: 0.02rem 0.22rem !important;
+      border: 1px solid rgba(255, 212, 0, 0.66) !important;
+      background: rgba(255, 212, 0, 0.12) !important;
+      color: var(--cs-yellow, #ffd400) !important;
+      font-size: 0.52rem !important;
+      font-weight: 900 !important;
+      letter-spacing: 0.08em !important;
+      line-height: 1.2 !important;
+      text-transform: uppercase !important;
+      opacity: 0.64 !important;
+    }
+
+    .console-line[data-diagnostic="true"]:hover .console-action,
+    .console-line[data-diagnostic="true"]:focus-visible .console-action {
+      border-color: var(--cs-yellow, #ffd400) !important;
+      background: var(--cs-yellow, #ffd400) !important;
+      color: var(--cs-line, #070707) !important;
+      opacity: 1 !important;
+    }
+
+    .console-code {
+      display: inline-block !important;
+      padding: 0 0.18rem !important;
+      border: 1px solid currentColor !important;
+      background: var(--cs-white, #ffffff) !important;
+      color: var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip #reference-toggle,
+    .controls.transport-strip #docs-toggle {
+      grid-column: 7 !important;
+      justify-self: stretch !important;
+      width: 100% !important;
+      border-left: 2px solid var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip #reference-toggle {
+      grid-row: 1 !important;
+      background: var(--cs-white, #ffffff) !important;
+      color: var(--cs-line, #070707) !important;
+    }
+
+    .controls.transport-strip #docs-toggle {
+      grid-row: 2 !important;
+      background: var(--cs-white, #ffffff) !important;
+      color: var(--cs-line, #070707) !important;
+    }
+
+    @media (max-width: 74rem) {
+      .controls.transport-strip {
+        grid-template-columns: 6.8rem minmax(12rem, 1fr) 7rem 8rem !important;
+        grid-template-rows: 3.15rem 2.65rem minmax(4.2rem, auto) 2.65rem 2.65rem !important;
+      }
+
+      .controls.transport-strip .transport-cluster-divider {
+        display: none !important;
+      }
+
+      .controls.transport-strip .transport-console {
+        grid-column: 2 / 5 !important;
+        grid-row: 3 !important;
+      }
+
+      .controls.transport-strip #reference-toggle {
+        grid-column: 2 / 5 !important;
+        grid-row: 4 !important;
+      }
+
+      .controls.transport-strip #docs-toggle {
+        grid-column: 2 / 5 !important;
+        grid-row: 5 !important;
+      }
+    }
+
+    @media (max-width: 52rem) {
+      .controls.transport-strip .transport-console {
+        grid-column: auto !important;
+        grid-row: auto !important;
+        min-height: 4.4rem !important;
+      }
+    }
+      /* ------------------------------------------------------------------
+         Tutorial pager + console title/glyph repair.
+         Late override: keep this near the end of <style>.
+      ------------------------------------------------------------------ */
+
+      .editor-wrap > .patch-identity-row {
+        grid-template-columns:
+          minmax(10rem, 1fr)
+          minmax(7.6rem, 10.4rem)
+          minmax(7.6rem, 9rem)
+          5.75rem
+          5.95rem !important;
+      }
+
+      .editor-wrap > .patch-identity-row #tutorial-nav {
+        grid-column: 2 !important;
+      }
+
+      .editor-wrap > .patch-identity-row .patches-trigger-chip {
+        grid-column: 3 !important;
+      }
+
+      .editor-wrap > .patch-identity-row #share {
+        grid-column: 4 !important;
+      }
+
+      .editor-wrap > .patch-identity-row #clear-patch {
+        grid-column: 5 !important;
+      }
+
+      .editor-wrap > .patch-identity-row #tutorial-nav[hidden] {
+        display: none !important;
+      }
+
+      .editor-wrap > .patch-identity-row #tutorial-nav {
+        position: relative !important;
+        display: grid !important;
+        grid-template-columns: 1.62rem minmax(0, 1fr) 1.62rem !important;
+        align-items: stretch !important;
+        gap: 0.18rem !important;
+        min-width: 0 !important;
+        min-height: var(--editor-label-rail) !important;
+        height: var(--editor-label-rail) !important;
+        box-sizing: border-box !important;
+        pointer-events: auto !important;
+      }
+
+      .editor-wrap > .patch-identity-row .tutorial-nav-button,
+      .editor-wrap > .patch-identity-row .tutorial-nav-label {
+        height: var(--editor-label-rail) !important;
+        min-height: var(--editor-label-rail) !important;
+        max-height: var(--editor-label-rail) !important;
+        box-sizing: border-box !important;
+        border: 0 !important;
+        border-bottom: 2px solid var(--cs-line, #070707) !important;
+        font-family: "Courier New", Courier, monospace !important;
+        font-weight: 900 !important;
+        text-transform: uppercase !important;
+      }
+
+      .editor-wrap > .patch-identity-row .tutorial-nav-button {
+        display: inline-grid !important;
+        place-items: center !important;
+        padding: 0 !important;
+        background: var(--cs-yellow, #ffd400) !important;
+        color: var(--cs-line, #070707) !important;
+        box-shadow: 3px 3px 0 var(--cs-line, #070707) !important;
+        font-size: 1.04rem !important;
+        line-height: 1 !important;
+        cursor: pointer !important;
+        appearance: none !important;
+      }
+
+      .editor-wrap > .patch-identity-row .tutorial-nav-button:disabled {
+        opacity: 0.34 !important;
+        cursor: default !important;
+        filter: grayscale(1) !important;
+        box-shadow: 2px 2px 0 rgba(7, 7, 7, 0.22) !important;
+      }
+
+      .editor-wrap > .patch-identity-row .tutorial-nav-button:not(:disabled):hover,
+      .editor-wrap > .patch-identity-row .tutorial-nav-button:not(:disabled):focus-visible {
+        transform: translate(-1px, -1px) !important;
+        box-shadow: 4px 4px 0 var(--cs-line, #070707) !important;
+        outline: 2px solid var(--cs-blue, #0057ff) !important;
+        outline-offset: 2px !important;
+      }
+
+      .editor-wrap > .patch-identity-row .tutorial-nav-button:not(:disabled):active {
+        transform: translate(1px, 1px) !important;
+        box-shadow: 1px 1px 0 var(--cs-line, #070707) !important;
+      }
+
+      .editor-wrap > .patch-identity-row .tutorial-nav-label {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        min-width: 0 !important;
+        padding: 0.24rem 0.34rem !important;
+        overflow: hidden !important;
+        background: #ffffff !important;
+        color: var(--cs-line, #070707) !important;
+        border-left: 2px solid var(--cs-line, #070707) !important;
+        border-right: 2px solid var(--cs-line, #070707) !important;
+        box-shadow: 3px 3px 0 var(--cs-yellow, #ffd400) !important;
+        font-size: 0.48rem !important;
+        line-height: 1 !important;
+        letter-spacing: 0.08em !important;
+        white-space: nowrap !important;
+        text-overflow: ellipsis !important;
+      }
+
+      .editor-wrap > .patch-identity-row #tutorial-nav.is-armed .tutorial-nav-label {
+        background: var(--cs-yellow, #ffd400) !important;
+        color: var(--cs-line, #070707) !important;
+        box-shadow: 3px 3px 0 var(--cs-red, #e3342f) !important;
+      }
+
+      .transport-console .transport-console-head {
+        min-height: 1.42rem !important;
+        height: 1.42rem !important;
+        display: grid !important;
+        grid-template-columns: auto 1fr auto !important;
+        align-items: center !important;
+        gap: 0.48rem !important;
+        padding: 0.24rem 0.42rem 0.18rem !important;
+        box-sizing: border-box !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+      }
+
+      .transport-console .transport-console-title {
+        display: inline-block !important;
+        color: rgba(255, 255, 255, 0.82) !important;
+        font-family: "Courier New", Courier, monospace !important;
+        font-size: 0.58rem !important;
+        font-weight: 900 !important;
+        letter-spacing: 0.14em !important;
+        line-height: 1 !important;
+        text-transform: uppercase !important;
+        white-space: nowrap !important;
+      }
+
+      .transport-console .transport-console-state {
+        justify-self: start !important;
+        min-width: 0 !important;
+        color: var(--cs-yellow, #ffd400) !important;
+        font-family: "Courier New", Courier, monospace !important;
+        font-size: 0.54rem !important;
+        font-weight: 900 !important;
+        letter-spacing: 0.14em !important;
+        line-height: 1 !important;
+        text-transform: uppercase !important;
+        white-space: nowrap !important;
+      }
+
+      .transport-console .transport-console-state:empty {
+        display: none !important;
+      }
+
+      .transport-console .transport-console-actions {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        gap: 0.22rem !important;
+        min-width: 0 !important;
+      }
+
+      .transport-console .transport-console-action {
+        display: inline-grid !important;
+        place-items: center !important;
+        width: 1.35rem !important;
+        height: 1.14rem !important;
+        min-width: 1.35rem !important;
+        min-height: 1.14rem !important;
+        box-sizing: border-box !important;
+        padding: 0 !important;
+        border: 1px solid rgba(255, 255, 255, 0.42) !important;
+        background: transparent !important;
+        color: rgba(255, 255, 255, 0.58) !important;
+        box-shadow: none !important;
+        font-family: "Courier New", Courier, monospace !important;
+        font-size: 0.82rem !important;
+        font-weight: 900 !important;
+        line-height: 1 !important;
+        cursor: pointer !important;
+        opacity: 0.72 !important;
+      }
+
+      .transport-console .transport-console-action:hover,
+      .transport-console .transport-console-action:focus-visible {
+        color: #ffffff !important;
+        border-color: var(--cs-yellow, #ffd400) !important;
+        background: rgba(255, 212, 0, 0.08) !important;
+        opacity: 1 !important;
+        outline: 0 !important;
+      }
+
+      .transport-console:not(.has-entries) .transport-console-actions {
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+
+      .transport-console .transport-console-lines {
+        white-space: pre !important;
+        overflow-x: auto !important;
+        overflow-y: auto !important;
+        text-overflow: clip !important;
+      }
+
+      @media (max-width: 74rem) {
+        .editor-wrap > .patch-identity-row {
+          grid-template-columns:
+            minmax(10rem, 1fr)
+            minmax(6.8rem, 8.6rem)
+            minmax(6.8rem, 8.6rem)
+            5.25rem
+            5.45rem !important;
+        }
+      }
+
+      @media (max-width: 52rem) {
+        .editor-wrap > .patch-identity-row #tutorial-nav {
+          display: none !important;
+        }
+
+        .editor-wrap > .patch-identity-row {
+          grid-template-columns:
+            minmax(10rem, 1fr)
+            minmax(7rem, 8rem)
+            5.25rem
+            5.45rem !important;
+        }
+
+        .editor-wrap > .patch-identity-row .patches-trigger-chip {
+          grid-column: 2 !important;
+        }
+
+        .editor-wrap > .patch-identity-row #share {
+          grid-column: 3 !important;
+        }
+
+        .editor-wrap > .patch-identity-row #clear-patch {
+          grid-column: 4 !important;
+        }
+      }
 </style>
 </head>
 <body class="repl-loading" data-loading-phase="boot">
@@ -10196,7 +10492,7 @@ margin-top: var(--editor-label-rail, 0px);
       <code>Tab</code> indents / completes.
     </p>
 
-    <div id="repl-workspace" class="repl-workspace reference-closed">
+    <div id="repl-workspace" class="repl-workspace">
       <section class="repl-main" aria-label="REPL workspace">
         <div class="status" id="status">idle</div>
 
@@ -10225,6 +10521,36 @@ margin-top: var(--editor-label-rail, 0px);
                 <button type="submit">save</button>
                 <button type="button" data-title-cancel>cancel</button>
               </form>
+            </div>
+            
+            <div
+              id="tutorial-nav"
+              class="tutorial-nav"
+              hidden
+              aria-label="Tutorial navigation"
+            >
+              <button
+                id="tutorial-prev"
+                class="tutorial-nav-button tutorial-nav-prev"
+                type="button"
+                title="Previous tutorial"
+                aria-label="Previous tutorial"
+              >‹</button>
+
+              <span
+                id="tutorial-nav-label"
+                class="tutorial-nav-label"
+                hidden
+                aria-hidden="true"
+              ></span>
+
+              <button
+                id="tutorial-next"
+                class="tutorial-nav-button tutorial-nav-next"
+                type="button"
+                title="Next tutorial"
+                aria-label="Next tutorial"
+              >›</button>
             </div>
 
             <button
@@ -10308,12 +10634,12 @@ margin-top: var(--editor-label-rail, 0px);
             title="Esc: stop all currently sounding voices"
           >
             <span class="button-main">stop</span>
-            <span class="button-shortcut">esc</span>
+            <span class="button-shortcut" aria-label="Escape"><kbd>⎋</kbd></span>
           </button>
 
           <button
             id="samples-toggle"
-            class="transport-button transport-command"
+            class="transport-button transport-command repl-machine-button repl-machine-button--command"
             type="button"
             aria-haspopup="dialog"
             aria-expanded="false"
@@ -10333,7 +10659,7 @@ margin-top: var(--editor-label-rail, 0px);
             aria-controls="input-panel"
           >
             <span class="button-main">i/o</span>
-            <span class="button-shortcut">cmd/ctrl i</span>
+            <span class="button-shortcut" aria-label="Command or Control I"><kbd>⌘</kbd><kbd>⌃</kbd><kbd>I</kbd></span>
           </button>
 
           <span id="video-toolbar" class="transport-video-slot">
@@ -10349,12 +10675,54 @@ margin-top: var(--editor-label-rail, 0px);
             </button>
           </span>
 
+          <span class="transport-cluster-divider" aria-hidden="true"></span>
+
+          <section
+            id="console-output"
+            class="transport-console"
+            aria-live="polite"
+            aria-label="REPL console output"
+          >
+            <div class="transport-console-head">
+              <span class="transport-console-title">CONSOLE</span>
+
+              <span
+                id="console-state"
+                class="transport-console-state"
+                aria-live="polite"
+              ></span>
+
+              <div class="transport-console-actions" aria-label="Console actions">
+                <button
+                  id="console-copy"
+                  class="transport-console-action"
+                  type="button"
+                  title="Copy console output"
+                  aria-label="Copy console output"
+                >
+                  <span aria-hidden="true">⧉</span>
+                </button>
+
+                <button
+                  id="console-clear"
+                  class="transport-console-action"
+                  type="button"
+                  title="Clear console output"
+                  aria-label="Clear console output"
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+            </div>
+
+            <div id="console-lines" class="transport-console-lines"></div>
+          </section>
+
           <button
             id="reference-toggle"
             class="transport-button transport-reference"
             type="button"
-            aria-expanded="false"
-            aria-controls="reference-panel"
+            title="Open reference in a separate window"
           >
             <span class="button-main">reference</span>
             <span class="button-shortcut">surface map</span>
@@ -10364,23 +10732,21 @@ margin-top: var(--editor-label-rail, 0px);
             id="docs-toggle"
             class="transport-button transport-docs"
             type="button"
-            aria-expanded="false"
-            aria-controls="docs-panel"
+            title="Open manual in a new tab"
           >
             <span class="button-main">docs</span>
             <span class="button-shortcut">manual</span>
           </button>
 
-
           <button
             id="onboarding-help"
-            class="transport-button transport-help repl-help-trigger"
+            class="transport-button transport-help repl-help-trigger repl-machine-button repl-machine-button--manual"
             type="button"
             aria-label="Open REPL field manual"
-            title="Open field manual · Option-click restarts tour · Shift-click resets onboarding"
+            title="Open help· Option-click restarts tour · Shift-click resets onboarding"
           >
             <span class="button-main" aria-hidden="true">?</span>
-            <span class="button-shortcut">field manual</span>
+            <span class="button-shortcut">help</span>
           </button>
         </div>
 
@@ -10517,98 +10883,6 @@ margin-top: var(--editor-label-rail, 0px);
         <ul id="errors"></ul>
       </section>
 
-      <aside id="reference-panel" class="reference-panel" aria-label="REPL reference" hidden>
-        <div class="reference-panel-head">
-          <div>
-            <div class="reference-title">reference</div>
-            <div class="reference-subtitle">cbassuarez repl</div>
-          </div>
-          <button id="reference-close" class="reference-close" type="button">[ close ]</button>
-        </div>
-
-        <section class="reference-section">
-          <div class="reference-section-title">keyboard</div>
-          <div class="reference-table">
-            <code class="reference-key">Cmd-Enter</code><span class="reference-value">evaluate</span>
-            <code class="reference-key">Cmd-Shift-Enter</code><span class="reference-value">replay</span>
-            <code class="reference-key">Esc</code><span class="reference-value">stop</span>
-            <code class="reference-key">Cmd/Ctrl-I</code><span class="reference-value">open / close I/O modal</span>
-            <code class="reference-key">Shift</code><span class="reference-value">on param/effect rows: open legal-value completion</span>
-            <code class="reference-key">Tab</code><span class="reference-value">indent / complete</span>
-            <code class="reference-key">↑ ↓ PgUp PgDn</code><span class="reference-value">completion menu navigation (when open)</span>
-            <code class="reference-key">Enter</code><span class="reference-value">commit completion token suffix</span>
-          </div>
-        </section>
-
-        <section class="reference-section">
-          <div class="reference-section-title">notation</div>
-          <div class="reference-table">
-            <code class="reference-key">|</code><span class="reference-value">bar divider</span>
-            <code class="reference-key">.</code><span class="reference-value">rest</span>
-            <code class="reference-key">~</code><span class="reference-value">sustain / hold</span>
-            <code class="reference-key">(...)</code><span class="reference-value">subdivide one slot</span>
-            <code class="reference-key">;</code><span class="reference-value">gate to rhythmic unit</span>
-            <code class="reference-key">&lt; &gt; &lt;&lt; &gt;&gt;</code><span class="reference-value">pitched span start operators</span>
-            <code class="reference-key">G% Bb% C#%</code><span class="reference-value">pitched span end token (same octave)</span>
-          </div>
-        </section>
-
-        <section class="reference-section">
-          <div class="reference-section-title">wildcards</div>
-          <div class="reference-table">
-            <code class="reference-key">*</code><span class="reference-value">random now</span>
-            <code class="reference-key">*!</code><span class="reference-value">frozen random</span>
-            <code class="reference-key">*~</code><span class="reference-value">continuous random motion</span>
-            <code class="reference-key">*&amp;16</code><span class="reference-value">drift over 16 seconds</span>
-          </div>
-        </section>
-
-        <section class="reference-section">
-          <div class="reference-section-title">samples</div>
-          <div class="reference-table">
-            <code class="reference-key">snm-*</code><span class="reference-value">random sample</span>
-            <code class="reference-key">snm-*&amp;24</code><span class="reference-value">crossfade through bank</span>
-            <code class="reference-key">snm-*&amp;24;</code><span class="reference-value">gated crossfade</span>
-          </div>
-        </section>
-
-        <section class="reference-section">
-          <div class="reference-section-title">attractors</div>
-          <div class="reference-table">
-            <code class="reference-key">weather.dew</code><span class="reference-value">humid pressure</span>
-            <code class="reference-key">archive</code><span class="reference-value">memory / lineage</span>
-            <code class="reference-key">quake</code><span class="reference-value">rupture</span>
-            <code class="reference-key">tide</code><span class="reference-value">cyclic breath</span>
-          </div>
-        </section>
-
-        <section class="reference-section">
-          <div class="reference-section-title">effects</div>
-          <div class="reference-table">
-            <code class="reference-key">space</code><span class="reference-value">environment</span>
-            <code class="reference-key">body</code><span class="reference-value">material resonance</span>
-            <code class="reference-key">compress</code><span class="reference-value">regulation</span>
-            <code class="reference-key">grain</code><span class="reference-value">fragments</span>
-            <code class="reference-key">scar</code><span class="reference-value">return / residue</span>
-          </div>
-        </section>
-
-        <section class="reference-section">
-          <div class="reference-section-title">fade</div>
-          <div class="reference-table">
-            <code class="reference-key">fade in 30s</code><span class="reference-value">silent to present, then stay present</span>
-            <code class="reference-key">fade out 30s</code><span class="reference-value">present to silent, then stay silent</span>
-            <code class="reference-key">fade inout 30s</code><span class="reference-value">cycle in → out forever</span>
-            <code class="reference-key">fade outin 30s</code><span class="reference-value">cycle out → in forever</span>
-            <code class="reference-key">fade inout 30s hold 10s</code><span class="reference-value">add high/low holds between fades</span>
-            <code class="reference-key">fade hold</code><span class="reference-value">freeze current fade level</span>
-            <code class="reference-key">fade clear</code><span class="reference-value">remove fade automation</span>
-          </div>
-          <div class="reference-section-note">
-            <code>gain</code> is event loudness; <code>fade</code> is block presence after event gain/effects.
-          </div>
-        </section>
-      </aside>
     </div>
 
     <div class="panel-divider transport-seam" aria-hidden="true">
@@ -10751,27 +11025,6 @@ margin-top: var(--editor-label-rail, 0px);
         </div>
       </form>
     </dialog>
-
-    <div id="docs-panel" class="docs-panel" hidden aria-label="seb’s repl documentation">
-      <div class="docs-frame">
-        <header class="docs-head">
-          <div>
-            <div class="docs-eyebrow">printed guide / local manual</div>
-            <h2 class="docs-title">seb’s repl</h2>
-            <p class="docs-subtitle">a score-grid language for live input, samples, strings, weather, and video</p>
-          </div>
-          <button id="docs-close" class="docs-close" type="button" aria-label="Close documentation">close</button>
-        </header>
-        <div class="docs-tools">
-          <label class="docs-search-label" for="docs-search">search docs</label>
-          <input id="docs-search" class="docs-search" type="search" autocomplete="off" spellcheck="false" placeholder="voice, attractor, grain, replay…" />
-        </div>
-        <div class="docs-layout">
-          <nav id="docs-nav" class="docs-nav" aria-label="Documentation sections"></nav>
-          <article id="docs-content" class="docs-content" tabindex="-1"></article>
-        </div>
-      </div>
-    </div>
 
     <div class="help legacy-docs" id="legacy-docs" hidden>
       <p><strong>editor</strong></p>
@@ -11095,7 +11348,6 @@ pan   *~</code></pre>
   <script src="./scheduler.js?v=20260508-vibes1"></script>
   <script src="./codemirror.bundle.js?v=20260503r1"></script>
   <script src="./repl-editor.js?v=20260508r3"></script>
-  <script src="./docs.js?v=20260508r2"></script>
   <script src="./repl-patch-codec.js?v=20260509r2"></script>
   <script src="./repl-onboarding.js?v=20260510r1"></script>
   <script>
@@ -11168,7 +11420,7 @@ pan   *~</code></pre>
           ['play', 'transport-button transport-evaluate'],
           ['safe-play', 'transport-button transport-replay'],
           ['stop', 'transport-button transport-stop'],
-          ['samples-toggle', 'transport-button transport-command'],
+          ['samples-toggle', 'transport-button transport-command repl-machine-button repl-machine-button--command'],
           ['input-toggle', 'transport-button transport-io'],
           ['reference-toggle', 'transport-button transport-reference'],
           ['docs-toggle', 'transport-button transport-docs']
@@ -11183,6 +11435,11 @@ pan   *~</code></pre>
           videoToolbar.className = 'transport-video-slot';
           var videoBtn = document.getElementById('video-toggle');
           if (videoBtn) videoBtn.className = 'transport-button transport-video';
+        }
+
+        var onboardingHelp = document.getElementById('onboarding-help');
+        if (onboardingHelp) {
+          onboardingHelp.className = 'transport-button transport-help repl-help-trigger repl-machine-button repl-machine-button--manual';
         }
 
         var row = editorWrap.querySelector('.patch-identity-row');

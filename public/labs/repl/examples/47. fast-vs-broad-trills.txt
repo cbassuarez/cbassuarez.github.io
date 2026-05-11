@@ -1,0 +1,20 @@
+// fast vs broad trills
+// left to right: the same trill with different internal speeds.
+// 1 is tight/fast; 0 is broad/slow.
+
+tempo 64
+meter 4/4
+tuning kirnberger-3
+
+piano D5 D5 D5 D5 | E5 E5 E5 E5
+ornament tr tr tr tr | tr tr tr tr
+orn-speed .20 .42 .72 .94 | .94 .72 .42 .20
+ornament-style bach
+ornament-human .12
+force mp
+decay 2.8
+pan center
+tone bright
+body wood
+space .22
+gain .35

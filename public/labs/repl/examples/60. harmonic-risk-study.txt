@@ -1,0 +1,24 @@
+// harmonic risk study
+// the same functional progression becomes more chromatic as harmonic-risk rises.
+
+tempo 96
+meter 4/4
+key C major
+swing .45 1/8
+
+chord T* PD* D* T* | T* PD* D* T*
+voicing close open rootless close | open open rootless close
+lead smooth smooth resolve settle | smooth smooth tense settle
+chord-open .18 .45 .70 .22 | .38 .55 .82 .30
+harmonic-risk .05 .20 .35 .10 | .45 .65 .90 .35
+
+piano chord chord chord chord | chord chord chord chord
+arp . . . . | . ud . .
+roll . . u . | . . d .
+force mp
+decay 2.8
+pan center
+tone bright
+body wood
+space .22
+gain .35

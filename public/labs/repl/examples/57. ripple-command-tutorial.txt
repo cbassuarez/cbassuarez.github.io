@@ -1,0 +1,24 @@
+// ripple command tutorial
+// ripple is a one-shot onset spread across a simultaneous cell.
+// It works on explicit multi-stops and harmony-rendered chords.
+// roll remains a legacy alias, but ripple is the public command.
+
+tempo 84
+meter 4/4
+key C major
+
+chord   Imaj7   vi9     ii11    V13b9
+voicing close   open    drop2   rootless
+lead    smooth  smooth  smooth  resolve
+
+marimba chord chord chord chord
+ripple  u     o     d     i
+ripple-time .032
+arp     .     .     .     .
+force mp
+decay 2.8
+pan center
+tone bright
+body wood
+space .22
+gain .42

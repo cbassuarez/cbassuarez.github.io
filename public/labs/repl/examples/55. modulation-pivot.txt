@@ -1,0 +1,23 @@
+// modulation + pivot
+// @mod:Eb-major is a structural harmony atom; it changes key for following chord cells.
+// @pivot is accepted as an analysis marker for the modulation point.
+
+tempo 78
+meter 4/4
+key C major
+
+chord Imaj7 vi9 ii11 V13 | @pivot:vi=ii/Eb-major @mod:Eb-major ii9 V13b9 Imaj9
+voicing close open drop2 rootless | . . rootless rootless close
+lead smooth smooth smooth resolve | pivot pivot smooth tense settle
+chord-open .20 .38 .55 .72 | . . .50 .78 .25
+harmonic-risk .10 .25 .40 .75 | . . .35 .85 .20
+
+piano chord chord chord chord | chord chord chord chord chord
+roll . . . u | . . . d .
+force mp
+decay 3
+pan center
+tone bright
+body wood
+space .24
+gain .36

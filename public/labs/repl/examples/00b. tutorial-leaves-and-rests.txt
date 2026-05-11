@@ -1,6 +1,8 @@
 // leaves + rests
-// notes are leaves. "." is a rest. "|" is a barline.
-// "~" holds a sustained instrument through the next cell.
+// we call notes leaves; a leaf is a level of subdivision;
+// i.e. each leaf level is the same beam level: eighth notes and eighth note triplets belong in the same leaf level.
+// "." is a rest; "~" is a tie. "|" is a barline.
+
 tempo 72
 meter 4/4
 string C3 . E3 . | G3 ~ ~ .

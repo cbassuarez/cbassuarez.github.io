@@ -1,0 +1,45 @@
+// chord operator audit
+// Every active-chord renderer below should sound: full chords, members,
+// guide/shell/color groups, roll, and arp. Multi-stops still use +.
+
+tempo 76
+meter 4/4
+key C major
+
+chord      Imaj9   vi9     ii11    V13b9  | I6/9    Dm9     G13sus  Cmaj9
+voicing    close   open    drop2   rootless| chorale rootless open    close
+lead       smooth  smooth  nearest resolve | settle  smooth   tense   settle
+chord-open .18     .42     .55     .74     | .30     .50      .62     .22
+
+piano chord root third seventh | guide shell color top
+roll  .     .    .     .       | u     d     o     i
+arp   .     .    .     .       | .     .     ud    .
+arprate 1/8
+rolltime .045
+force mp
+decay 3
+pan center
+tone bright
+body wood
+space .24
+gain .36
+
+string chord 1 3 7 | 9 guide shell top
+roll   u     . . . | . .     d     .
+force mp
+decay 2.4
+pan left
+tone bright
+body wood
+space .18
+gain .24
+
+marimba chord bass third fifth | seventh ninth guide arp
+roll    .     .    .     .     | .       .     u     .
+arp     .     .    .     .     | .       .     .     ud
+arprate 1/8
+rolltime .035
+mallet yarn
+body wood
+space .18
+gain .32

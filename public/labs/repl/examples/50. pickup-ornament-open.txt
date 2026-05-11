@@ -1,0 +1,21 @@
+// pickup ornament open
+// ? is structural pickup space; ornaments never make ? playable.
+// the trill on the pickup note can be closed or open without changing the pickup grid.
+
+tempo 76
+meter 4/4
+pickup 1
+
+piano ? G4 | C5 B4 A4 G4 | F#4 G4 A4 ?
+ornament tr | + . ~ . | app - .
+ornament-open .32 | .18 . .55 . | .70 .22 .
+ornament-style bach
+human .16
+ornament-human .30
+force mp
+decay 3
+pan center
+tone bright
+body wood
+space .24
+gain .36

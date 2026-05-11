@@ -1,0 +1,20 @@
+// ornament open study
+// ornament-open is the one knob: 0 is crushed/closed, 1 is broad/open.
+// dots use the ornament-style default.
+
+tempo 72
+meter 4/4
+
+piano C5 D5 E5 F5 | G5 F5 E5 D5
+ornament . tr + ~ | app acc - sh
+ornament-open . .25 .12 .58 | .72 .08 .20 .45
+ornament-style bach
+human .12
+ornament-human .25
+force mp
+decay 3
+pan center
+tone bright
+body wood
+space .24
+gain .38

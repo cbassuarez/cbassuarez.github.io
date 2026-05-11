@@ -16,9 +16,9 @@
           ['Shift (tap on param/effect rows)', 'open legal-value completion for that row'],
           ['Tab', 'indent, or accept an open completion'],
           ['ArrowUp / ArrowDown / PageUp / PageDown', 'when completion is open, navigate the suggestion menu'],
-          ['Enter', 'when completion is open, append only the missing characters for the selected token']
+          ['Enter', 'new line; completion accepts with Tab, not Return']
         ]},
-        { type: 'p', text: 'Autocomplete suggestions may include multi-token examples as guidance, but Enter commits only the active token completion.' },
+        { type: 'p', text: 'Autocomplete suggestions may include multi-token examples as guidance, but Tab commits the active completion; Enter keeps writing the score.' },
         { type: 'p', text: 'Evaluate is the execution gate. Replay is the re-arm control. Stop is the red interrupt. I/O opens the live-source and output-routing panel. Add eval reset as a top directive line to queue evaluate at the next bar reset while transport is running. Use eval reset cut to force a hard boundary, or eval reset keep to preserve tails (default).' }
       ]
     },
@@ -28,16 +28,35 @@
       summary: 'Top directives, voice headers, comments, patterns, and modulation values.',
       blocks: [
         { type: 'p', text: 'The language is line-based. Top directives describe score-level behavior. Voice headers begin blocks. Rows underneath a voice shape that block until the next voice header appears. A tuning directive applies forward from where it appears.' },
-        { type: 'code', code: 'tempo 84\nmeter 4/4\neval reset\ntuning kirnberger-3 432\n\nstring *!4 (*4 A*) ~ C*!\ngain 0.55\npan *~\nbody glass\nspace 0.25' },
+        { type: 'code', code: 'tempo 84\nmeter 4/4\npickup 1\neval reset\ntuning kirnberger-3 432\n\nstring ? B4 | *!4 (*4 A*) ~ C*! | * * * ?\ngain 0.55\npan *~\nbody glass\nspace 0.25' },
         { type: 'table', headers: ['part', 'role'], rows: [
           ['tempo / meter', 'score timing directives'],
+          ['pickup / anacrusis', 'first-class sounding pickup duration; use ? bookends for omitted pickup space'],
+          ['inegales', 'historical/style long-short performance timing for eligible equal subdivisions'],
+          ['swing', 'explicit groove timing warp for eligible equal subdivisions, e.g. swing .5 or swing .35 1/16'],
+          ['key / chord', 'symbolic harmony source track: literal chords, roman numerals, globs, modulations, and active chord-tone rendering'],
+          ['voicing / lead / chord-open / harmonic-risk', 'vertical realization, voice-leading behavior, registral spread, and wildcard permission'],
+          ['ornament / ornament-style', 'cell-level baroque decoration that performs inside the written grid'],
+          ['ornament-speed / ornament-human', '0..1 ornament timing speed; accepts param operators like *, *!, *~, plus bounded ornament-only human variation'],
+          ['ripple / arp', 'chord performance surfaces for multi-stops like C3+G3+E4+B4; roll remains a legacy alias'],
           ['tuning', 'forward-scoped pitch system directive (applies to following blocks)'],
           ['string / sine / osc / pluck / drone / noise / pulse / drum / sample / piano / violin / cello / marimba / vibraphone / voice / input / video', 'voice headers that start blocks'],
           ['gain / pan / space', 'surface rows that shape a voice'],
           ['// comment', 'score annotation; ignored by the parser'],
           ['mic.intensity 0.1 0.75', 'live modulation source mapped into a range']
         ]},
-        { type: 'callout', text: 'A block can be read vertically: first what speaks, then how it moves, where it sits, what it listens to, and what it remembers.' }
+        { type: 'callout', text: 'A block can be read vertically: first what speaks, then how it moves, where it sits, what it listens to, and what it remembers.' },
+        { type: 'callout', text: 'pickup 1 and anacrusis 1 are aliases. The pickup is not padding: it is meter phase. Use ? as an anacrusis bookend: it marks omitted pickup space at the beginning or end of a phrase, never a sounding rest.' },
+        { type: 'code', code: '// 3/8 pickup beginning on the and of beat 3\nmeter 4/4\npickup 3/8\n\npiano ? (. G4) (A4 B4) | C5 B4 A4 G4 | * * (*)?' },
+        { type: 'h', text: 'baroque performance surfaces' },
+        { type: 'p', text: 'ornament decorates a written cell without adding written cells. ornament-speed is a single 0..1 control for how fast and tight the ornament breathes inside the written cell, and it can also use param operators like *, *!, *~, _, ~, and *&8. inegales bends equal subdivisions as a style surface; swing bends eligible equal subdivisions as an explicit groove surface. ripple is one onset spread across a multi-stop; arp cycles a multi-stop through the cell.' },
+        { type: 'code', code: '// baroque surface study\ntempo 72\nmeter 4/4\ntuning kirnberger-3\ninegales light\nswing off\n\npiano ? G4 | C3+G3+E4+B4 D5 E5 F5 | C3+G3+E4+B4 F5 E5 ?\nornament . . | . tr + ~ | . - app .\nornament-speed . * | . .75 *! .42 | . *~ .30 .\nornament-style bach\nornament-human .25\nripple  . . | u .  . . | d . . .\narp      . . | . .  . . | . . . .\narprate 1/8\nripple-time .045\nforce mp\ndecay 3\npan center\ntone bright\nbody wood\nspace .24\ngain .38' },
+        { type: 'callout', text: 'ornament-speed accepts ., 0..1, or param operators like *, *!, *~, _, ~, and *&N. A dot uses the ornament-style default; 0 is slow/broad, 1 is fast/tight. Legacy ornament-open rows are still accepted for old patches. ornament-human overrides the ornament-only amount; if absent, human still contributes a smaller bounded variation.' },
+        { type: 'callout', text: 'swing is explicit groove timing. Use swing .5 for a classic 2:1 feel, swing light/medium/heavy for named profiles, or swing .35 1/16 for sixteenth-note swing. If swing and inegales are both active, swing wins for matching subdivisions.' },
+        { type: 'h', text: 'harmony source track' },
+        { type: 'p', text: 'key and chord create a symbolic harmony layer. Voice rows can render the active harmony with chord, root, third, 3, 5, 7, 9, bass, top, guide, shell, color, or arp. Literal multi-stops still use +, e.g. C3+G3+E4+B4.' },
+        { type: 'code', code: '// harmonic source study\ntempo 84\nmeter 4/4\nkey C major\nswing light\n\nchord         Imaj9   T*!     PD*     D*~       @mod:Eb-major   ii9      V13b9    Imaj9\nvoicing       close   open    drop2   rootless  .               rootless rootless close\nlead          smooth  smooth  smooth  resolve   pivot           smooth   tense    settle\nchord-open    .20     .45     .55     .70       .               .50      .78      .25\nharmonic-risk .10     .25     .40     .75       .               .35      .85      .20\n\npiano chord chord chord chord | chord chord chord chord\nripple .     .     .     u     | .     .     d     .\narp    .     .     ud    .     | .     ud    .     .\nforce mp\ndecay 3\npan center\ntone bright\nbody wood\nspace .24\ngain .38' },
+        { type: 'callout', text: 'In voice rows, ? is reserved for anacrusis bookends. Harmony rows use H*/T*/PD*/D*/M*/X* for smart wildcard/glob choices; ?T/?PD/?D are intentionally invalid.' }
       ]
     },
     {
@@ -367,7 +386,7 @@
     const nav = document.getElementById('docs-nav');
     const content = document.getElementById('docs-content');
     const search = document.getElementById('docs-search');
-    if (!panel || !toggle || !nav || !content) return;
+    if (!panel || !nav || !content) return;
 
     nav.innerHTML = DOCS.map((section, index) => `
       <button class="docs-nav-button${index === 0 ? ' is-active' : ''}" type="button" data-doc-target="${escapeHtml(section.id)}">
@@ -380,7 +399,7 @@
 
     const setOpen = (shouldOpen) => {
       panel.hidden = !shouldOpen;
-      toggle.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+      if (toggle) toggle.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
       if (shouldOpen) {
         const target = search || content;
         window.requestAnimationFrame(() => target.focus({ preventScroll: false }));
@@ -397,10 +416,7 @@
       }
     };
 
-    toggle.addEventListener('click', () => setOpen(panel.hidden));
-    document.querySelectorAll('[data-docs-open]').forEach((button) => {
-      button.addEventListener('click', () => setOpen(true));
-    });
+    if (toggle) toggle.addEventListener('click', () => setOpen(panel.hidden));
     if (close) close.addEventListener('click', () => setOpen(false));
 
     nav.addEventListener('click', (event) => {
@@ -434,13 +450,15 @@
       });
     }
 
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && !panel.hidden) {
-        setOpen(false);
-      }
-    });
+    if (toggle) {
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !panel.hidden) {
+          setOpen(false);
+        }
+      });
+    }
 
-    if (window.location.hash === '#docs') setOpen(true);
+    if (toggle && window.location.hash === '#docs') setOpen(true);
   };
 
   if (document.readyState === 'loading') {

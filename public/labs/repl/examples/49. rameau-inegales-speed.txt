@@ -1,0 +1,21 @@
+// Rameau inegales + ornament speed
+// inegales is global and also shapes even-count ornament figures.
+// ornament-speed keeps the agréments quick enough to stay inside the leaf.
+
+tempo 68
+meter 4/4
+tuning kirnberger-3
+inegales french
+
+piano (C5 D5) (E5 F5) G5 F5 | (E5 D5) (C5 B4) A4 G4
+ornament (tr .) (+ .) ~ . | (app .) (- .) tr .
+ornament-speed (.70 .) (.86 .) .48 . | (.38 .) (.88 .) .76 .
+ornament-style rameau
+ornament-human .22
+force mp
+decay 2.7
+pan center
+tone bright
+body wood
+space .22
+gain .36

@@ -1,8 +1,16 @@
 // first score
-// press Cmd-Enter or EVALUATE to run.
-// edit the pitches, then replay.
+// this tutorial explores the basic transport capabilities of this REPL.
+
 tempo 72
 meter 4/4
+// ^^ this is our GLOBALS section. it controls global transport options like meter, tempo, swing, notes inegales, tuning and temperament, and more.
+// press Cmd-Enter or EVALUATE to run. EVALUATE is our PLAY button: it evaluates the code you have in this editor.
+// Once the patch is running, change E3 to E5 below and evaluate again.
+
 string C3 E3 G3 C4
 gain .55
 pan center
+// ^^ this is a BLOCK. it is a group of text rows with a header (`string C3 E3 G3 C4` in this case) and parameter modules (`gain .55` and `pan center`) unseparated by empty lines (all grouped together, that denotes a block)
+
+// Try changing some of the other parameters, like `gain` `pan` or `tempo` or `meter`
+// When you're ready, head to the next tutorial by pressing the `>`arrow above (yellow square button)

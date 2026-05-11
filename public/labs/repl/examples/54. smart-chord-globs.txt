@@ -1,0 +1,24 @@
+// smart chord globs
+// T*, PD*, and D* choose function-aware chords.
+// harmonic-risk controls how far the choice may travel.
+
+tempo 92
+meter 4/4
+key C major
+swing light
+
+chord T*! PD* D*~ T*! | T* PD* D* Imaj9
+voicing close open rootless close | close open rootless close
+lead smooth smooth resolve settle | smooth smooth resolve settle
+chord-open .18 .45 .76 .22 | .20 .45 .74 .25
+harmonic-risk .10 .35 .82 .12 | .15 .38 .78 .18
+
+piano chord chord chord chord | chord chord chord chord
+roll . . u . | . . d .
+force mp
+decay 2.7
+pan center
+tone bright
+body wood
+space .20
+gain .35

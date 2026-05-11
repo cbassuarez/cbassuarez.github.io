@@ -1,0 +1,18 @@
+// closed vs open trills
+// the written grid stays the same; only the internal trill window changes.
+
+tempo 64
+meter 4/4
+
+piano D5 D5 D5 D5 | E5 E5 E5 E5
+ornament tr tr tr tr | tr tr tr tr
+orn-open 0 .18 .38 .62 | .82 .62 .38 .18
+ornament-style bach
+orn-human .12
+force mp
+decay 3.2
+pan center
+tone bright
+body wood
+space .28
+gain .34

@@ -14,18 +14,26 @@ decay    2.6
 tone     bright
 pan      left center right center
 space    0.18
+exit     2 bars
 
 // region B: equal temperament, retuned A4 anchor
-tuning 12-tet-edo 432
+tuning 12-tet-edo 415
 sine     A3   C4   E4   G4   |   A3   C4   E4   G4
 gain     0.26
 decay    1.8
 tone     bright
 pan      right center left center
 space    0.14
+enter    2 bars
+exit     4 bars
 
-// stable pulse bed for comparison
-pulse    *    .    *    .
-gain     0.16
-decay    0.06
-tone     0.8
+// region C: equal temperament, retuned A4 anchor
+tuning 11-edo 440
+sine     A3   C4   E4   G4   |   A3   C4   E4   G4
+gain     0.26
+decay    1.8
+tone     bright
+pan      right center left center
+space    0.14
+enter    4 bars
+exit     6 bars

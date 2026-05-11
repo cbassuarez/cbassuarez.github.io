@@ -1,0 +1,23 @@
+// roman progression
+// roman numerals resolve inside the current key.
+// the voice row can also ask for individual chord tones.
+
+tempo 84
+meter 4/4
+key C major
+
+chord Imaj7 vi9 ii11 V13b9 | Imaj9 vi7 ii7 V7
+voicing close open drop2 rootless | close open drop2 rootless
+lead smooth smooth smooth resolve | settle smooth smooth resolve
+chord-open .20 .38 .55 .72 | .25 .42 .56 .70
+harmonic-risk .10 .25 .35 .75 | .15 .25 .40 .65
+
+piano chord root third seventh | guide 9 7 3
+roll . . . . | . . . .
+force mp
+decay 2.8
+pan center
+tone bright
+body wood
+space .22
+gain .36

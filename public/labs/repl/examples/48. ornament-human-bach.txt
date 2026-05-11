@@ -1,0 +1,22 @@
+// ornament human / Bach
+// ornament-human jitters only the ornament timing, not the written grid.
+// inegales also bends eligible internal ornament notes long-short.
+
+tempo 76
+meter 4/4
+tuning kirnberger-3
+inegales light
+
+piano C5 D5 E5 F5 | G5 F5 E5 D5 | C5 B4 A4 G4
+ornament tr + - ~ | app acc sh slide | tr + - .
+ornament-speed .76 .88 .88 .44 | .36 .96 .70 .62 | .80 .84 .90 .
+ornament-style bach
+human .12
+ornament-human .35
+force mp
+decay 3
+pan center
+tone bright
+body wood
+space .24
+gain .36

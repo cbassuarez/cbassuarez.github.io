@@ -1,0 +1,25 @@
+// arp command tutorial
+// arp cycles chord tones across the written cell.
+// roll is one ripple; arp is a repeated arpeggiation surface.
+
+tempo 88
+meter 4/4
+key D dorian
+
+chord i9 IVmaj7 v7 i9 | T* PD* D* T*
+voicing open open rootless open | open drop2 rootless open
+lead smooth smooth resolve settle | smooth smooth resolve settle
+chord-open .55 .62 .70 .55 | .45 .58 .76 .45
+harmonic-risk .20 .25 .45 .20 | .25 .45 .72 .25
+
+piano chord chord chord chord | chord chord chord chord
+arp   u     d     ud    du    | o     i     br    .
+arprate 1/8
+roll . . . . | . . . u
+force mp
+decay 3.2
+pan center
+tone bright
+body wood
+space .24
+gain .34

@@ -1,6 +1,8 @@
-// params
-// rows below a voice shape that voice.
+// params are short for parameters – things you can change, and that can be changed.
+// param rows below a voice shape the voice above it.
 // try changing gain, pan, body, and space.
+// auto-complete is your friend; tab to autocomplete.
+
 tempo 84
 meter 4/4
 string C3 E3 G3 C4

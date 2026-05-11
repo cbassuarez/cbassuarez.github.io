@@ -16,15 +16,27 @@
     const INPUT_ROW_NAMES = new Set(['monitor', 'listen']);
     const PARAM_NAMES = new Set([
       'force', 'decay', 'crush', 'resolution', 'pan', 'gain', 'tone', 'harm', 'octave',
+      'ornament', 'ornament-style', 'ornament-speed', 'ornament-human', 'ornament-open',
       'pedal', 'una', 'lid', 'sympathetic', 'release', 'human', 'stretch', 'layer', 'poly',
       'articulation', 'sul', 'vibrato', 'vibratorate', 'vibratoonset', 'tremolo', 'tremolorate', 'bow', 'wood',
-      'mallet', 'deadstroke', 'roll', 'spread',
+      'mallet', 'deadstroke', 'ripple', 'ripple-time', 'roll', 'rolltime', 'arp', 'arprate', 'spread',
       'motor', 'depth', 'damp', 'bowpressure',
       'vowel', 'syllable', 'carrier', 'robot', 'breath', 'mouth', 'formant', 'roughness', 'vocoder', 'ensemble',
       'every', 'enter', 'exit', 'rate', 'start', 'speed', 'glide', 'variance', 'monitor', 'listen',
       'opacity', 'threshold', 'edges', 'posterize', 'invert', 'contrast', 'saturate',
       'displace', 'feedback', 'delay', 'slitscan', 'trail', 'mask', 'key', 'color', 'blend',
     ]);
+    const PARAM_ALIASES = {
+      'orn-speed': 'ornament-speed',
+      'orn-human': 'ornament-human',
+      'rip': 'ripple',
+      'roll': 'ripple',
+      'riptime': 'ripple-time',
+      'rolltime': 'ripple-time',
+      // Legacy aliases retained so older shared patches keep loading.
+      'orn-open': 'ornament-open',
+    };
+
     const LIVE_CONTROL_NAMES = new Set(['time', 'beat', 'leaf', 'choose', 'trigger']);
     const LIVE_SOURCE_NAMES = new Set(['mic', 'interface', 'tab', 'input', 'camera', 'screen', 'file', 'video']);
     const LIVE_FEATURE_NAMES = new Set([
@@ -47,7 +59,7 @@
     const BLOCK_DIRECTIVES = new Set(['attractor', 'source']);
     const VIDEO_GEN_ROW_NAMES = new Set(['source', 'style', 'seed', 'duration', 'cache']);
     const FADE_DIRECTIVES = new Set(['fade']);
-    const FILE_DIRECTIVES = new Set(['tempo', 'meter', 'eval', 'evaluate', 'tuning']);
+    const FILE_DIRECTIVES = new Set(['tempo', 'meter', 'pickup', 'anacrusis', 'inegales', 'swing', 'eval', 'evaluate', 'tuning']);
 
     const EFFECT_MODE_NAMES = {
       compress: new Set(['feedback', 'glue', 'clamp']),
@@ -67,6 +79,105 @@
   const GAIN_NAMED = { quiet: 0.35, half: 0.55, full: 1.0, loud: 1.3 };
   const TONE_NAMED = { dark: 0.2, bright: 0.85 };
   const HARM_NAMED = { simple: 1, pair: 2, triad: 3, rich: 4 };
+
+  const ORNAMENT_ALIASES = {
+    '.': 'none',
+    'none': 'none',
+    'off': 'none',
+    'no': 'none',
+    'tr': 'trill',
+    'trill': 'trill',
+    '+': 'mordent',
+    'mord': 'mordent',
+    'mordent': 'mordent',
+    'upper-mordent': 'mordent',
+    '-': 'lower-mordent',
+    'lmord': 'lower-mordent',
+    'lower-mordent': 'lower-mordent',
+    'lower': 'lower-mordent',
+    '~': 'turn',
+    'turn': 'turn',
+    'upper-turn': 'turn',
+    '/~': 'lower-turn',
+    'lower-turn': 'lower-turn',
+    'inverted-turn': 'lower-turn',
+    'inverted': 'lower-turn',
+    'slide': 'slide',
+    'coulé': 'slide',
+    'coule': 'slide',
+    'app': 'appoggiatura',
+    'appoggiatura': 'appoggiatura',
+    'acc': 'acciaccatura',
+    'acciaccatura': 'acciaccatura',
+    'gr': 'grace',
+    'grace': 'grace',
+    'sh': 'shake',
+    'shake': 'shake',
+  };
+
+  const ORNAMENT_STYLE_NAMES = new Set(['default', 'bach', 'rameau', 'couperin', 'french']);
+
+  const CHORD_ROLL_ALIASES = {
+    '.': 'none',
+    'none': 'none',
+    'off': 'none',
+    'u': 'up',
+    'up': 'up',
+    'd': 'down',
+    'down': 'down',
+    'o': 'out',
+    'out': 'out',
+    'i': 'in',
+    'in': 'in',
+    'b': 'bass-first',
+    'bass': 'bass-first',
+    'bass-first': 'bass-first',
+    't': 'top-first',
+    'top': 'top-first',
+    'top-first': 'top-first',
+    'r': 'random',
+    'random': 'random',
+  };
+
+  const CHORD_ARP_ALIASES = {
+    '.': 'none',
+    'none': 'none',
+    'off': 'none',
+    'u': 'up',
+    'up': 'up',
+    'd': 'down',
+    'down': 'down',
+    'ud': 'updown',
+    'updown': 'updown',
+    'up-down': 'updown',
+    'du': 'downup',
+    'downup': 'downup',
+    'down-up': 'downup',
+    'o': 'out',
+    'out': 'out',
+    'i': 'in',
+    'in': 'in',
+    'r': 'random',
+    'random': 'random',
+    'br': 'bass-random',
+    'bass-random': 'bass-random',
+  };
+
+  const INEGALES_VALUES = new Set(['off', 'none', 'light', 'medium', 'heavy', 'french', '2:1', '3:2']);
+  const SWING_VALUES = new Set(['off', 'none', 'light', 'medium', 'heavy', '2:1', '3:1']);
+
+  const HARMONY_ROW_NAMES = new Set(['key', 'prog', 'chord', 'voicing', 'lead', 'register', 'chord-open', 'harmonic-risk', 'sub', 'topline', 'bassline']);
+  const HARMONY_TRACK_NAMES = new Set(['chord', 'voicing', 'lead', 'register', 'chord-open', 'harmonic-risk', 'sub', 'topline', 'bassline']);
+  const HARMONY_VOICING_NAMES = new Set(['.', 'close', 'open', 'drop2', 'drop3', 'spread', 'rootless', 'shell', 'quartal', 'cluster', 'chorale']);
+  const HARMONY_LEAD_NAMES = new Set(['.', 'smooth', 'nearest', 'contrary', 'oblique', 'parallel', 'locked', 'resolve', 'settle', 'tense', 'pivot']);
+  const HARMONY_SUB_NAMES = new Set(['.', 'none', 'off', 'tritone', 'tri', 'backdoor', 'mediant', 'dim-pass', 'negative', 'chromatic-planing', 'relative', 'parallel-minor']);
+  const HARMONY_RENDER_ALIASES = {
+    chord: 'chord', harmony: 'chord', stack: 'chord', stab: 'stab', arp: 'arp',
+    root: 'root', bass: 'bass', top: 'top', third: 'third', fifth: 'fifth', seventh: 'seventh',
+    ninth: 'ninth', eleventh: 'eleventh', thirteenth: 'thirteenth', guide: 'guide', shell: 'shell',
+    color: 'color', upper: 'upper', lower: 'lower', '1': 'root', '3': 'third', '5': 'fifth',
+    '7': 'seventh', '9': 'ninth', '11': 'eleventh', '13': 'thirteenth',
+  };
 
     const NOTE_RE = /^([A-Ga-g])([#b])?(-?\d{1,2})$/;
     const RANDOM_PITCH_CLASSES = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
@@ -163,6 +274,18 @@
       if (notes.length < 2) return null;
 
       return notes;
+    }
+
+    function isHarmonyRenderToken(tok) {
+      const key = String(tok || '').trim().toLowerCase();
+      return Object.prototype.hasOwnProperty.call(HARMONY_RENDER_ALIASES, key);
+    }
+
+    function harmonyRenderValue(tok) {
+      const raw = String(tok || '').trim();
+      const role = HARMONY_RENDER_ALIASES[raw.toLowerCase()];
+      if (!role) return null;
+      return { kind: 'harmony-render', role, raw };
     }
     function isPitchWildcardToken(tok) { return parsePitchWildcard(tok) !== null; }
 
@@ -565,7 +688,7 @@
   // Tokenizes a string into a flat array of tokens where each token is
   // either:
   //   - a string (a leaf token like "A3", ".", "tub-xemf-mass", "~")
-  //   - a punctuation marker: "(", ")", "|", or ";"
+  //   - a punctuation marker: "(", ")", "|", "?", or ";"
   //
   // Whitespace is not the language grammar. Punctuation remains structural
   // even when typed tightly against neighboring values, so these are all
@@ -590,6 +713,22 @@
         out.push(ch);
         continue;
       }
+      if (ch === '?') {
+        const prev = i > 0 ? text[i - 1] : '';
+        const next = i + 1 < text.length ? text[i + 1] : '';
+        // `?` is structural only when it is a standalone bookend, or when it
+        // follows a closing group at the terminal edge (`(*)?`). Do not split
+        // `?G4`, because that must remain an invalid leaf token.
+        if (/\s|\)|\|/.test(prev) || prev === '') {
+          if (next === '' || /\s|\||\)|;/.test(next) || prev === ')') {
+            flush();
+            out.push('?');
+            continue;
+          }
+        }
+        buf += ch;
+        continue;
+      }
       if (/\s/.test(ch)) { flush(); continue; }
       buf += ch;
     }
@@ -602,8 +741,10 @@
   // SlotNode:
   //   { kind: 'leaf', token: { kind: 'note'|'rest'|'sustain'|'sample', value } }
   //   { kind: 'group', children: [SlotNode] }
-  function parseSlotStream(tokens, voice, lineNumber) {
+  function parseSlotStream(tokens, voice, lineNumber, pickupContext) {
     const errors = [];
+    const meterForPickup = pickupContext && pickupContext.meter ? pickupContext.meter : { num: 4, den: 4 };
+    const pickupForStream = pickupContext && pickupContext.pickup ? pickupContext.pickup : null;
 
       function classifyLeaf(tok) {
         const gate = splitVoiceGateToken(tok);
@@ -626,6 +767,12 @@
             spanEnd.gated = gate.gated === true;
             return spanEnd;
           }
+
+            const harmonyRender = harmonyRenderValue(body);
+            if (harmonyRender) {
+              harmonyRender.gated = gate.gated === true;
+              return harmonyRender;
+            }
 
             if (isChordToken(body)) {
               const chord = chordTokenValue(body);
@@ -728,11 +875,97 @@
     let pos = 0;
     const slots = [];
     const barSlotCounts = [];
+    const barRatios = [];
+    const pickupGaps = [];
     let currentBarSlots = 0;
+    let sawBarline = false;
+    let lastTopTokenWasPickupGap = false;
+    let currentBarRatioOverride = null;
+
+    function meterUnitCountForPickup() {
+      const n = Number(meterForPickup && meterForPickup.num);
+      return Number.isFinite(n) && n > 0 ? n : 4;
+    }
+
+    function pickupBeatsForStream() {
+      const n = pickupForStream && Number.isFinite(Number(pickupForStream.beats)) ? Number(pickupForStream.beats) : 0;
+      return n > 0 ? n : 0;
+    }
+
+    function pickupRatioForStream() {
+      const units = meterUnitCountForPickup();
+      const beats = pickupBeatsForStream();
+      if (!Number.isFinite(units) || units <= 0 || !Number.isFinite(beats) || beats <= 0) return 1;
+      const ratio = beats / units;
+      if (!Number.isFinite(ratio) || ratio <= 0) return 1;
+      return Math.max(1 / units, Math.min(1, ratio));
+    }
+
+    function pickupComplementRatioForStream() {
+      const units = meterUnitCountForPickup();
+      const beats = pickupBeatsForStream();
+      if (!Number.isFinite(units) || units <= 0 || !Number.isFinite(beats) || beats <= 0) return 1;
+      const remaining = units - (beats % units || beats);
+      const ratio = remaining / units;
+      if (!Number.isFinite(ratio) || ratio <= 0) return 1;
+      return Math.max(1 / units, Math.min(1, ratio));
+    }
+
+    function defaultBarRatioForNextClose(isFirstBar) {
+      return Boolean(isFirstBar) && pickupBeatsForStream() > 0
+        ? pickupRatioForStream()
+        : 1;
+    }
+
+    function closeCurrentBar() {
+      if (currentBarSlots <= 0) return;
+      const isFirstBar = barSlotCounts.length === 0;
+      const fallbackRatio = defaultBarRatioForNextClose(isFirstBar);
+      const ratio = currentBarRatioOverride != null
+        ? Number(currentBarRatioOverride)
+        : fallbackRatio;
+      barSlotCounts.push(currentBarSlots);
+      barRatios.push(Number.isFinite(ratio) && ratio > 0 ? ratio : fallbackRatio);
+      currentBarSlots = 0;
+      currentBarRatioOverride = null;
+    }
 
     function pushSlot(node) {
       slots.push(node);
       currentBarSlots++;
+      lastTopTokenWasPickupGap = false;
+    }
+
+    function remainingTopTokensAreStructuralGapEnd(startIndex) {
+      for (let i = startIndex; i < tokens.length; i += 1) {
+        const t = tokens[i];
+        if (t === ';') continue;
+        return false;
+      }
+      return true;
+    }
+
+    function pushPickupGap(role) {
+      const gapRole = role || 'opening';
+      const gap = {
+        kind: 'pickup-gap',
+        raw: '?',
+        role: gapRole,
+        playable: false,
+        structural: true,
+        token: {
+          kind: 'pickup-gap',
+          raw: '?',
+          role: gapRole,
+          playable: false,
+          structural: true,
+        },
+      };
+      pickupGaps.push(gap);
+      if (gapRole === 'terminal') {
+        currentBarRatioOverride = pickupComplementRatioForStream();
+      }
+      lastTopTokenWasPickupGap = true;
     }
 
     function gateNode(node) {
@@ -909,6 +1142,12 @@
           errors.push({ line: lineNumber, message: `unexpected '|' inside (...) group — bar lines belong only between top-level slots` });
           continue;
         }
+        if (t === '?') {
+          pos++;
+          errors.push({ line: lineNumber, message: `'?' is an anacrusis bookend and cannot appear inside (...)` });
+          children.push({ kind: 'leaf', token: { kind: 'rest', value: null } });
+          continue;
+        }
         const leaf = classifyLeaf(t);
           if (!leaf) {
             const gateError = voiceGateError(t);
@@ -962,10 +1201,21 @@
         // same wall-clock time, but bars may hold different slot counts.
         // Empty bars (leading '|', consecutive '||', trailing '|') are
         // treated as no-ops rather than zero-slot bars.
-        if (currentBarSlots > 0) {
-          barSlotCounts.push(currentBarSlots);
-          currentBarSlots = 0;
+        closeCurrentBar();
+        sawBarline = true;
+        lastTopTokenWasPickupGap = false;
+        pos++;
+        continue;
+      }
+      if (t === '?') {
+        const role = sawBarline ? 'terminal' : 'opening';
+        if (lastTopTokenWasPickupGap) {
+          errors.push({ line: lineNumber, message: `adjacent '?' pickup bookends are not allowed` });
         }
+        if (role === 'terminal' && !remainingTopTokensAreStructuralGapEnd(pos + 1)) {
+          errors.push({ line: lineNumber, message: `terminal '?' pickup bookend must be the final token in the row` });
+        }
+        pushPickupGap(role);
         pos++;
         continue;
       }
@@ -1016,12 +1266,16 @@
       pos++;
     }
 
-    if (currentBarSlots > 0) barSlotCounts.push(currentBarSlots);
-    if (barSlotCounts.length === 0) barSlotCounts.push(slots.length);
+    closeCurrentBar();
+    if (barSlotCounts.length === 0) {
+      barSlotCounts.push(Math.max(1, slots.length));
+      barRatios.push(defaultBarRatioForNextClose(true));
+    }
+    while (barRatios.length < barSlotCounts.length) barRatios.push(1);
     finalizePitchSpans();
     const bars = barSlotCounts.length;
 
-    return { slots, bars, barSlotCounts, errors };
+    return { slots, bars, barSlotCounts, barRatios, pickupGaps, errors };
   }
 
     // -------------------- parameter resolution --------------------
@@ -1128,11 +1382,85 @@
       }
     }
 
+    function resolveOrnament(raw) {
+      const source = String(raw || '').trim();
+      const lower = source.toLowerCase();
+      const m = lower.match(/^([^:]+)(?::([a-z0-9_.+-]+))?$/);
+      if (!m) return null;
+      const base = ORNAMENT_ALIASES[m[1]];
+      if (!base) return null;
+      const mod = m[2] || '';
+      const out = { kind: 'ornament', ornament: base, raw: source };
+      if (mod) {
+        if (/^\d+$/.test(mod)) out.count = Math.max(1, Math.min(32, Math.round(Number(mod))));
+        else if (mod === 'fast' || mod === 'slow' || mod === 'long' || mod === 'upper' || mod === 'lower') out.mod = mod;
+        else return null;
+      }
+      return out;
+    }
+
+    function resolveOrnamentOpenValue(raw, label) {
+      const source = String(raw == null ? '' : raw).trim();
+      const lower = source.toLowerCase();
+      if (lower === '.' || lower === 'default' || lower === 'style') {
+        return { ok: true, value: null };
+      }
+      const paramOperator = parseParamOperator(source);
+      if (paramOperator) return paramOperator;
+      const num = parseNumericExpression(source);
+      if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
+      return { ok: false, message: `${label} '${raw}' — use ., a 0..1 value, or param operators like *, *!, *~, _, ~, or *&8` };
+    }
+
+    function resolveChordRipple(raw) {
+      const source = String(raw || '').trim();
+      const lower = source.toLowerCase();
+      const mode = CHORD_ROLL_ALIASES[lower];
+      if (!mode) return null;
+      return { kind: 'chord-roll', mode, raw: source };
+    }
+
+    function resolveChordArp(raw) {
+      const source = String(raw || '').trim();
+      const lower = source.toLowerCase();
+      const mode = CHORD_ARP_ALIASES[lower];
+      if (!mode) return null;
+      return { kind: 'chord-arp', mode, raw: source };
+    }
+
     function resolveParam(name, raw) {
+      const lower = String(raw).toLowerCase();
+
+      if (name === 'ornament') {
+        const orn = resolveOrnament(raw);
+        if (orn) return { ok: true, value: orn };
+        return { ok: false, message: `ornament '${raw}' — use ., tr, +, -, ~, /~, app, acc, gr, sh, slide, or names like mordent/lower-mordent/turn` };
+      }
+
+      if (name === 'ornament-style') {
+        const style = lower === 'off' || lower === 'none' ? 'default' : lower;
+        if (ORNAMENT_STYLE_NAMES.has(style)) return { ok: true, value: style };
+        return { ok: false, message: `ornament-style must be default, bach, rameau, couperin, or french` };
+      }
+
+      if (name === 'ornament-speed' || name === 'ornament-human' || name === 'ornament-open') {
+        return resolveOrnamentOpenValue(raw, name);
+      }
+
+      if (name === 'ripple') {
+        const ripple = resolveChordRipple(raw);
+        if (ripple) return { ok: true, value: ripple };
+      }
+
+      if (name === 'arp') {
+        const arp = resolveChordArp(raw);
+        if (arp) return { ok: true, value: arp };
+        return { ok: false, message: `arp '${raw}' — use ., u, d, ud, du, o, i, r, br` };
+      }
+
       const paramOperator = parseParamOperator(raw);
       if (paramOperator) return paramOperator;
 
-      const lower = String(raw).toLowerCase();
       const num = parseNumericExpression(raw);
 
     switch (name) {
@@ -1261,7 +1589,6 @@
           return { ok: false, message: `mallet must be yarn, cord, or rubber` };
 
         case 'deadstroke':
-        case 'roll':
         case 'spread':
         case 'motor':
         case 'depth':
@@ -1276,6 +1603,20 @@
           if (lower === 'on') return { ok: true, value: 1 };
           if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
           return { ok: false, message: `${name} must be off/on or 0–1` };
+
+        case 'ripple':
+          if (lower === 'off' || lower === 'none' || lower === '.') return { ok: true, value: { kind: 'chord-roll', mode: 'none', raw } };
+          if (lower === 'on') return { ok: true, value: 0.5 };
+          if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 1) };
+          return { ok: false, message: `ripple '${raw}' — use ., u, d, o, i, b, t, r, off/on, or 0–1` };
+
+        case 'ripple-time':
+          if (Number.isFinite(num)) return { ok: true, value: clamp(num, 0, 0.5) };
+          return { ok: false, message: `ripple-time must be seconds, e.g. 0.045` };
+
+        case 'arprate':
+          if (Number.isFinite(num) && num > 0) return { ok: true, value: clamp(num, 0.015625, 4) };
+          return { ok: false, message: `arprate must be a positive factor like 1/8, 1/4, or 0.125` };
 
         case 'formant':
           if (Number.isFinite(num)) return { ok: true, value: clamp(num, -1, 1) };
@@ -1535,7 +1876,7 @@
         case 'stretch': return [0, 1];
         case 'poly': return [8, 128];
           case 'deadstroke': return [0, 1];
-          case 'roll': return [0, 1];
+          case 'ripple': return [0, 1];
           case 'spread': return [0, 1];
         case 'motor': return [0, 1];
         case 'depth': return [0, 1];
@@ -2035,6 +2376,11 @@
     let evaluateMode = 'reset';
     let evaluateCutOnReset = false;
     let activeTuning = null;
+    let pickup = null;
+    let inegales = { raw: 'off', mode: 'off', enabled: false, line: null };
+    let swing = { raw: 'off', amount: 0, ratio: 1, target: '1/8', targetDuration: { numerator: 1, denominator: 8 }, enabled: false, line: null };
+    const harmony = emptyHarmonyState();
+    const warnings = [];
 
     const rawLines = String(text).replace(/\r\n?/g, '\n').split('\n');
 
@@ -2081,6 +2427,396 @@
         blocks.push(currentBlock);
         currentBlock = null;
       }
+    }
+
+    function gcd(a, b) {
+      let x = Math.abs(Math.trunc(a));
+      let y = Math.abs(Math.trunc(b));
+      while (y) {
+        const t = y;
+        y = x % y;
+        x = t;
+      }
+      return x || 1;
+    }
+
+    function normalizeRational(n, d) {
+      const num = Math.trunc(n);
+      const den = Math.trunc(d);
+      if (!Number.isFinite(num) || !Number.isFinite(den) || den === 0) return null;
+      const sign = den < 0 ? -1 : 1;
+      const g = gcd(num, den);
+      return { numerator: sign * (num / g), denominator: Math.abs(den / g) };
+    }
+
+    function addRationals(a, b) {
+      if (!a || !b) return null;
+      return normalizeRational(
+        a.numerator * b.denominator + b.numerator * a.denominator,
+        a.denominator * b.denominator
+      );
+    }
+
+    function parseDurationTerm(raw, meterDenominator) {
+      const source = String(raw || '').trim();
+      if (!source) return null;
+      const frac = source.match(/^(\d+)\/(\d+)$/);
+      if (frac) {
+        return normalizeRational(Number(frac[1]), Number(frac[2]));
+      }
+      const whole = source.match(/^(\d+(?:\.\d+)?|\.\d+)$/);
+      if (whole) {
+        const value = Number(source);
+        if (!Number.isFinite(value) || value <= 0) return null;
+        // Bare pickup values are in current meter units. In 4/4, `pickup 1`
+        // means one quarter; in 6/8, `pickup 1` means one eighth.
+        const scale = 1000000;
+        return normalizeRational(Math.round(value * scale), Math.max(1, Number(meterDenominator) || 4) * scale);
+      }
+      return null;
+    }
+
+    function parsePickupDuration(raw, meterValue) {
+      const meterDenominator = Number.isFinite(Number(meterValue && meterValue.den)) && Number(meterValue.den) > 0
+        ? Number(meterValue.den)
+        : 4;
+      const source = String(raw || '').trim().replace(/\s+/g, '');
+      if (!source) return null;
+      const parts = source.split('+');
+      let out = null;
+      for (const part of parts) {
+        const term = parseDurationTerm(part, meterDenominator);
+        if (!term || term.numerator <= 0) return null;
+        out = out ? addRationals(out, term) : term;
+      }
+      if (!out || out.numerator <= 0) return null;
+      const beats = (out.numerator / out.denominator) * meterDenominator;
+      if (!Number.isFinite(beats) || beats <= 0) return null;
+      return { duration: out, beats };
+    }
+
+    function parsePickupDirective(args, lineNumber, directiveName) {
+      if (!Array.isArray(args) || args.length !== 1) {
+        return {
+          ok: false,
+          error: { line: lineNumber, message: `${directiveName || 'pickup'} needs one duration value, e.g. 'pickup 1', 'pickup 3/8', or 'pickup 1/8+1/16+1/16'` },
+        };
+      }
+
+      const raw = String(args[0] || '').trim();
+      const parsed = parsePickupDuration(raw, meter);
+      if (!parsed) {
+        return {
+          ok: false,
+          error: { line: lineNumber, message: `${directiveName || 'pickup'} duration must be positive, e.g. 'pickup 1', 'pickup 3/8', or 'pickup 1/8+1/16+1/16'` },
+        };
+      }
+
+      return {
+        ok: true,
+        value: {
+          beats: parsed.beats,
+          raw,
+          line: lineNumber,
+          directive: directiveName || 'pickup',
+          duration: parsed.duration,
+        },
+      };
+    }
+
+    function parseInegalesDirective(args, lineNumber) {
+      if (!Array.isArray(args) || args.length !== 1) {
+        return { ok: false, error: { line: lineNumber, message: `inegales needs one value: off, light, medium, heavy, french, 2:1, or 3:2` } };
+      }
+      const raw = String(args[0] || '').trim().toLowerCase();
+      if (!INEGALES_VALUES.has(raw)) {
+        return { ok: false, error: { line: lineNumber, message: `inegales '${args[0]}' — use off, light, medium, heavy, french, 2:1, or 3:2` } };
+      }
+      const value = (raw === 'none') ? 'off' : raw;
+      return {
+        ok: true,
+        value: {
+          raw: String(args[0] || '').trim(),
+          mode: value,
+          enabled: value !== 'off',
+          line: lineNumber,
+        },
+      };
+    }
+
+    function parseSwingAmount(rawValue) {
+      const raw = String(rawValue || '').trim().toLowerCase();
+      if (!raw) return null;
+      if (raw === 'off' || raw === 'none') return { amount: 0, ratio: 1, enabled: false, mode: 'off' };
+      if (raw === 'light') return { amount: 0.32, ratio: 1.64, enabled: true, mode: 'light' };
+      if (raw === 'medium') return { amount: 0.50, ratio: 2.0, enabled: true, mode: 'medium' };
+      if (raw === 'heavy') return { amount: 0.68, ratio: 2.36, enabled: true, mode: 'heavy' };
+      const ratio = raw.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+      if (ratio) {
+        const a = Number(ratio[1]);
+        const b = Number(ratio[2]);
+        if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return null;
+        const r = Math.max(1, a / b);
+        const amount = clamp((r - 1) / 2, 0, 1);
+        return { amount, ratio: r, enabled: r > 1.0001, mode: raw };
+      }
+      const n = Number(raw);
+      if (Number.isFinite(n) && n >= 0 && n <= 1) {
+        return { amount: n, ratio: 1 + n * 2, enabled: n > 0.0001, mode: raw };
+      }
+      return null;
+    }
+
+    function parseSwingTarget(rawValue) {
+      const raw = String(rawValue || '').trim().toLowerCase();
+      if (!raw) return { target: '1/8', duration: { numerator: 1, denominator: 8 } };
+      const aliases = {
+        eighth: '1/8', '8th': '1/8', quaver: '1/8', '1/8': '1/8',
+        sixteenth: '1/16', '16th': '1/16', semiquaver: '1/16', '1/16': '1/16',
+        quarter: '1/4', '4th': '1/4', crotchet: '1/4', '1/4': '1/4',
+      };
+      const target = aliases[raw] || raw;
+      const parsed = parsePickupDuration(target, { den: 4 });
+      if (!parsed || !parsed.duration) return null;
+      return { target, duration: parsed.duration };
+    }
+
+    function parseSwingDirective(args, lineNumber) {
+      if (!Array.isArray(args) || args.length < 1 || args.length > 2) {
+        return { ok: false, error: { line: lineNumber, message: `swing needs an amount and optional target, e.g. 'swing .5', 'swing light', or 'swing .35 1/16'` } };
+      }
+      const amount = parseSwingAmount(args[0]);
+      if (!amount) {
+        return { ok: false, error: { line: lineNumber, message: `swing '${args[0]}' — use off, light, medium, heavy, 0..1, or ratios like 2:1 / 3:1` } };
+      }
+      const target = parseSwingTarget(args[1] || '1/8');
+      if (!target) {
+        return { ok: false, error: { line: lineNumber, message: `swing target '${args[1]}' — use eighth, sixteenth, 1/8, or 1/16` } };
+      }
+      return {
+        ok: true,
+        value: {
+          raw: args.join(' '),
+          mode: amount.mode,
+          amount: amount.amount,
+          ratio: amount.ratio,
+          target: target.target,
+          targetDuration: target.duration,
+          enabled: amount.enabled,
+          line: lineNumber,
+        },
+      };
+    }
+
+
+    function parseHarmonyKeySpec(raw, lineNumber) {
+      const text = String(raw || '').trim();
+      if (!text) return { ok: false, error: { line: lineNumber, message: `key needs a tonal center, e.g. 'key C major', 'key A minor', or 'key D dorian'` } };
+      const normalized = text.replace(/\s+/g, '-');
+      const parts = normalized.split('-').filter(Boolean);
+      const tonic = parts[0] || 'C';
+      const mode = (parts[1] || 'major').toLowerCase();
+      if (!/^[A-Ga-g](?:#|b)?$/.test(tonic)) {
+        return { ok: false, error: { line: lineNumber, message: `key '${text}' — use a pitch center like C, F#, or Bb` } };
+      }
+      if (!/^[a-z][a-z0-9_-]*$/.test(mode)) {
+        return { ok: false, error: { line: lineNumber, message: `key mode '${mode}' is invalid` } };
+      }
+      return {
+        ok: true,
+        value: {
+          kind: 'harmony-key',
+          raw: text,
+          id: `${tonic[0].toUpperCase()}${tonic.slice(1)}-${mode}`,
+          tonic: `${tonic[0].toUpperCase()}${tonic.slice(1)}`,
+          mode,
+          line: lineNumber,
+        },
+      };
+    }
+
+    function resolveHarmonyAtom(trackName, raw) {
+      const source = String(raw == null ? '' : raw).trim();
+      const lower = source.toLowerCase();
+      if (!source) return { ok: false, message: `${trackName} contains an empty value` };
+
+      if (trackName === 'chord') {
+        if (source === '.') return { ok: true, value: { kind: 'harmony-hold', raw: source } };
+        if (/^@mod:[A-Ga-g](?:#|b)?-[A-Za-z][A-Za-z0-9_-]*$/.test(source)) {
+          const keyRaw = source.slice(5).replace(/-/g, ' ');
+          const parsed = parseHarmonyKeySpec(keyRaw, 1);
+          return { ok: true, value: { kind: 'harmony-command', command: 'mod', raw: source, key: parsed.ok ? parsed.value : null } };
+        }
+        if (/^@pivot:[^\s]+$/.test(source)) return { ok: true, value: { kind: 'harmony-command', command: 'pivot', raw: source } };
+        if (/^@cad:[A-Za-z0-9_-]+$/.test(source)) return { ok: true, value: { kind: 'harmony-cadence', raw: source, name: source.slice(5).toLowerCase() } };
+        if (source === '?' || /^\?/i.test(source)) {
+          return { ok: false, message: `chord '${raw}' — ? is reserved for anacrusis bookends; use H*, T*, PD*, D*, M*, or X* for harmonic wildcards` };
+        }
+        if (/^(?:H|T|PD|D|M|X|I|II|III|IV|V|VI|VII|i|ii|iii|iv|v|vi|vii)\*(?:!|~)?$/.test(source)) return { ok: true, value: { kind: 'harmony-glob', raw: source } };
+        return { ok: true, value: { kind: 'harmony-chord', raw: source } };
+      }
+
+      if (trackName === 'voicing') {
+        if (HARMONY_VOICING_NAMES.has(lower)) return { ok: true, value: lower };
+        return { ok: false, message: `voicing '${raw}' — use close, open, drop2, drop3, spread, rootless, shell, quartal, cluster, chorale, or .` };
+      }
+
+      if (trackName === 'lead') {
+        if (HARMONY_LEAD_NAMES.has(lower)) return { ok: true, value: lower };
+        return { ok: false, message: `lead '${raw}' — use smooth, nearest, contrary, oblique, parallel, locked, resolve, settle, tense, pivot, or .` };
+      }
+
+      if (trackName === 'chord-open' || trackName === 'harmonic-risk') {
+        if (lower === '.' || lower === 'default') return { ok: true, value: null };
+        const op = parseParamOperator(source);
+        if (op) return op;
+        const n = parseNumericExpression(source);
+        if (Number.isFinite(n)) return { ok: true, value: clamp(n, 0, 1) };
+        return { ok: false, message: `${trackName} '${raw}' — use ., 0..1, or operators like *, *!, *~, _, ~, *&8` };
+      }
+
+      if (trackName === 'register') {
+        if (lower === '.' || lower === 'default') return { ok: true, value: null };
+        const n = parseNumericExpression(source);
+        if (Number.isFinite(n)) return { ok: true, value: clamp(Math.round(n), 0, 8) };
+        return { ok: false, message: `register '${raw}' — use ., or an octave/register number 0..8` };
+      }
+
+      if (trackName === 'sub') {
+        if (HARMONY_SUB_NAMES.has(lower)) return { ok: true, value: lower === 'off' || lower === 'none' ? '.' : lower };
+        return { ok: false, message: `sub '${raw}' — use ., tritone/tri, backdoor, mediant, dim-pass, negative, chromatic-planing, relative, or parallel-minor` };
+      }
+
+      if (trackName === 'topline' || trackName === 'bassline') {
+        if (lower === '.' || lower === 'default') return { ok: true, value: null };
+        if (isNoteToken(source)) return { ok: true, value: { kind: 'harmony-pin', raw: source } };
+        if (isHarmonyRenderToken(source)) return { ok: true, value: harmonyRenderValue(source) };
+        return { ok: false, message: `${trackName} '${raw}' — use ., a note like E5, or a chord tone like root, third, 3, bass, top` };
+      }
+
+      return { ok: false, message: `unknown harmony track '${trackName}'` };
+    }
+
+    function parseHarmonyStream(tokens, trackName, lineNumber) {
+      const errors = [];
+      let pos = 0;
+
+      function parseValue(tok) {
+        const resolved = resolveHarmonyAtom(trackName, tok);
+        if (!resolved || !resolved.ok) {
+          errors.push({ line: lineNumber, message: resolved && resolved.message ? resolved.message : `${trackName} '${tok}' is invalid` });
+          return { kind: 'harmony-error', raw: tok };
+        }
+        return resolved.value;
+      }
+
+      function parseGroup() {
+        pos++;
+        const children = [];
+        while (pos < tokens.length) {
+          const tok = tokens[pos];
+          if (tok === ')') { pos++; return { kind: 'group', children }; }
+          if (tok === '(') { children.push(parseGroup()); continue; }
+          if (tok === '|') { pos++; continue; }
+          children.push({ kind: 'leaf', value: parseValue(tok), raw: tok });
+          pos++;
+        }
+        errors.push({ line: lineNumber, message: `${trackName} group is missing ')'` });
+        return { kind: 'group', children };
+      }
+
+      const nodes = [];
+      while (pos < tokens.length) {
+        const tok = tokens[pos];
+        if (tok === '|') { pos++; continue; }
+        if (tok === ')') { errors.push({ line: lineNumber, message: `unexpected ')' in ${trackName} row` }); pos++; continue; }
+        if (tok === '(') { nodes.push(parseGroup()); continue; }
+        nodes.push({ kind: 'leaf', value: parseValue(tok), raw: tok });
+        pos++;
+      }
+      return { nodes, errors };
+    }
+
+    function flattenHarmonyNodes(nodes, out) {
+      const target = out || [];
+      if (!Array.isArray(nodes)) return target;
+      for (const node of nodes) {
+        if (!node) continue;
+        if (node.kind === 'leaf') {
+          target.push(node.value);
+        } else if (node.kind === 'group') {
+          flattenHarmonyNodes(node.children, target);
+        }
+      }
+      return target;
+    }
+
+    function emptyHarmonyState() {
+      return {
+        key: { kind: 'harmony-key', raw: 'C major', id: 'C-major', tonic: 'C', mode: 'major', line: null },
+        prog: null,
+        tracks: {},
+        lines: {},
+      };
+    }
+
+    function macroChordValues(name) {
+      const key = String(name || '').toLowerCase();
+      const macros = {
+        pop: ['I', 'V', 'vi', 'IV'],
+        'jazz-turnaround': ['Imaj7', 'vi7', 'ii7', 'V7'],
+        circle: ['I', 'IV', 'viiø7', 'iii7', 'vi7', 'ii7', 'V7', 'I'],
+        blues12: ['I7', 'I7', 'I7', 'I7', 'IV7', 'IV7', 'I7', 'I7', 'V7', 'IV7', 'I7', 'V7'],
+        lament: ['i', 'VII', 'VI', 'V'],
+        andalusian: ['i', 'VII', 'VI', 'V'],
+        deceptive: ['I', 'IV', 'V', 'vi'],
+        backdoor: ['Imaj7', 'iv7', 'bVII13', 'Imaj9'],
+        'minor-line-cliche': ['i', 'iMaj7', 'i7', 'i6'],
+      };
+      return macros[key] || null;
+    }
+
+    function installHarmonyTrack(harmony, trackName, tokens, lineNumber, rawTail) {
+      const parsed = parseHarmonyStream(tokens, trackName, lineNumber);
+      if (parsed.errors.length) return { ok: false, errors: parsed.errors };
+      const values = flattenHarmonyNodes(parsed.nodes);
+      const storageName = trackName === 'chord-open' ? 'chordOpen' : trackName === 'harmonic-risk' ? 'harmonicRisk' : trackName;
+      harmony.tracks[storageName] = {
+        kind: 'harmony-track',
+        name: trackName,
+        raw: rawTail,
+        line: lineNumber,
+        nodes: parsed.nodes,
+        values,
+      };
+      harmony.lines[trackName] = lineNumber;
+      return { ok: true };
+    }
+
+    function parseHarmonyDirective(head, tail, lineNumber, harmony) {
+      const rawTail = String(tail || '').trim();
+      if (head === 'key') {
+        const parsed = parseHarmonyKeySpec(rawTail, lineNumber);
+        if (!parsed.ok) return { ok: false, errors: [parsed.error] };
+        harmony.key = parsed.value;
+        harmony.lines.key = lineNumber;
+        return { ok: true };
+      }
+      if (head === 'prog') {
+        const name = rawTail.split(/\s+/, 1)[0] || '';
+        const macro = macroChordValues(name);
+        if (!macro) return { ok: false, errors: [{ line: lineNumber, message: `prog '${name}' — use pop, jazz-turnaround, circle, blues12, lament, andalusian, deceptive, backdoor, or minor-line-cliche` }] };
+        harmony.prog = { name, line: lineNumber, values: macro.slice() };
+        if (!harmony.tracks.chord) {
+          const values = macro.map((raw) => ({ kind: 'harmony-chord', raw }));
+          harmony.tracks.chord = { kind: 'harmony-track', name: 'chord', raw: macro.join(' '), line: lineNumber, nodes: values.map((value) => ({ kind: 'leaf', value, raw: value.raw })), values };
+        }
+        harmony.lines.prog = lineNumber;
+        return { ok: true };
+      }
+      const tokens = tokenizeSlotLine(rawTail);
+      if (!tokens.length) return { ok: false, errors: [{ line: lineNumber, message: `${head} needs at least one value` }] };
+      return installHarmonyTrack(harmony, head, tokens, lineNumber, rawTail);
     }
 
     function parseEvaluateFlag(args, lineNumber, requireMode, sourceName) {
@@ -2252,8 +2988,21 @@
       // Tokenize the line. For voice/param classification we only need the
       // first whitespace-delimited word.
       const firstSpace = trimmedForCheck.search(/\s/);
-      const head = (firstSpace < 0 ? trimmedForCheck : trimmedForCheck.slice(0, firstSpace)).toLowerCase();
+      const rawHead = (firstSpace < 0 ? trimmedForCheck : trimmedForCheck.slice(0, firstSpace)).toLowerCase();
+      const head = PARAM_ALIASES[rawHead] || rawHead;
       const tail = firstSpace < 0 ? '' : trimmedForCheck.slice(firstSpace + 1);
+
+      // ---- harmony-source rows ----
+      // `key` is also a video parameter, so only treat it as a harmony row at
+      // the top level. Other harmony rows close the current block, like tempo.
+      if (HARMONY_ROW_NAMES.has(head) && !(head === 'key' && currentBlock)) {
+        if (currentBlock) endBlock();
+        const parsedHarmony = parseHarmonyDirective(head, tail, lineNumber, harmony);
+        if (!parsedHarmony.ok) {
+          for (const e of parsedHarmony.errors || []) errors.push(e);
+        }
+        continue;
+      }
 
       // ---- file-level directives ----
       if (FILE_DIRECTIVES.has(head)) {
@@ -2275,6 +3024,30 @@
             meter = { num: parseInt(m[1], 10), den: parseInt(m[2], 10) };
             meterExplicit = true;
           }
+        } else if (head === 'pickup' || head === 'anacrusis') {
+          const pickupDirective = parsePickupDirective(args, lineNumber, head);
+          if (!pickupDirective.ok) {
+            errors.push(pickupDirective.error);
+          } else {
+            pickup = pickupDirective.value;
+          }
+          continue;
+        } else if (head === 'inegales') {
+          const inegalesDirective = parseInegalesDirective(args, lineNumber);
+          if (!inegalesDirective.ok) {
+            errors.push(inegalesDirective.error);
+          } else {
+            inegales = inegalesDirective.value;
+          }
+          continue;
+        } else if (head === 'swing') {
+          const swingDirective = parseSwingDirective(args, lineNumber);
+          if (!swingDirective.ok) {
+            errors.push(swingDirective.error);
+          } else {
+            swing = swingDirective.value;
+          }
+          continue;
         } else if (head === 'tuning') {
           const tuningDirective = parseTuningDirective(args, lineNumber);
           if (!tuningDirective.ok) {
@@ -2357,10 +3130,12 @@
         let slots = [{ kind: 'leaf', token: { kind: 'rest', value: null, raw: '.' } }];
         let bars = 1;
         let barSlotCounts = [1];
+        let barRatios = [1];
+        let pickupGaps = [];
 
         if (slotTokens.length > 0) {
           const voiceName = videoSource === 'gen' ? 'video-gen' : 'video';
-          const result = parseSlotStream(slotTokens, voiceName, lineNumber);
+          const result = parseSlotStream(slotTokens, voiceName, lineNumber, { meter, pickup });
           if (result.errors.length) {
             for (const e of result.errors) errors.push(e);
           }
@@ -2368,6 +3143,8 @@
             slots = result.slots;
             bars = result.bars;
             barSlotCounts = result.barSlotCounts;
+            barRatios = result.barRatios;
+            pickupGaps = result.pickupGaps;
           }
         }
 
@@ -2379,6 +3156,8 @@
           continuousOnly: slotTokens.length === 0,
           slotsPerBar: Math.max(1, slots.length / bars),
           barSlotCounts,
+          barRatios,
+          pickupGaps,
           bars,
           params: {},
           effects: {},
@@ -2443,13 +3222,15 @@
           errors.push({ line: lineNumber, message: `voice '${head}' has no slots — add some notes or rests after it` });
           continue;
         }
-        const result = parseSlotStream(slotTokens, voiceName, lineNumber);
+        const result = parseSlotStream(slotTokens, voiceName, lineNumber, { meter, pickup });
         if (result.errors.length) {
           for (const e of result.errors) errors.push(e);
         }
         const slots = result.slots;
         const bars = result.bars;
         const barSlotCounts = result.barSlotCounts;
+        const barRatios = result.barRatios;
+        const pickupGaps = result.pickupGaps;
         if (slots.length === 0) {
           errors.push({ line: lineNumber, message: `no slots parsed from '${tail}'` });
           continue;
@@ -2462,6 +3243,8 @@
             continuousOnly: false,
             slotsPerBar: Math.max(1, slots.length / bars),
             barSlotCounts,
+            barRatios,
+            pickupGaps,
             bars,
             params: {},
             effects: {},
@@ -2774,6 +3557,11 @@
             continue;
           }
 
+          if (['ornament', 'ornament-style', 'ornament-speed', 'ornament-human', 'ornament-open', 'ripple', 'ripple-time', 'arp', 'arprate'].includes(head) && !isPitchedVoice(currentBlock.voice)) {
+            errors.push({ line: lineNumber, message: `${head} is only valid inside pitched blocks (string, sine, osc, pluck, drone, piano, violin, cello, marimba, vibraphone, voice)` });
+            continue;
+          }
+
           if (
             ['sul', 'vibrato', 'vibratorate', 'vibratoonset', 'tremolo', 'tremolorate', 'bow', 'wood'].includes(head)
             && currentBlock.voice !== 'violin'
@@ -2824,7 +3612,7 @@
           }
 
           if (
-            ['mallet', 'deadstroke', 'roll'].includes(head)
+            ['mallet', 'deadstroke'].includes(head)
             && currentBlock.voice !== 'marimba'
           ) {
             errors.push({ line: lineNumber, message: `${head} is only valid inside marimba blocks` });
@@ -2967,8 +3755,69 @@
 
     endBlock();
 
+    function visitSlotNodes(nodes, fn) {
+      if (!Array.isArray(nodes)) return;
+      for (const node of nodes) {
+        if (!node) continue;
+        fn(node);
+        if (node.kind === 'leaf' && node.token) fn(node.token);
+        if (node.kind === 'group' && Array.isArray(node.children)) visitSlotNodes(node.children, fn);
+      }
+    }
+
+    function pickupGapsForBlock(block) {
+      const gaps = [];
+      if (block && Array.isArray(block.pickupGaps)) gaps.push(...block.pickupGaps.filter(Boolean));
+      visitSlotNodes(block && block.slots, (node) => {
+        if (node && node.kind === 'pickup-gap') gaps.push(node);
+      });
+      return gaps;
+    }
+
+    let pickupGapCount = 0;
+    for (const block of blocks) {
+      pickupGapCount += pickupGapsForBlock(block).length;
+    }
+
+    if (pickupGapCount > 0 && !pickup) {
+      errors.push({ line: 1, message: `'?' anacrusis bookends require a pickup/anacrusis directive` });
+    }
+
+    if (pickupGapCount > 0 && pickup) {
+      const hasOpening = blocks.some((block) => pickupGapsForBlock(block).some((node) => node && node.role === 'opening'));
+      const hasTerminal = blocks.some((block) => pickupGapsForBlock(block).some((node) => node && node.role === 'terminal'));
+      if (!hasOpening) {
+        warnings.push({ line: pickup.line || 1, message: `pickup ${pickup.raw} is active, but no opening '?' bookend was found` });
+      }
+      if (!hasTerminal) {
+        warnings.push({ line: pickup.line || 1, message: `pickup ${pickup.raw} is active, but no terminal '?' bookend was found; repeated playback may not show the omitted return span` });
+      }
+    }
+
     if (errors.length > 0) {
       return { ok: false, errors };
+    }
+
+    const meterUnits = Number.isFinite(Number(meter && meter.num)) && Number(meter.num) > 0 ? Number(meter.num) : 4;
+    const pickupBeats = pickup && Number.isFinite(Number(pickup.beats)) && Number(pickup.beats) > 0
+      ? Number(pickup.beats)
+      : 0;
+    const pickupValue = pickupBeats > 0
+      ? {
+          beats: pickupBeats,
+          raw: pickup.raw || String(pickupBeats),
+          line: pickup.line || null,
+          directive: pickup.directive || 'pickup',
+          duration: pickup.duration || null,
+          phaseOffset: ((meterUnits - (pickupBeats % meterUnits)) % meterUnits),
+        }
+      : { beats: 0, raw: '', line: null, directive: 'pickup', duration: null, phaseOffset: 0 };
+
+    if (pickupBeats > 0 && pickupBeats >= meterUnits) {
+      warnings.push({
+        line: pickup && pickup.line ? pickup.line : 1,
+        message: `pickup ${pickupValue.raw} is at least one full ${meter.num}/${meter.den} bar; it will still be treated as a metrical phase offset`,
+      });
     }
 
     // Pre-resolve pitched sustain leaves (~) to the immediately-preceding note
@@ -2986,6 +3835,12 @@
         // last sustained note holds, no looping, no beat indicator.
         freeTime: !tempoExplicit && !meterExplicit,
         tuning: cloneTuningValue(activeTuning),
+        pickup: pickupValue,
+        pickupBeats: pickupValue.beats,
+        inegales,
+        swing,
+        harmony,
+        warnings,
         transport: {
           evaluate: {
             mode: evaluateMode,
