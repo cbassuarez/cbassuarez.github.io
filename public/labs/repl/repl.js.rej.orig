@@ -1,0 +1,11 @@
+@@ -1132,8 +1279,8 @@
+       const tuningActivation = tuningActivationText(result.program);
+       const tuningWarning = tuningWarningText(result.program);
+       if (tuningActivation || tuningWarning) {
+-        if (tuningActivation) showWarning(tuningActivation);
+-        if (tuningWarning) showWarning(tuningWarning);
++        if (tuningActivation) showWarning(tuningActivation, { source: 'parser' });
++        if (tuningWarning) showWarning(tuningWarning, { source: 'parser' });
+         setTimeout(clearErrors, 2400);
+       }
+ 

@@ -1,0 +1,78 @@
+--- index.html
++++ index.html
+@@ -10127,6 +10127,75 @@
+       }
+ 
+ 
++
++
++    /* Final divider correction — one separator only, no colored reference/docs rails. */
++    .controls.transport-strip {
++      grid-template-columns:
++        7.2rem
++        minmax(15rem, 18rem)
++        minmax(6.8rem, 7.6rem)
++        minmax(7.2rem, 8.8rem)
++        1.35rem
++        minmax(16rem, 1fr) !important;
++    }
++
++    .controls.transport-strip::after {
++      content: "" !important;
++      display: block !important;
++      grid-column: 5 !important;
++      grid-row: 1 / 3 !important;
++      align-self: stretch !important;
++      justify-self: center !important;
++      width: 0 !important;
++      min-width: 0 !important;
++      margin: 0 !important;
++      border-left: 3px solid var(--cs-line, #070707) !important;
++      background: transparent !important;
++      box-shadow: none !important;
++      pointer-events: none !important;
++    }
++
++    .controls.transport-strip #reference-toggle,
++    .controls.transport-strip #docs-toggle {
++      grid-column: 6 !important;
++      justify-self: stretch !important;
++      width: 100% !important;
++      border-left: 2px solid var(--cs-line, #070707) !important;
++    }
++
++    .controls.transport-strip #reference-toggle {
++      grid-row: 1 !important;
++      background: var(--cs-yellow, #ffd400) !important;
++      color: var(--cs-line, #070707) !important;
++    }
++
++    .controls.transport-strip #docs-toggle {
++      grid-row: 2 !important;
++      background: var(--cs-white, #ffffff) !important;
++      color: var(--cs-line, #070707) !important;
++    }
++
++    @media (max-width: 74rem) {
++      .controls.transport-strip {
++        grid-template-columns: 6.8rem minmax(12rem, 1fr) 7rem 8rem !important;
++      }
++
++      .controls.transport-strip::after {
++        display: none !important;
++        content: none !important;
++      }
++
++      .controls.transport-strip #reference-toggle {
++        grid-column: 2 / 5 !important;
++        grid-row: 3 !important;
++      }
++
++      .controls.transport-strip #docs-toggle {
++        grid-column: 2 / 5 !important;
++        grid-row: 4 !important;
++      }
++    }
+ </style>
+ </head>
+ <body class="repl-loading" data-loading-phase="boot">

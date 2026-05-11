@@ -1,63 +1,16 @@
-@@ -2487,14 +2536,38 @@
-           const tok = node.token;
-           const leafIndex = ctx.leafCursor.index;
-           ctx.leafCursor.index += 1;
-+          const eventIndex = ((ctx.leafBase + leafIndex) % ctx.leafTotal + ctx.leafTotal) % ctx.leafTotal;
-+          const leafPath = Array.isArray(ctx.leafPath) ? ctx.leafPath.slice() : [];
-+          const tokenLabel = leafTokenLabel(tok);
-+
-+          if (tok.kind === 'rest') {
-+            emitLeafPulse(ctx.block, time, {
-+              leafIndex: eventIndex,
-+              leafCount: ctx.leafTotal,
-+              leafPath,
-+              slotIndex: ctx.slotIndex,
-+              state: 'rest',
-+              token: tokenLabel,
-+              duration,
-+              intensity: 0.08,
-+            });
-+            return;
-+          }
- 
--          if (tok.kind === 'rest') return;
--
--            const eventIndex = ((ctx.leafBase + leafIndex) % ctx.leafTotal + ctx.leafTotal) % ctx.leafTotal;
-             const baseParams = resolveParamsForEvent(ctx.block, eventIndex, time);
-             const effects = resolveEffectsForEvent(ctx.block, eventIndex, time);
-             const attractorMod = attractorModForBlock(ctx.block, time);
-             const params = applyAttractorToParams(ctx.block, baseParams, ctx.voice, time, duration, attractorMod);
-+            emitLeafPulse(ctx.block, time, {
-+              leafIndex: eventIndex,
-+              leafCount: ctx.leafTotal,
-+              leafPath,
-+              slotIndex: ctx.slotIndex,
-+              state: attractorMod ? 'mutated' : 'hit',
-+              token: tokenLabel,
-+              duration,
-+              intensity: Math.max(0.12, Math.min(1, numericParamValue(params.gain, 1))),
-+            });
-             const eventBus = outputBusForBlock(ctx.block, time, attractorMod, effects);
- 
-             const gated = tokenIsGated(tok);
-@@ -2610,7 +2683,10 @@
- 
-           const subDur = duration / n;
-           for (let i = 0; i < n; i++) {
--            dispatchSlotTree(node.children[i], time + i * subDur, subDur, ctx);
-+            dispatchSlotTree(node.children[i], time + i * subDur, subDur, {
-+              ...ctx,
-+              leafPath: (Array.isArray(ctx.leafPath) ? ctx.leafPath : []).concat(i),
-+            });
-           }
-         }
-       }
-@@ -2884,6 +2960,8 @@
-           leafBase,
-           leafTotal: block._leafTotal,
-           leafCursor: { index: 0 },
-+          leafPath: [inBlockIdx],
-+          slotIndex: inBlockIdx,
-         });
-       }
- 
+@@ -5810,9 +5820,13 @@
+         // UI/playhead beat here means notated meter unit, not necessarily a
+         // quarter note. In 12/16 it counts 12 sixteenth units across a shorter
+         // bar; in 12/8 it counts 12 eighth units across a longer bar.
++        const pickupPhaseOffset = program && program.pickup && Number.isFinite(Number(program.pickup.phaseOffset))
++          ? Number(program.pickup.phaseOffset)
++          : 0;
+         const totalMeterUnits = (elapsed / barSec) * meterUnitsPerBar;
+-        const bar = Math.floor(elapsed / barSec);
+-        const beat = totalMeterUnits - bar * meterUnitsPerBar;
++        const phasedMeterUnits = totalMeterUnits + pickupPhaseOffset;
++        const bar = Math.floor(phasedMeterUnits / meterUnitsPerBar);
++        const beat = phasedMeterUnits - bar * meterUnitsPerBar;
+         const beatIndex = meterUnitsPerBar > 0 ? Math.floor(beat) % meterUnitsPerBar : 0;
+         const beatProgress = beat - Math.floor(beat);
+         const blockStates = program.blocks.map((block, i) => {

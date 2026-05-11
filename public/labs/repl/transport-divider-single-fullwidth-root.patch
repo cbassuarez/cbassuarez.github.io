@@ -1,0 +1,52 @@
+--- a/index.html
++++ b/index.html
+@@ -7485,8 +7485,8 @@
+         minmax(15rem, 18rem)
+         minmax(6.8rem, 7.6rem)
+         minmax(7.2rem, 8.8rem)
+-        1.35rem
+-        minmax(12rem, 18rem) !important;
++        1.65rem
++        minmax(18rem, 1fr) !important;
+       grid-template-rows: 3.15rem 2.65rem !important;
+       grid-auto-flow: row !important;
+       gap: 0.52rem !important;
+@@ -7784,11 +7784,12 @@
+       color: #ffffff !important;
+     }
+ 
+-    /* REFERENCE / DOCS — stacked Button E controls at far right */
++    /* REFERENCE / DOCS — stacked controls at far right.
++       The divider owns the separation; do not add a second left stripe here. */
+     .controls.transport-strip #reference-toggle {
+       grid-column: 6 !important;
+       grid-row: 1 !important;
+-      border-left: 7px solid var(--cs-yellow, #ffd400) !important;
++      border-left: 2px solid var(--cs-line, #070707) !important;
+       background: #ffffff !important;
+       color: #070707 !important;
+     }
+@@ -7796,7 +7797,7 @@
+     .controls.transport-strip #docs-toggle {
+       grid-column: 6 !important;
+       grid-row: 2 !important;
+-      border-left: 7px solid var(--cs-line, #070707) !important;
++      border-left: 2px solid var(--cs-line, #070707) !important;
+       background: #ffffff !important;
+       color: #070707 !important;
+     }
+@@ -7810,12 +7811,10 @@
+       justify-self: center !important;
+       width: 0 !important;
+       min-width: 0 !important;
+-      margin: 0 0.42rem !important;
++      margin: 0 !important;
+       border-left: 3px solid var(--cs-line, #070707) !important;
+       background: transparent !important;
+-      box-shadow:
+-        4px 0 0 rgba(7, 7, 7, 0.18),
+-        -4px 0 0 rgba(255, 212, 0, 0.42) !important;
++      box-shadow: none !important;
+       pointer-events: none !important;
+     }
+ 

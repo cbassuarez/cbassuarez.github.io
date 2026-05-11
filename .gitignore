@@ -8,3 +8,14 @@ dist
 .env.*.local
 worker/.dev.vars
 worker/.env
+
+# Large audio/sample assets not intended for GitHub. Hosted elsewhere when
+# the lab needs them.
+public/audio/rock/
+public/audio/smdrums/
+public/audio/wa-808/
+public/audio/breakcore_kit/
+public/labs/repl/public/instruments/
+public/labs/repl/public/
+public/labs/repl/source/
+public/labs/repl/samples/

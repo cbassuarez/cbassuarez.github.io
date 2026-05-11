@@ -25,9 +25,9 @@
     EditorView, keymap, drawSelection, highlightActiveLine, placeholder, Decoration, ViewPlugin, RangeSetBuilder, WidgetType,
     defaultKeymap, history, historyKeymap, indentLess,
     HighlightStyle, syntaxHighlighting, StreamLanguage, bracketMatching,
-    autocompletion, completionKeymap, acceptCompletion, completionStatus, startCompletion,
+    autocompletion, completionKeymap, acceptCompletion, completionStatus, startCompletion, closeCompletion, moveCompletionSelection,
     linter, lintKeymap,
-    searchKeymap, highlightSelectionMatches,
+    searchKeymap,
     toggleLineComment,
     t,
   } = CM;
@@ -37,71 +37,1066 @@
   // diagnostics. Keep these in sync with the DSL parser.
   // ============================================================================
 
-  const VOICE_WORDS = ['string', 'sample', 'input'];
-  const DIRECTIVES = ['tempo', 'meter'];
+    const VOICE_WORDS = ['string', 'sample', 'piano', 'violin', 'cello', 'marimba', 'vibraphone', 'vibes', 'voice', 'vox', 'input', 'sine', 'osc', 'noise', 'pluck', 'pulse', 'drone', 'drum', 'video'];
+  const DIRECTIVES = ['tempo', 'meter', 'pickup', 'anacrusis', 'inegales', 'swing', 'tuning', 'eval', 'evaluate'];
+  const HARMONY_HEADS = ['key', 'prog', 'chord', 'voicing', 'lead', 'register', 'chord-open', 'harmonic-risk', 'sub', 'topline', 'bassline'];
+  const HARMONY_RENDER_VALUES = ['chord', 'root', 'third', 'fifth', 'seventh', 'ninth', 'eleventh', 'thirteenth', 'bass', 'top', 'guide', 'shell', 'color', 'upper', 'lower', 'stab', 'arp', '1', '3', '5', '7', '9', '11', '13'];
+  const HARMONY_CHORD_VALUES = ['I', 'vi', 'ii', 'V', 'Imaj7', 'vi9', 'ii11', 'V13b9', 'Cmaj7', 'Dm9', 'G13sus', 'Cmaj9', 'H*', 'T*', 'PD*', 'D*', 'M*', 'X*', '@mod:Eb-major', '@pivot:vi=ii/G-major'];
+  const HARMONY_VOICING_VALUES = ['.', 'close', 'open', 'drop2', 'drop3', 'spread', 'rootless', 'shell', 'quartal', 'cluster', 'chorale'];
+  const HARMONY_LEAD_VALUES = ['.', 'smooth', 'nearest', 'contrary', 'oblique', 'parallel', 'locked', 'resolve', 'settle', 'tense', 'pivot'];
   const PARAMS = [
-    'force', 'decay', 'crush', 'pan', 'gain',
-    'tone', 'harm', 'octave', 'rate', 'start', 'speed',
+    'force', 'decay', 'crush', 'resolution', 'pan', 'gain',
+    'tone', 'harm', 'octave', 'ornament', 'ornament-style', 'ornament-speed', 'orn-speed', 'ornament-human', 'orn-human', 'rate', 'start', 'speed', 'glide', 'kit', 'pick', 'variance',
+    'pedal', 'una', 'lid', 'sympathetic', 'release', 'human', 'stretch', 'layer', 'poly',
+    'articulation', 'sul', 'vibrato', 'vibratorate', 'vibratoonset', 'tremolo', 'tremolorate', 'bow', 'wood',
+    'mallet', 'deadstroke', 'ripple', 'rip', 'ripple-time', 'riptime', 'roll', 'rolltime', 'arp', 'arprate', 'spread',
+    'motor', 'depth', 'damp', 'bowpressure',
+    'vowel', 'syllable', 'carrier', 'robot', 'breath', 'mouth', 'formant', 'roughness', 'vocoder', 'ensemble',
     'monitor', 'listen',
+    'opacity', 'threshold', 'edges', 'posterize', 'invert', 'contrast',
+    'saturate', 'displace', 'feedback', 'delay', 'slitscan', 'trail',
+    'mask', 'key', 'color', 'blend',
+    'style', 'seed', 'duration', 'cache',
   ];
   const EFFECTS = [
     'compress', 'space', 'resonance', 'comb', 'grain',
     'chorus', 'excite', 'blur', 'scar', 'body',
   ];
-    const COUPLING = ['attractor', 'source', 'every', 'fade', 'time', 'beat', 'leaf', 'choose', 'trigger'];
+    const COUPLING = ['attractor', 'source', 'every', 'enter', 'exit', 'fade', 'time', 'beat', 'leaf', 'choose', 'trigger'];
   const ATTRACTORS = [
     'weather', 'weather.dew', 'weather.frost', 'weather.visibility',
     'quake', 'tide', 'solar', 'air', 'traffic', 'grid', 'orbit',
     'civic', 'archive', 'tub', 'room', 'audience', 'mic', 'body',
-    'interface', 'tab', 'input',
+    'interface', 'tab', 'input', 'camera', 'screen', 'file', 'video',
     'memory', 'habit', 'error', 'feedback',
   ];
   const SOURCE_KEYS = ['station', 'feed', 'body', 'region', 'city', 'coords'];
   const DYNAMICS = ['pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff'];
+  const MALLET_VALUES = ['yarn', 'cord', 'rubber', 'soft', 'medium', 'hard'];
+    const VOCAL_VALUES = [
+      'ah', 'eh', 'ee', 'oh', 'oo', 'uh', 'mm', 'nn',
+      'ba', 'da', 'ga', 'ka', 'la', 'ma', 'na', 'ra', 'sa', 'ta', 'va', 'za',
+      'sha', 'tha', 'kha', 'zha',
+      'zero', 'one', 'two', 'three', 'four', 'five',
+      'input', 'output', 'signal', 'error', 'null', 'void',
+      'memory', 'body', 'breath', 'mouth', 'open', 'close', 'start', 'stop', 'again',
+      'sample', 'sine', 'saw', 'square', 'pulse', 'noise',
+    ];
+  const VIBES_ARTICULATION_VALUES = ['sustain', 'sus', 'open', 'pedal', 'short', 'shortsustain', 'short-sustain', 'damp', 'dampen', 'muted', 'stop', 'bow', 'bowed'];
   const PAN_VALUES = ['left', 'center', 'right'];
   const GAIN_VALUES = ['quiet', 'half', 'full', 'loud'];
   const TONE_VALUES = ['dark', 'bright'];
   const HARM_VALUES = ['simple', 'pair', 'triad', 'rich'];
+  const ORNAMENT_VALUES = ['.', 'tr', '+', '-', '~', '/~', 'mord', 'lmord', 'turn', 'app', 'acc', 'gr', 'sh', 'slide'];
+  const ORNAMENT_STYLE_VALUES = ['default', 'bach', 'rameau', 'couperin', 'french'];
+  const CHORD_RIPPLE_VALUES = ['.', 'u', 'd', 'o', 'i', 'b', 't', 'r', 'up', 'down', 'out', 'in', 'bass-first', 'top-first', 'random'];
+  const CHORD_ARP_VALUES = ['.', 'u', 'd', 'ud', 'du', 'o', 'i', 'r', 'br', 'up', 'down', 'updown', 'downup', 'bass-random'];
   const EFFECT_MODES = [
     'wood', 'metal', 'glass', 'room', 'tub', 'paper', 'stone',
     'memory', 'weather', 'rupture', 'feedback', 'glue', 'clamp',
     'drift', 'swarm', 'shimmer', 'solar', 'electric', 'smoke',
     'haze', 'ghost',
   ];
-  const LIVE_SOURCES = ['mic', 'interface', 'tab', 'input'];
+  const LIVE_SOURCES = ['mic', 'interface', 'tab', 'input', 'camera', 'screen', 'file', 'video'];
+  const VIDEO_LIVE_SOURCES = new Set(['camera', 'screen', 'file', 'video']);
+  const NON_VIDEO_LIVE_SOURCES = LIVE_SOURCES.filter((src) => !VIDEO_LIVE_SOURCES.has(src));
   const LIVE_FEATURES = [
     'intensity', 'rms', 'loudness', 'volatility', 'flux', 'pressure',
     'density', 'periodicity', 'rupture', 'onset', 'age', 'silence',
     'confidence', 'brightness', 'centroid', 'noisiness', 'flatness', 'roughness',
+    'motion', 'presence', 'contrast', 'colorTemp', 'saturation', 'edges',
+    'flowX', 'flowY', 'stillness', 'flicker', 'centroidX', 'centroidY',
+    'faces', 'body', 'depth',
   ];
   const LIVE_SOURCE_SET = new Set(LIVE_SOURCES);
-  const LIVE_FEATURE_SET = new Set(LIVE_FEATURES);
-  const LIVE_REF_RE = /^(mic|interface|tab|input)\.([a-zA-Z][a-zA-Z0-9_-]*)$/i;
+  const LIVE_FEATURE_SET = new Set(LIVE_FEATURES.map((f) => String(f).toLowerCase()));
+  const LIVE_REF_RE = /^(mic|interface|tab|input|camera|screen|file|video)\.([a-zA-Z][a-zA-Z0-9_-]*)$/i;
 
-  const COMMON_OPERATORS = ['*', '*!', '*~', '*&8', '*&16', '*&30', '~', '_'];
+  const COMMON_OPERATORS = ['*', '*!', '*~', '*&8', '*&16', '*&30', '~', '_', '?', '(*)?'];
+
+
+  // --------------------------------------------------------------------------
+  // live score grid — visual-only cell alignment for related score rows.
+  // --------------------------------------------------------------------------
+
+  const setScoreGridEnabledEffect = StateEffect.define();
+  const SCORE_GRID_MIN_CELL_CH = 3;
+  const SCORE_GRID_CELL_GAP_CH = 1;
+  const SCORE_GRID_BAR_GAP_CH = 2;
+  const SCORE_GRID_HEAD_GAP_CH = 2;
+  const SCORE_GRID_MUTE_PREFIX_CH = 4.25;
+  const SCORE_GRID_BEAT_CH = 6;
+  const SCORE_GRID_DEFAULT_BEATS = 4;
+
+  class ScoreGridSpacerWidget extends WidgetType {
+    constructor(widthCh) {
+      super();
+      this.widthCh = Math.max(0, Number(widthCh) || 0);
+    }
+
+    eq(other) {
+      return other && Math.abs(other.widthCh - this.widthCh) < 0.01;
+    }
+
+    toDOM() {
+      const span = document.createElement('span');
+      span.className = 'cm-score-grid-spacer';
+      span.setAttribute('aria-hidden', 'true');
+      span.style.setProperty('--score-grid-gap', `${this.widthCh.toFixed(2)}ch`);
+      return span;
+    }
+
+    ignoreEvent() {
+      return true;
+    }
+  }
+
+  function scoreGridLineHead(text) {
+    const m = String(text || '').match(/^(\s*)(\S+)(\s*)/);
+    if (!m) return null;
+    return {
+      indent: m[1] || '',
+      head: m[2] || '',
+      headFrom: (m[1] || '').length,
+      headTo: (m[1] || '').length + (m[2] || '').length,
+      headTrailingSpaces: (m[3] || '').length,
+      restFrom: ((m[1] || '').length + (m[2] || '').length + (m[3] || '').length),
+    };
+  }
+
+  function scoreGridVisualLength(text) {
+    return String(text || '').replace(/\t/g, '  ').length;
+  }
+
+  function scoreGridParsePositiveNumber(raw) {
+    const source = String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
+    if (!source) return NaN;
+    const m = source.match(/^(\d+(?:\.\d+)?|\.\d+)(?:\/(\d+(?:\.\d+)?|\.\d+))?$/);
+    if (!m) return NaN;
+    const numerator = Number(m[1]);
+    const denominator = m[2] == null ? 1 : Number(m[2]);
+    if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return NaN;
+    const value = numerator / denominator;
+    return Number.isFinite(value) && value > 0 ? value : NaN;
+  }
+
+
+  function scoreGridMeterDenominator(doc) {
+    if (!doc) return 4;
+    const lineLimit = Math.min(doc.lines || 0, 80);
+    for (let lineNumber = 1; lineNumber <= lineLimit; lineNumber += 1) {
+      const raw = String(doc.line(lineNumber).text || '').trim();
+      const m = raw.match(/^meter\s+\d+\/(\d+)\b/i);
+      if (m) {
+        const den = Number(m[1]);
+        if (Number.isFinite(den) && den > 0) return den;
+      }
+    }
+    return 4;
+  }
+
+  function scoreGridDurationToBeats(raw, meterDenominator) {
+    const source = String(raw || '').trim().replace(/\s+/g, '');
+    if (!source) return NaN;
+    const den = Number.isFinite(Number(meterDenominator)) && Number(meterDenominator) > 0 ? Number(meterDenominator) : 4;
+    let total = 0;
+    const parts = source.split('+');
+    if (!parts.length) return NaN;
+    for (const part of parts) {
+      if (!part) return NaN;
+      const frac = part.match(/^(\d+(?:\.\d+)?|\.\d+)\/(\d+(?:\.\d+)?|\.\d+)$/);
+      if (frac) {
+        const n = Number(frac[1]);
+        const d = Number(frac[2]);
+        if (!Number.isFinite(n) || !Number.isFinite(d) || d <= 0) return NaN;
+        total += n * (den / d);
+        continue;
+      }
+      const bare = part.match(/^(\d+(?:\.\d+)?|\.\d+)$/);
+      if (bare) {
+        const n = Number(part);
+        if (!Number.isFinite(n) || n <= 0) return NaN;
+        total += n;
+        continue;
+      }
+      return NaN;
+    }
+    return Number.isFinite(total) && total > 0 ? total : NaN;
+  }
+
+  function scoreGridTokenizeRow(line) {
+    const text = String(line.text || '');
+    const headInfo = scoreGridLineHead(text);
+    if (!headInfo) return null;
+
+    const tokens = [];
+    let i = headInfo.restFrom;
+    let barIndex = 0;
+    let cellIndex = 0;
+
+    function skipSpaces() {
+      while (i < text.length && /\s/.test(text[i])) i += 1;
+    }
+
+    while (i < text.length) {
+      skipSpaces();
+      if (i >= text.length) break;
+
+      const from = i;
+      if (text[i] === '|') {
+        tokens.push({ type: 'bar', text: '|', from, to: from + 1, bar: barIndex, cell: -1, trailingSpaces: 0 });
+        i += 1;
+        barIndex += 1;
+        cellIndex = 0;
+        continue;
+      }
+      if (text[i] === '?') {
+        tokens.push({ type: 'pickupGap', text: '?', from, to: from + 1, bar: barIndex, cell: cellIndex, trailingSpaces: 0 });
+        i += 1;
+        cellIndex += 1;
+        continue;
+      }
+
+      let depth = 0;
+      while (i < text.length) {
+        const ch = text[i];
+        if (ch === '(') depth += 1;
+        else if (ch === ')' && depth > 0) depth -= 1;
+        if (depth === 0 && (ch === '|' || ch === '?' || /\s/.test(ch))) break;
+        i += 1;
+      }
+
+      const to = i;
+      if (to > from) {
+        tokens.push({ type: 'cell', text: text.slice(from, to), from, to, bar: barIndex, cell: cellIndex, trailingSpaces: 0 });
+        cellIndex += 1;
+      }
+    }
+
+    for (let t = 0; t < tokens.length; t += 1) {
+      const token = tokens[t];
+      let j = token.to;
+      while (j < text.length && /\s/.test(text[j])) j += 1;
+      token.trailingSpaces = Math.max(0, j - token.to);
+    }
+
+    return {
+      line,
+      text,
+      indent: headInfo.indent,
+      head: headInfo.head,
+      headFrom: headInfo.headFrom,
+      headTo: headInfo.headTo,
+      headTrailingSpaces: headInfo.headTrailingSpaces,
+      tokens,
+      cells: tokens.filter((token) => token.type === 'cell' || token.type === 'pickupGap'),
+      bars: tokens.filter((token) => token.type === 'bar'),
+    };
+  }
+
+  function scoreGridIsVoiceRow(row) {
+    return Boolean(row && HEAD_VOICE.has(String(row.head || '').toLowerCase()));
+  }
+
+  function scoreGridIsSpeedRow(row) {
+    return Boolean(row && String(row.head || '').toLowerCase() === 'speed');
+  }
+
+  function scoreGridQueueSpacer(ops, absolutePos, widthCh, side) {
+    const width = Math.max(0, Number(widthCh) || 0);
+    if (width <= 0.05) return;
+    ops.push({
+      pos: absolutePos,
+      width,
+      side: side == null ? 1 : Number(side) || 1,
+    });
+  }
+
+  function scoreGridFlushSpacers(builder, ops) {
+    const sorted = ops
+      .filter((op) => op && Number.isFinite(op.pos) && Number(op.width) > 0.05)
+      .sort((a, b) => (a.pos - b.pos) || ((a.side || 0) - (b.side || 0)) || (a.width - b.width));
+
+    for (const op of sorted) {
+      builder.add(op.pos, op.pos, Decoration.widget({
+        widget: new ScoreGridSpacerWidget(op.width),
+        side: op.side == null ? 1 : op.side,
+      }));
+    }
+  }
+
+  function scoreGridIsAttachableSequenceRow(row) {
+    if (!row) return false;
+    const head = String(row.head || '').toLowerCase();
+    if (scoreGridIsSpeedRow(row)) return scoreGridRowHasBody(row);
+    if (!HEAD_PARAM.has(head) && !HEAD_EFFECT.has(head) && !HEAD_COUPLING.has(head)) return false;
+
+    // A one-value parameter row is still score material. Treat it as a
+    // one-cell row in the metered field so `pan 1`, `decay 4`, `gain 0.72`,
+    // etc. land at the same x-position their first value would occupy if the
+    // row later grew into `pan 1 1` or `decay 4 2`.
+    return scoreGridRowHasBody(row);
+  }
+
+  function scoreGridIsHardBoundary(row, text) {
+    const raw = String(text || '').trim();
+    if (!raw) return true;
+    if (raw.startsWith('//') || raw.startsWith('#')) return true;
+    if (!row) return true;
+    const head = String(row.head || '').toLowerCase();
+    return scoreGridIsVoiceRow(row) || HEAD_DIRECTIVE.has(head);
+  }
+
+  function scoreGridCollectBlockRows(doc, startLineNumber) {
+    const firstLine = doc.line(startLineNumber);
+    const firstRow = scoreGridTokenizeRow(firstLine);
+    if (!scoreGridIsVoiceRow(firstRow)) return null;
+
+    const rows = [firstRow];
+    let lineNumber = startLineNumber + 1;
+
+    while (lineNumber <= doc.lines) {
+      const line = doc.line(lineNumber);
+      const row = scoreGridTokenizeRow(line);
+      if (scoreGridIsHardBoundary(row, line.text)) break;
+      if (scoreGridIsAttachableSequenceRow(row)) rows.push(row);
+      lineNumber += 1;
+    }
+
+    return rows.length > 1 ? { rows, nextLineNumber: lineNumber } : null;
+  }
+
+  function scoreGridRowPrefixCh(row) {
+    if (!row) return 0;
+    return scoreGridIsVoiceRow(row) ? SCORE_GRID_MUTE_PREFIX_CH : 0;
+  }
+
+  function scoreGridBeatsPerBar(doc) {
+    if (!doc) return SCORE_GRID_DEFAULT_BEATS;
+    const lineLimit = Math.min(doc.lines || 0, 80);
+    for (let lineNumber = 1; lineNumber <= lineLimit; lineNumber += 1) {
+      const line = doc.line(lineNumber);
+      const row = scoreGridTokenizeRow(line);
+      if (!row || String(row.head || '').toLowerCase() !== 'meter') continue;
+      const first = row.cells && row.cells.length ? String(row.cells[0].text || '') : '';
+      const match = first.match(/^(\d+)(?:\s*)?(?:\/\d+)?$/);
+      if (match) {
+        const beats = Number(match[1]);
+        if (Number.isFinite(beats) && beats > 0) return Math.max(1, Math.min(32, beats));
+      }
+      const fallback = String(line.text || '').match(/^\s*meter\s+(\d+)/i);
+      if (fallback) {
+        const fallbackBeats = Number(fallback[1]);
+        if (Number.isFinite(fallbackBeats) && fallbackBeats > 0) return Math.max(1, Math.min(32, fallbackBeats));
+      }
+    }
+    return SCORE_GRID_DEFAULT_BEATS;
+  }
+
+  function scoreGridPickupBeats(doc) {
+    if (!doc) return 0;
+    const lineLimit = Math.min(doc.lines || 0, 80);
+    for (let lineNumber = 1; lineNumber <= lineLimit; lineNumber += 1) {
+      const line = doc.line(lineNumber);
+      const row = scoreGridTokenizeRow(line);
+      const head = row ? String(row.head || '').toLowerCase() : '';
+      if (head !== 'pickup' && head !== 'anacrusis') continue;
+      const first = row.cells && row.cells.length ? String(row.cells[0].text || '') : '';
+      const beats = scoreGridDurationToBeats(first, scoreGridMeterDenominator(doc));
+      if (Number.isFinite(beats) && beats > 0) return beats;
+    }
+    return 0;
+  }
+
+  function scoreGridFirstBarWidthCh(doc) {
+    const barWidth = scoreGridBarWidthCh(doc);
+    const pickup = scoreGridPickupBeats(doc);
+    if (!Number.isFinite(pickup) || pickup <= 0) return barWidth;
+    const pickupWidth = pickup * SCORE_GRID_BEAT_CH;
+    if (!Number.isFinite(pickupWidth) || pickupWidth <= 0) return barWidth;
+    return Math.max(1, Math.min(barWidth, pickupWidth));
+  }
+
+  function scoreGridBarWidthCh(doc) {
+    return scoreGridBeatsPerBar(doc) * SCORE_GRID_BEAT_CH;
+  }
+
+  function scoreGridIsOriginRow(row) {
+    if (!row) return false;
+    return scoreGridIsVoiceRow(row) || scoreGridIsAttachableSequenceRow(row);
+  }
+
+  function scoreGridRowHasBody(row) {
+    return Boolean(row && Array.isArray(row.cells) && row.cells.length > 0);
+  }
+
+  function scoreGridOriginHeadWidth(doc) {
+    if (!doc) return 0;
+    let maxHead = 0;
+
+    for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
+      const row = scoreGridTokenizeRow(doc.line(lineNumber));
+      if (!scoreGridIsOriginRow(row) || !scoreGridRowHasBody(row)) continue;
+      maxHead = Math.max(
+        maxHead,
+        scoreGridRowPrefixCh(row) + scoreGridVisualLength(row.head)
+      );
+    }
+
+    return maxHead > 0 ? maxHead + SCORE_GRID_HEAD_GAP_CH : 0;
+  }
+
+  function scoreGridFirstOriginLine(doc) {
+    if (!doc) return null;
+
+    // The start barline is the beginning of the piece, not the beginning of
+    // the metadata/directive rows. It should start at the first sounding/top
+    // level voice row once that row has body material.
+    for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
+      const line = doc.line(lineNumber);
+      const row = scoreGridTokenizeRow(line);
+      if (!scoreGridIsVoiceRow(row) || !scoreGridRowHasBody(row)) continue;
+      return line;
+    }
+
+    return null;
+  }
+
+  function scoreGridCellsByBar(row) {
+    const out = new Map();
+    if (!row || !Array.isArray(row.cells)) return out;
+    for (const cell of row.cells) {
+      const bar = Number(cell.bar) || 0;
+      out.set(bar, (out.get(bar) || 0) + 1);
+    }
+    return out;
+  }
+
+  function scoreGridMaxBarIndex(rows) {
+    let maxBar = 0;
+    for (const row of rows || []) {
+      for (const cell of row.cells || []) maxBar = Math.max(maxBar, Number(cell.bar) || 0);
+      for (const bar of row.bars || []) maxBar = Math.max(maxBar, (Number(bar.bar) || 0) + 1);
+    }
+    return maxBar;
+  }
+
+  function scoreGridBarStartCh(headWidth, barWidth, firstBarWidth, barIndex) {
+    const bar = Math.max(0, Number(barIndex) || 0);
+    const pickupWidth = Number.isFinite(Number(firstBarWidth)) && Number(firstBarWidth) > 0 ? Number(firstBarWidth) : barWidth;
+    if (bar === 0) return headWidth;
+    return headWidth + pickupWidth + 1 + SCORE_GRID_BAR_GAP_CH + (bar - 1) * (barWidth + 1 + SCORE_GRID_BAR_GAP_CH);
+  }
+
+  function scoreGridBarWidthForIndex(barWidth, firstBarWidth, barIndex) {
+    const bar = Math.max(0, Number(barIndex) || 0);
+    if (bar !== 0) return barWidth;
+    return Number.isFinite(Number(firstBarWidth)) && Number(firstBarWidth) > 0 ? Number(firstBarWidth) : barWidth;
+  }
+
+  function scoreGridCellTargetCh(headWidth, barWidth, firstBarWidth, rowCellCounts, token) {
+    const bar = Math.max(0, Number(token && token.bar) || 0);
+    const cell = Math.max(0, Number(token && token.cell) || 0);
+    const cellCount = Math.max(1, Number(rowCellCounts.get(bar)) || 1);
+    const width = scoreGridBarWidthForIndex(barWidth, firstBarWidth, bar);
+    return scoreGridBarStartCh(headWidth, barWidth, firstBarWidth, bar) + ((width / cellCount) * cell);
+  }
+
+  function scoreGridBarTargetCh(headWidth, barWidth, firstBarWidth, token) {
+    const bar = Math.max(0, Number(token && token.bar) || 0);
+    const width = scoreGridBarWidthForIndex(barWidth, firstBarWidth, bar);
+    return scoreGridBarStartCh(headWidth, barWidth, firstBarWidth, bar) + width;
+  }
+
+  function scoreGridSecondaryBeatIndex(beats) {
+    const count = Math.max(1, Number(beats) || SCORE_GRID_DEFAULT_BEATS);
+    if (count === 6) return 3;
+    if (count === 4) return 2;
+    if (count > 2 && count % 2 === 0) return Math.floor(count / 2);
+    return -1;
+  }
+
+  function scoreGridBaseBeatClass(beats, beatIndex) {
+    const safeBeat = Math.max(0, Math.floor(Number(beatIndex) || 0));
+    if (safeBeat === 0) return 'cs-beat-strong';
+    if (safeBeat === scoreGridSecondaryBeatIndex(beats)) return 'cs-beat-secondary';
+    return 'cs-beat-weak';
+  }
+
+  function scoreGridCellBeatClass(row, cell, beats, pickupBeats) {
+    if (!row || !cell) return '';
+    const text = String(cell.text || '').trim();
+    if (text === '?') return 'cs-beat-pickup-gap';
+    if (isRestLikeLeafToken(text)) return 'cs-beat-rest';
+
+    const rowCellCounts = scoreGridCellsByBar(row);
+    const bar = Math.max(0, Number(cell.bar) || 0);
+    const cellIndex = Math.max(0, Number(cell.cell) || 0);
+    const count = Math.max(1, Number(rowCellCounts.get(bar)) || 1);
+    const safeBeats = Math.max(1, Number(beats) || SCORE_GRID_DEFAULT_BEATS);
+    const pickup = Math.max(0, Number(pickupBeats) || 0);
+    const segmentBeats = bar === 0 && pickup > 0 ? Math.min(safeBeats, pickup) : safeBeats;
+    const segmentOffset = bar === 0 && pickup > 0 ? ((safeBeats - (pickup % safeBeats)) % safeBeats) : 0;
+
+    // Meter wins: if a row has more top-level cells than this segment has beats,
+    // those cells are denser subdivisions inside the same metrical span. They
+    // should read quieter than beat-level cells and must not imply a wider bar.
+    if (count > segmentBeats) {
+      if (cellIndex === 0) return 'cs-beat-subdivision cs-beat-subdivision-strong';
+      const projectedBeat = Math.floor(segmentOffset + (cellIndex / count) * segmentBeats) % safeBeats;
+      if (projectedBeat === scoreGridSecondaryBeatIndex(safeBeats)) return 'cs-beat-subdivision cs-beat-subdivision-secondary';
+      return 'cs-beat-subdivision';
+    }
+
+    const projectedBeat = Math.floor(segmentOffset + (cellIndex / count) * segmentBeats) % safeBeats;
+    return scoreGridBaseBeatClass(safeBeats, projectedBeat);
+  }
+
+  function scoreGridCellContainsRange(cell, range) {
+    if (!cell || !range) return false;
+    const from = Number(range.from);
+    const to = Number(range.to);
+    return Number.isFinite(from) && Number.isFinite(to) && from >= cell.from && to <= cell.to;
+  }
+
+  function scoreGridCellLooksGrouped(cell) {
+    const text = String(cell && cell.text || '').trim();
+    return text.length >= 2 && text[0] === '(' && text[text.length - 1] === ')';
+  }
+
+  function scoreGridBeatClassesForRange(row, range, beats, pickupBeats) {
+    if (!row || !range || range.comment || range.isHead) return '';
+    if (!scoreGridIsVoiceRow(row) && !scoreGridIsAttachableSequenceRow(row)) return '';
+
+    const cell = (row.cells || []).find((candidate) => scoreGridCellContainsRange(candidate, range));
+    if (!cell) return '';
+
+    const raw = String(range.text || '').trim();
+    if (!raw || raw === '|') return '';
+    if (raw === '?') return 'cs-beat-pickup-gap';
+    if (isRestLikeLeafToken(raw)) return 'cs-beat-rest';
+
+    const base = scoreGridCellBeatClass(row, cell, beats, pickupBeats);
+    if (!scoreGridCellLooksGrouped(cell)) return base;
+
+    if (raw === '(' || raw === ')') return `${base} cs-beat-group-shell`;
+    if (/^[()]+$/.test(raw)) return `${base} cs-beat-group-shell`;
+    return 'cs-beat-nested';
+  }
+
+  function scoreGridBeatRowForLine(line) {
+    const row = scoreGridTokenizeRow(line);
+    if (!row) return null;
+    if (scoreGridIsVoiceRow(row) || scoreGridIsAttachableSequenceRow(row)) return row;
+    return null;
+  }
+
+  function scoreGridApplyRows(builder, rows, doc) {
+    const parsed = rows.filter(Boolean);
+    if (parsed.length < 2) return;
+
+    const ops = [];
+    const barWidth = scoreGridBarWidthCh(doc);
+    const firstBarWidth = scoreGridFirstBarWidthCh(doc);
+    const maxBar = scoreGridMaxBarIndex(parsed);
+    const localHeadWidth = Math.max(
+      ...parsed.map((row) => scoreGridRowPrefixCh(row) + scoreGridVisualLength(row.head))
+    ) + SCORE_GRID_HEAD_GAP_CH;
+    const headWidth = Math.max(localHeadWidth, scoreGridOriginHeadWidth(doc));
+
+    for (const row of parsed) {
+      const rowPrefix = scoreGridRowPrefixCh(row);
+      const rowCellCounts = scoreGridCellsByBar(row);
+      const tokens = row.tokens.slice().sort((a, b) => a.from - b.from);
+      let extraCh = 0;
+
+      const firstToken = tokens.find((token) => token.type === 'cell' || token.type === 'pickupGap' || token.type === 'bar');
+      const firstTarget = firstToken
+        ? (firstToken.type === 'cell'
+          ? scoreGridCellTargetCh(headWidth, barWidth, firstBarWidth, rowCellCounts, firstToken)
+          : scoreGridBarTargetCh(headWidth, barWidth, firstBarWidth, firstToken))
+        : headWidth;
+      const afterHeadRawCh = rowPrefix + row.headTo + row.headTrailingSpaces;
+      const headGap = firstTarget - afterHeadRawCh;
+      if (headGap > 0.05) {
+        scoreGridQueueSpacer(ops, row.line.from + row.headTo, headGap, 1);
+        extraCh += headGap;
+      }
+
+      for (const token of tokens) {
+        let targetLeft = null;
+        if (token.type === 'cell' || token.type === 'pickupGap') {
+          targetLeft = scoreGridCellTargetCh(headWidth, barWidth, firstBarWidth, rowCellCounts, token);
+        } else if (token.type === 'bar') {
+          targetLeft = scoreGridBarTargetCh(headWidth, barWidth, firstBarWidth, token);
+        }
+        if (targetLeft == null || !Number.isFinite(targetLeft)) continue;
+
+        const actualLeft = rowPrefix + token.from + extraCh;
+        const beforeGap = targetLeft - actualLeft;
+        if (beforeGap > 0.05) {
+          scoreGridQueueSpacer(ops, row.line.from + token.from, beforeGap, -1);
+          extraCh += beforeGap;
+        }
+      }
+
+      // If this row stops before the block's last notated bar, preserve the
+      // same metered span so the visual grid does not collapse at row ends.
+      const lastToken = tokens.length ? tokens[tokens.length - 1] : null;
+      if (lastToken && lastToken.type !== 'bar') {
+        const lastBar = Math.max(0, Number(lastToken.bar) || 0);
+        if (lastBar < maxBar) {
+          const rowEndActual = rowPrefix + lastToken.to + (lastToken.trailingSpaces || 0) + extraCh;
+          const rowEndTarget = scoreGridBarTargetCh(headWidth, barWidth, firstBarWidth, { bar: lastBar });
+          const tailGap = rowEndTarget - rowEndActual;
+          if (tailGap > 0.05) {
+            scoreGridQueueSpacer(ops, row.line.from + lastToken.to, tailGap, 1);
+          }
+        }
+      }
+    }
+
+    scoreGridFlushSpacers(builder, ops);
+  }
+
+  function buildScoreGridDecorations(view) {
+    if (!editorEnvRef.scoreGridEnabled) return Decoration.none;
+    if (view.composing) return Decoration.none;
+
+    const builder = new RangeSetBuilder();
+    const doc = view.state.doc;
+    let lineNumber = 1;
+
+    while (lineNumber <= doc.lines) {
+      const block = scoreGridCollectBlockRows(doc, lineNumber);
+      if (block) {
+        scoreGridApplyRows(builder, block.rows, doc);
+        lineNumber = Math.max(lineNumber + 1, block.nextLineNumber);
+        continue;
+      }
+      lineNumber += 1;
+    }
+
+    return builder.finish();
+  }
+
+  const scoreGridPlugin = ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.decorations = buildScoreGridDecorations(view);
+    }
+
+    update(update) {
+      const toggled = update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setScoreGridEnabledEffect)));
+      if (update.docChanged || update.viewportChanged || update.geometryChanged || toggled) {
+        this.decorations = buildScoreGridDecorations(update.view);
+      }
+    }
+  }, {
+    decorations: (plugin) => plugin.decorations,
+  });
+
+  function scoreGridMeasureChPx(view) {
+    if (view && Number.isFinite(Number(view.defaultCharacterWidth)) && Number(view.defaultCharacterWidth) > 0) {
+      return Number(view.defaultCharacterWidth);
+    }
+
+    const owner = view && view.dom && view.dom.ownerDocument ? view.dom.ownerDocument : document;
+    const probe = owner.createElement('span');
+    probe.textContent = '0000000000';
+    probe.setAttribute('aria-hidden', 'true');
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    probe.style.pointerEvents = 'none';
+    probe.style.whiteSpace = 'pre';
+    probe.style.left = '-9999px';
+    probe.style.top = '0';
+
+    try {
+      const computed = view && view.contentDOM ? root.getComputedStyle(view.contentDOM) : null;
+      if (computed && computed.font) probe.style.font = computed.font;
+    } catch (_) {}
+
+    try {
+      (view && view.dom ? view.dom : owner.body).appendChild(probe);
+      const rect = probe.getBoundingClientRect();
+      const width = rect && Number.isFinite(rect.width) ? rect.width / 10 : 0;
+      return width > 0 ? width : 8.4;
+    } finally {
+      if (probe.parentNode) probe.parentNode.removeChild(probe);
+    }
+  }
+
+  function scoreGridLineTextLeftPx(view) {
+    if (!view || !view.contentDOM) return 0;
+    const owner = view.dom && view.dom.ownerDocument ? view.dom.ownerDocument : document;
+    const firstLineEl = view.dom ? view.dom.querySelector('.cm-line') : null;
+    try {
+      const contentRect = view.contentDOM.getBoundingClientRect();
+      if (firstLineEl) {
+        const lineRect = firstLineEl.getBoundingClientRect();
+        const lineStyle = owner.defaultView.getComputedStyle(firstLineEl);
+        const paddingLeft = Number.parseFloat(lineStyle.paddingLeft) || 0;
+        return Math.max(0, (lineRect.left - contentRect.left) + paddingLeft);
+      }
+    } catch (_) {}
+    return 0;
+  }
+
+  function scoreGridOriginTopPx(view, firstOriginLine) {
+    if (!view || !firstOriginLine) return 0;
+
+    try {
+      if (typeof view.lineBlockAt === 'function') {
+        const block = view.lineBlockAt(firstOriginLine.from);
+        if (block && Number.isFinite(block.top)) {
+          return Math.max(0, Number(block.top));
+        }
+      }
+    } catch (_) {}
+
+    try {
+      const coords = typeof view.coordsAtPos === 'function' ? view.coordsAtPos(firstOriginLine.from) : null;
+      const contentRect = view.contentDOM.getBoundingClientRect();
+      if (coords && contentRect && Number.isFinite(coords.top)) {
+        return Math.max(0, coords.top - contentRect.top);
+      }
+    } catch (_) {}
+
+    return 0;
+  }
+
+  function scoreGridSyncOriginRuler(view) {
+    if (!view || !view.dom || !view.state || !view.state.doc) return;
+
+    const originCh = scoreGridOriginHeadWidth(view.state.doc);
+    const firstOriginLine = scoreGridFirstOriginLine(view.state.doc);
+    const hasOrigin = originCh > 0 && Boolean(firstOriginLine);
+    view.dom.classList.toggle('cs-has-score-origin', hasOrigin);
+    view.dom.classList.toggle('cs-score-origin-grid', editorEnvRef.scoreGridEnabled === true);
+
+    if (!hasOrigin) {
+      view.dom.style.removeProperty('--cs-score-origin-x');
+      view.dom.style.removeProperty('--cs-score-origin-label-width');
+      view.dom.style.removeProperty('--cs-score-origin-ch');
+      view.dom.style.removeProperty('--cs-score-origin-top');
+      view.dom.style.removeProperty('--cs-score-beat-width');
+      view.dom.style.removeProperty('--cs-score-bar-width');
+      view.dom.style.removeProperty('--cs-score-pickup-width');
+      view.dom.style.removeProperty('--cs-score-downbeat-x');
+      view.dom.classList.remove('cs-score-has-pickup');
+      return;
+    }
+
+    const chPx = scoreGridMeasureChPx(view);
+    const textLeft = scoreGridLineTextLeftPx(view);
+    const originPx = textLeft + originCh * chPx;
+    const originTopPx = scoreGridOriginTopPx(view, firstOriginLine);
+    const beatWidthCh = Math.max(1, Number(SCORE_GRID_BEAT_CH) || 6);
+    const barWidthCh = Math.max(beatWidthCh, scoreGridBarWidthCh(view.state.doc));
+    const firstBarWidthCh = Math.max(1, scoreGridFirstBarWidthCh(view.state.doc));
+    const hasPickup = scoreGridPickupBeats(view.state.doc) > 0 && firstBarWidthCh < barWidthCh - 0.01;
+    view.dom.classList.toggle('cs-score-has-pickup', hasPickup);
+
+    view.dom.style.setProperty('--cs-score-origin-x', `${originPx.toFixed(2)}px`);
+    view.dom.style.setProperty('--cs-score-origin-label-width', `${Math.max(0, originPx).toFixed(2)}px`);
+    view.dom.style.setProperty('--cs-score-origin-ch', `${originCh.toFixed(2)}ch`);
+    view.dom.style.setProperty('--cs-score-origin-top', `${originTopPx.toFixed(2)}px`);
+    view.dom.style.setProperty('--cs-score-beat-width', `${beatWidthCh.toFixed(2)}ch`);
+    view.dom.style.setProperty('--cs-score-bar-width', `${barWidthCh.toFixed(2)}ch`);
+    view.dom.style.setProperty('--cs-score-pickup-width', `${firstBarWidthCh.toFixed(2)}ch`);
+    view.dom.style.setProperty('--cs-score-downbeat-x', `${(originPx + firstBarWidthCh * chPx).toFixed(2)}px`);
+  }
+
+  const scoreOriginRulerPlugin = ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.frame = null;
+      this.view = view;
+      this.ruleEl = null;
+      this.downbeatEl = null;
+      this.onScroll = () => this.schedule();
+      this.ensureRuleLayer();
+      if (view.scrollDOM) view.scrollDOM.addEventListener('scroll', this.onScroll, { passive: true });
+      this.sync();
+    }
+
+    ensureRuleLayer() {
+      const view = this.view;
+      const host = view && view.scrollDOM ? view.scrollDOM : null;
+      if (!host) return;
+      if (this.ruleEl && this.ruleEl.parentNode === host && this.downbeatEl && this.downbeatEl.parentNode === host) return;
+      this.removeRuleLayer();
+
+      const owner = view.dom && view.dom.ownerDocument ? view.dom.ownerDocument : document;
+      const rule = owner.createElement('div');
+      rule.className = 'cm-score-origin-rule';
+      rule.setAttribute('aria-hidden', 'true');
+      // Never append non-CodeMirror nodes to contentDOM. CodeMirror treats
+      // contentDOM children as editable line/content blocks; adding ruler divs
+      // there makes the editor synthesize phantom/blank rows. Put the ruler
+      // layer in scrollDOM instead: it still scrolls with the text horizontally,
+      // but it is outside the editable document tree.
+      host.appendChild(rule);
+      this.ruleEl = rule;
+
+      const downbeat = owner.createElement('div');
+      downbeat.className = 'cm-score-pickup-downbeat-rule';
+      downbeat.setAttribute('aria-hidden', 'true');
+      host.appendChild(downbeat);
+      this.downbeatEl = downbeat;
+    }
+
+    removeRuleLayer() {
+      if (this.ruleEl && this.ruleEl.parentNode) {
+        this.ruleEl.parentNode.removeChild(this.ruleEl);
+      }
+      if (this.downbeatEl && this.downbeatEl.parentNode) {
+        this.downbeatEl.parentNode.removeChild(this.downbeatEl);
+      }
+      this.ruleEl = null;
+      this.downbeatEl = null;
+    }
+
+    schedule() {
+      if (this.frame != null) return;
+      this.frame = root.requestAnimationFrame(() => {
+        this.frame = null;
+        this.sync();
+      });
+    }
+
+    sync() {
+      this.ensureRuleLayer();
+      scoreGridSyncOriginRuler(this.view);
+    }
+
+    update(update) {
+      const toggled = update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setScoreGridEnabledEffect)));
+      if (update.docChanged || update.viewportChanged || update.geometryChanged || toggled) {
+        this.view = update.view;
+        this.schedule();
+      }
+    }
+
+    destroy() {
+      if (this.frame != null) root.cancelAnimationFrame(this.frame);
+      if (this.view && this.view.scrollDOM && this.onScroll) {
+        this.view.scrollDOM.removeEventListener('scroll', this.onScroll);
+      }
+      this.removeRuleLayer();
+    }
+  });
 
   const HEAD_VOICE = new Set(VOICE_WORDS);
   const HEAD_DIRECTIVE = new Set(DIRECTIVES);
+  const HEAD_HARMONY = new Set(HARMONY_HEADS);
   const HEAD_PARAM = new Set(PARAMS);
   const HEAD_EFFECT = new Set(EFFECTS);
   const HEAD_COUPLING = new Set(COUPLING);
   const ATTRACTOR_SET = new Set(ATTRACTORS.map((a) => a.toLowerCase()));
 
   const NAMED_VALUE_SET = new Set([
-    ...DYNAMICS, ...PAN_VALUES, ...GAIN_VALUES,
-    ...TONE_VALUES, ...HARM_VALUES, ...EFFECT_MODES,
+    ...DYNAMICS, ...MALLET_VALUES, ...PAN_VALUES, ...GAIN_VALUES,
+    ...TONE_VALUES, ...HARM_VALUES, ...ORNAMENT_VALUES, ...ORNAMENT_STYLE_VALUES, ...CHORD_RIPPLE_VALUES, ...CHORD_ARP_VALUES, ...HARMONY_RENDER_VALUES, ...HARMONY_CHORD_VALUES, ...HARMONY_VOICING_VALUES, ...HARMONY_LEAD_VALUES, ...VIBES_ARTICULATION_VALUES, ...VOCAL_VALUES, ...EFFECT_MODES,
   ]);
 
   // Param → legal named values for completion context.
   const PARAM_NAMED = {
     force: DYNAMICS,
+    crush: ['off'],
+    resolution: ['off'],
+    variance: ['off'],
     pan: PAN_VALUES,
     gain: GAIN_VALUES,
     tone: TONE_VALUES,
     harm: HARM_VALUES,
+    ornament: ORNAMENT_VALUES,
+    'ornament-style': ORNAMENT_STYLE_VALUES,
+    'ornament-speed': ['.', '*', '*!', '*~', '*&8', '~', '_', '0', '0.25', '0.5', '0.75', '1'],
+    'orn-speed': ['.', '*', '*!', '*~', '*&8', '~', '_', '0', '0.25', '0.5', '0.75', '1'],
+    'ornament-human': ['.', '0', '0.18', '0.35', '0.7'],
+    'orn-human': ['.', '0', '0.18', '0.35', '0.7'],
+    pedal: ['off', 'on'],
+    una: ['off', 'on'],
+    lid: ['off', 'on'],
+    sympathetic: ['off', 'on'],
+    release: ['off', 'on'],
+    human: ['off', 'on'],
+    stretch: ['off', 'on'],
+    layer: ['hard', 'xfade', 'random'],
+    articulation: ['arco', 'pizz', 'sustain', 'shortsustain', 'dampen', 'bow'],
+    sul: ['sulC', 'sulG', 'sulD', 'sulA', 'sulE', 'auto'],
+    mallet: MALLET_VALUES,
+    deadstroke: ['off', 'on'],
+    ripple: CHORD_RIPPLE_VALUES,
+    rip: CHORD_RIPPLE_VALUES,
+    'ripple-time': ['0.025', '0.045', '0.08'],
+    riptime: ['0.025', '0.045', '0.08'],
+    roll: CHORD_RIPPLE_VALUES,
+    rolltime: ['0.025', '0.045', '0.08'],
+    arp: CHORD_ARP_VALUES,
+    arprate: ['1/16', '1/8', '1/4'],
+    motor: ['off', 'on'],
+    depth: ['off', 'on'],
+    damp: ['off', 'on'],
+    bowpressure: ['off', 'on'],
+    vowel: ['ah', 'eh', 'ee', 'oh', 'oo', 'uh', 'mm', 'nn'],
+      syllable: [
+        'ah', 'ba', 'da', 'ga', 'ka', 'la', 'ma', 'na', 'ra', 'sa', 'ta', 'va', 'za',
+        'sha', 'tha', 'kha', 'zha',
+        'zero', 'one', 'two', 'three', 'four', 'five',
+        'input', 'output', 'signal', 'error', 'null', 'void',
+        'memory', 'body', 'breath', 'mouth', 'open', 'close', 'start', 'stop', 'again',
+      ],
+    carrier: ['sample', 'sine', 'saw', 'square', 'pulse', 'noise'],
+    robot: ['off', 'on'],
+    vocoder: ['off', 'on'],
+    breath: ['off', 'on'],
+    mouth: ['off', 'on'],
+    roughness: ['off', 'on'],
+    ensemble: ['off', 'on'],
+    monitor: ['on', 'off'],
+    listen: ['on', 'off'],
+    blend: ['normal', 'source-over', 'screen', 'multiply', 'overlay', 'difference', 'lighter'],
+    style: ['surveillance', 'thermal', 'collage', 'ghost'],
+    cache: ['live', 'memory', 'hold'],
   };
 
   const EFFECT_NAMED = EFFECT_MODES;
+  const PARAM_NUMERIC_HINTS = {
+    force: ['0.25', '0.5', '0.85'],
+    decay: ['0.4', '2', '6'],
+    crush: ['0', '8', '12'],
+    resolution: ['0', '0.25', '0.75'],
+    variance: ['0', '0.35', '1'],
+    pan: ['-0.7', '0', '0.7'],
+    gain: ['0.35', '0.7', '1'],
+    tone: ['0.2', '0.85'],
+    harm: ['0', '1', '2', '3', '4'],
+    ornament: ['tr', '+', '-', '~'],
+    'ornament-style': ['bach', 'rameau', 'couperin'],
+    'ornament-speed': ['.', '*', '*!', '*~', '*&8', '0.25', '0.5', '0.72', '0.9'],
+    'orn-speed': ['.', '*', '*!', '*~', '*&8', '0.25', '0.5', '0.72', '0.9'],
+    'ornament-human': ['.', '0', '0.18', '0.35'],
+    'orn-human': ['.', '0', '0.18', '0.35'],
+    octave: ['-1', '0', '1'],
+    rate: ['0.5', '1', '2'],
+    start: ['0', '0.25', '0.75'],
+    speed: ['0.5', '1', '2'],
+    pedal: ['0', '0.45', '0.85'],
+    una: ['0', '0.4', '0.7'],
+    lid: ['0.28', '0.55', '0.85'],
+    sympathetic: ['0', '0.35', '0.75'],
+    release: ['0.2', '0.5', '0.85'],
+    human: ['0', '0.08', '0.2'],
+    stretch: ['0', '0.4', '0.8'],
+    poly: ['16', '32', '64'],
+    deadstroke: ['0', '0.25', '0.8'],
+    ripple: ['u', 'd', 'o', 'i'],
+    rip: ['u', 'd', 'o', 'i'],
+    'ripple-time': ['0.025', '0.045', '0.08'],
+    riptime: ['0.025', '0.045', '0.08'],
+    roll: ['u', 'd', 'o', 'i'],
+    rolltime: ['0.025', '0.045', '0.08'],
+    arp: ['u', 'd', 'ud', 'br'],
+    arprate: ['1/16', '1/8', '1/4'],
+    motor: ['0', '0.35', '0.7'],
+    depth: ['0', '0.35', '0.8'],
+    damp: ['0', '0.35', '0.85'],
+    bowpressure: ['0.2', '0.45', '0.8'],
+      breath: ['0', '0.05', '0.25'],
+    mouth: ['0.2', '0.55', '0.85'],
+    formant: ['-0.35', '0', '0.35'],
+      roughness: ['0', '0.12', '0.45'],
+    ensemble: ['0', '0.4', '0.8'],
+    spread: ['0', '0.012', '0.05'],
+    monitor: ['0', '1'],
+    listen: ['0', '1'],
+    opacity: ['0.25', '0.6', '1'],
+    threshold: ['0.2', '0.5', '0.8'],
+    edges: ['0.1', '0.4', '0.7'],
+    posterize: ['0.2', '0.45', '0.75'],
+    invert: ['0', '1'],
+    contrast: ['0.2', '0.5', '0.9'],
+    saturate: ['0.2', '0.6', '1'],
+    displace: ['0.1', '0.35', '0.7'],
+    feedback: ['0.2', '0.45', '0.8'],
+    delay: ['0.1', '0.3', '0.6'],
+    slitscan: ['0.15', '0.4', '0.8'],
+    trail: ['0.1', '0.4', '0.75'],
+    mask: ['0.2', '0.5', '0.8'],
+    key: ['0.2', '0.5', '0.8'],
+    color: ['0.2', '0.5', '0.85'],
+    blend: ['0', '0.5', '1'],
+  };
+  const PARAM_NUMERIC_DETAIL = {
+    force: '0..1 dynamic',
+    decay: 'seconds 0.4..8',
+    crush: 'off/0 or 4..16',
+    resolution: 'off or 0..1',
+    variance: 'off or 0..1',
+    pan: '-1..1',
+    gain: '0..1.5',
+    tone: '0..1',
+    harm: '0..4 or simple/pair/triad/rich',
+    ornament: '., tr, +, -, ~, /~, app, acc, gr, sh',
+    'ornament-style': 'default | bach | rameau | couperin | french',
+    'ornament-speed': '. / 0..1 / *, *!, *~, *&N timing: 0 slow/broad, 1 fast/tight',
+    'orn-speed': 'alias for ornament-speed',
+    'ornament-human': '. or 0..1 ornament-only human variation',
+    'orn-human': 'alias for ornament-human',
+    octave: '-2..2',
+    rate: '0.25..4',
+    start: '>= 0',
+    speed: '0.0625..16',
+    pedal: 'off/on or 0..1 (sustain depth)',
+    una: 'off/on or 0..1 (soft pedal)',
+    lid: 'off/on or 0..1 (lid openness)',
+    sympathetic: 'off/on or 0..1 (body resonance)',
+    release: 'off/on or 0..1 (release tail)',
+    human: 'off/on or 0..1 (timing + dynamic jitter)',
+    stretch: 'off/on or 0..1 (octave stretch)',
+    layer: 'hard | xfade | random',
+    poly: '8..128 (max voices)',
+    mallet: 'yarn | cord | rubber',
+    deadstroke: 'off/on or 0..1 (bar damping)',
+    ripple: '., u, d, o, i, b, t, r one-shot chord ripple',
+    rip: 'alias for ripple',
+    'ripple-time': 'seconds of onset spread',
+    riptime: 'alias for ripple-time',
+    roll: 'legacy alias for ripple',
+    rolltime: 'legacy alias for ripple-time',
+    arp: '., u, d, ud, du, o, i, r, br arpeggiation',
+    arprate: 'fraction like 1/8 or 1/16',
+    spread: '0..1 (chord timing spread)',
+    motor: 'off/on or 0..1 (vibraphone motor speed)',
+    depth: 'off/on or 0..1 (vibraphone motor depth)',
+    damp: 'off/on or 0..1 (manual damping)',
+    bowpressure: 'off/on or 0..1 (bowed bar pressure)',
+      breath: 'off/on or 0..1 (explicit filtered air; default is silent)',
+    mouth: 'off/on or 0..1 (vowel openness / brightness)',
+    formant: '-1..1 approximate voice tract shift',
+      roughness: 'off/on or 0..1 (circuit grit / unstable modulation)',
+      ensemble: 'off/on or 0..1 (stacked robot mouths)',
+      vocoder: 'off/on or 0..1 (banded synthetic speech color)',
+    monitor: 'on/off or 0..1',
+    listen: 'on/off or 0..1',
+    opacity: '0..1',
+    threshold: '0..1',
+    edges: '0..1',
+    posterize: '0..1',
+    invert: '0..1',
+    contrast: '0..1',
+    saturate: '0..1',
+    displace: '0..1',
+    feedback: '0..1',
+    delay: '0..1',
+    slitscan: '0..1',
+    trail: '0..1',
+    mask: '0..1',
+    key: '0..1',
+    color: '0..1',
+    blend: '0..1 or blend mode',
+  };
 
   // ============================================================================
   // stream language — token classification by line head + per-token shape.
@@ -112,7 +1107,7 @@
   function classifyHead(word) {
     const lower = word.toLowerCase();
     if (HEAD_VOICE.has(lower)) return 'voice';
-    if (HEAD_DIRECTIVE.has(lower)) return 'directive';
+    if (HEAD_DIRECTIVE.has(lower) || HEAD_HARMONY.has(lower)) return 'directive';
     if (HEAD_PARAM.has(lower)) return 'param';
     if (HEAD_EFFECT.has(lower)) return 'effect';
     if (HEAD_COUPLING.has(lower)) return 'coupling';
@@ -122,8 +1117,9 @@
   // Patterns for body tokens — order matters: longer/specific first.
   // Returns a tag string (matched in our HighlightStyle below).
   function tokenBody(stream, state) {
-    // Comments (also accepted mid-line)
+    // Comments and metadata lines (also accepted mid-line for //).
     if (stream.match(/^\/\/.*$/)) return 'comment';
+    if (stream.sol() && stream.match(/^#.*$/)) return 'comment';
 
     // Operators in priority order. Invalid forms emit 'invalid' so they
     // can wear a dotted underline without blocking input.
@@ -177,7 +1173,7 @@
           return 'string';
         }
       }
-      if (state.lineHead === 'every') {
+      if (state.lineHead === 'every' || state.lineHead === 'enter' || state.lineHead === 'exit') {
         if (stream.match(/^\d+/)) return 'number';
         if (stream.match(/^[a-zA-Z]+/)) return 'atom';
       }
@@ -191,8 +1187,14 @@
     if (stream.match(/^pi\b/)) return 'number';
     if (stream.match(/^-?\d+(?![.\w])/)) return 'number';
 
-    // String voice: pitches and pitch wildcards.
-    if (state.voiceLine === 'string' || state.lineHeadKind === 'param' || state.lineHeadKind === 'effect') {
+    // Pitched voices: pitches and pitch wildcards.
+    if (state.voiceLine === 'string' || state.voiceLine === 'sine' || state.voiceLine === 'osc' || state.voiceLine === 'pluck' || state.voiceLine === 'drone' || state.lineHeadKind === 'param' || state.lineHeadKind === 'effect') {
+      // Pitch-span starts: <A4, >A*, <<*!4, >>6*
+      if (stream.match(/^(?:<<|>>|<|>)(?:[A-G][b#]?-?\d+|[A-G][b#]?\*!?|\*!\d|\*\d|\*!|\*|[0-8]\*)(?![A-Za-z0-9])/)) return 'pitch';
+      if (stream.match(/^(?:<<|>>|<|>)[^\s()|;]+/)) return 'invalid';
+      // Pitch-span ends: G%, Bb%, C#%
+      if (stream.match(/^[A-G][b#]?%(?![A-Za-z0-9])/)) return 'pitch';
+      if (stream.match(/^[A-G][b#]?(?:%%|%[A-Za-z0-9]+)/)) return 'invalid';
       // Pitch like A3, C#4, Bb-1
       if (stream.match(/^[A-G][b#]?-?\d+(?![A-Za-z0-9])/)) return 'pitch';
       // Pitch wildcard: A*!, C#*, Bb*, A*
@@ -205,8 +1207,12 @@
     if (stream.match(/^[a-zA-Z][a-zA-Z0-9_]*-\*!?/)) return 'sample';
     if (stream.match(/^[a-zA-Z][a-zA-Z0-9_]*-[a-zA-Z0-9_-]+/)) return 'sample';
 
+    if (state.voiceLine === 'drum' && stream.match(/^(?:[kshortc](?:!)?)(?![A-Za-z0-9_.-])/i)) {
+      return 'sample';
+    }
+
     // Live input modulation refs: mic.intensity, tab.rupture, interface.silence.
-    if (stream.match(/^(?:mic|interface|tab|input)\.[a-zA-Z][a-zA-Z0-9_-]*/i)) {
+    if (stream.match(/^(?:mic|interface|tab|input|camera|screen|file|video)\.[a-zA-Z][a-zA-Z0-9_-]*/i)) {
       const word = stream.current().toLowerCase();
       const m = word.match(LIVE_REF_RE);
       return m && LIVE_FEATURE_SET.has(m[2]) ? 'liveRef' : 'invalid';
@@ -373,13 +1379,14 @@
 
   function lineHeadKind(head) {
     const h = String(head || '').toLowerCase();
-    if (h === 'string' || h === 'sample' || h === 'input') return `voice-${h}`;
-    if (HEAD_DIRECTIVE.has(h)) return 'directive';
+    if (h === '//' || h === '///' || h === '#') return 'metadata';
+    if (h === 'string' || h === 'sample' || h === 'piano' || h === 'violin' || h === 'cello' || h === 'marimba' || h === 'vibraphone' || h === 'vibes' || h === 'voice' || h === 'vox' || h === 'input' || h === 'sine' || h === 'osc' || h === 'noise' || h === 'pluck' || h === 'pulse' || h === 'drone' || h === 'drum') return `voice-${h}`;
+    if (HEAD_DIRECTIVE.has(h) || HEAD_HARMONY.has(h)) return 'directive';
     if (HEAD_PARAM.has(h)) return 'param';
     if (HEAD_EFFECT.has(h)) return 'effect';
     if (h === 'attractor' || h === 'monitor' || h === 'listen') return 'routing';
     if (h === 'time' || h === 'beat' || h === 'leaf' || h === 'choose' || h === 'trigger') return 'live-control';
-    if (h === 'source' || h === 'every' || h === 'fade') return 'routing';
+    if (h === 'source' || h === 'every' || h === 'enter' || h === 'exit' || h === 'fade') return 'routing';
     return 'unknown';
   }
 
@@ -391,7 +1398,15 @@
     if (isHead) {
       if (headKind === 'voice-string') return 'cs-token cs-head cs-voice cs-voice-string';
       if (headKind === 'voice-sample') return 'cs-token cs-head cs-voice cs-voice-sample';
+      if (headKind === 'voice-piano') return 'cs-token cs-head cs-voice cs-voice-piano';
+      if (headKind === 'voice-violin') return 'cs-token cs-head cs-voice cs-voice-violin';
+      if (headKind === 'voice-cello') return 'cs-token cs-head cs-voice cs-voice-cello';
+      if (headKind === 'voice-marimba') return 'cs-token cs-head cs-voice cs-voice-marimba';
+      if (headKind === 'voice-vibraphone' || headKind === 'voice-vibes') return 'cs-token cs-head cs-voice cs-voice-vibraphone';
+      if (headKind === 'voice-voice' || headKind === 'voice-vox') return 'cs-token cs-head cs-voice cs-voice-voice';
       if (headKind === 'voice-input') return 'cs-token cs-head cs-voice cs-voice-input';
+      if (headKind === 'voice-sine' || headKind === 'voice-osc' || headKind === 'voice-pluck' || headKind === 'voice-drone') return 'cs-token cs-head cs-voice cs-voice-string';
+      if (headKind === 'voice-noise' || headKind === 'voice-pulse' || headKind === 'voice-drum') return 'cs-token cs-head cs-voice cs-voice-sample';
       if (headKind === 'directive') return 'cs-token cs-head cs-directive';
       if (headKind === 'param') return 'cs-token cs-head cs-param';
       if (headKind === 'effect') return 'cs-token cs-head cs-effect';
@@ -407,8 +1422,11 @@
         : 'cs-token cs-invalid';
     }
     if (LIVE_SOURCE_SET.has(lower)) return 'cs-token cs-live-source';
-    if (/^\/\//.test(raw)) return 'cs-token cs-comment';
+    if (/^\/\//.test(raw) || /^#/.test(raw)) return 'cs-token cs-comment';
     if (/^[()]/.test(raw)) return 'cs-token cs-bracket';
+    if (/^(?:<<|>>|<|>)(?:[A-G][b#]?-?\d+|[A-G][b#]?\*!?|\*!\d|\*\d|\*!|\*|[0-8]\*)$/.test(raw)) return 'cs-token cs-pitch';
+    if (/^[A-G][b#]?%$/.test(raw)) return 'cs-token cs-pitch';
+    if (raw === '?') return 'cs-token cs-pickup-gap';
     if (/^(?:\*|\*!|\*~|\*&\d+!?|\*!\d+|\*\d+|~|_|\||;|\.|-)$/.test(raw)) return 'cs-token cs-operator';
     if (/^-?\d+\/\d+$/.test(raw) || /^-?\d*\.\d+$/.test(raw) || /^-?\d+$/.test(raw) || /^\d+(?:ms|s)$/.test(raw) || /^pi(?:\/\d+)?$/.test(raw)) return 'cs-token cs-number';
     if (/^[A-G][b#]?-?\d+$/.test(raw) || /^[A-G][b#]?\*!?$/.test(raw)) return 'cs-token cs-pitch';
@@ -421,12 +1439,14 @@
   function tokenRanges(lineText) {
     const ranges = [];
     const commentAt = (() => {
+      const hashIdx = lineText.search(/^\s*#/);
+      if (hashIdx >= 0) return lineText.indexOf('#', hashIdx);
       const idx = lineText.search(/(^|\s)\/\//);
       return idx < 0 ? -1 : (lineText[idx] === '/' ? idx : idx + 1);
     })();
 
     const codePart = commentAt >= 0 ? lineText.slice(0, commentAt) : lineText;
-    const tokenRe = /[^\s()|;]+|[()|;]/g;
+    const tokenRe = /[^\s()|;?]+|[()|;?]/g;
     let m;
     let first = true;
     while ((m = tokenRe.exec(codePart))) {
@@ -470,7 +1490,13 @@
   }
 
   function isLeafStructuralToken(value) {
-    return /^(?:\(|\)|\||;)$/.test(String(value || '').trim());
+    // Pickup/anacrusis bookends are structural omitted spans, not playable
+    // leaves. Keep them visible/styled by tokenRanges(), but exclude them from
+    // the source tree used for scheduler → editor highlight lookup. The
+    // scheduler's slotIndex/sourceLeafIndex now count only sounding/rest slots;
+    // if `?` remains in this tree, every highlight after an opening bookend is
+    // shifted by one cell and terminal close bars look late.
+    return /^(?:\(|\)|\||;|\?)$/.test(String(value || '').trim());
   }
 
   function isLeafTokenRange(range) {
@@ -522,7 +1548,13 @@
   }
 
   function isLeafStructuralToken(value) {
-    return /^(?:\(|\)|\||;)$/.test(String(value || '').trim());
+    // Pickup/anacrusis bookends are structural omitted spans, not playable
+    // leaves. Keep them visible/styled by tokenRanges(), but exclude them from
+    // the source tree used for scheduler → editor highlight lookup. The
+    // scheduler's slotIndex/sourceLeafIndex now count only sounding/rest slots;
+    // if `?` remains in this tree, every highlight after an opening bookend is
+    // shifted by one cell and terminal close bars look late.
+    return /^(?:\(|\)|\||;|\?)$/.test(String(value || '').trim());
   }
 
   function buildLeafSourceTree(lineText) {
@@ -591,21 +1623,31 @@
   }
 
 
+  function canonicalLeafVoiceName(voice) {
+    const v = String(voice || '').trim().toLowerCase();
+    if (v === 'vibes') return 'vibraphone';
+    if (v === 'vox') return 'voice';
+    if (v === 'osc') return 'sine';
+    return v;
+  }
+
   function voiceHeadForLeafLine(lineText) {
     const head = String(lineText || '').trim().split(/\s+/, 1)[0].toLowerCase();
-    if (head === 'string' || head === 'sample' || head === 'input') return head;
+    if (head === 'string' || head === 'sample' || head === 'piano' || head === 'violin' || head === 'cello' || head === 'marimba' || head === 'vibraphone' || head === 'vibes' || head === 'voice' || head === 'vox' || head === 'input' || head === 'sine' || head === 'osc' || head === 'noise' || head === 'pluck' || head === 'pulse' || head === 'drone' || head === 'drum') return canonicalLeafVoiceName(head);
     return '';
   }
 
   function payloadVoiceMatchesLine(lineText, payload) {
     const lineVoice = voiceHeadForLeafLine(lineText);
-    const eventVoice = String((payload && payload.voice) || '').toLowerCase();
+    const eventVoice = canonicalLeafVoiceName((payload && payload.voice) || '');
     // Strict: a leaf/block-position pulse only paints lines that own a voice
     // declaration matching the event's voice. The previous permissive
     // "either side empty → accept" rule could let a sample-block event land
     // on a non-voice row (or vice versa) when an event's voice tag was
     // missing, which is a cross-block contamination vector. Voice events
-    // must arrive on a real voice line.
+    // must arrive on a real voice line. Aliases are canonicalized here so
+    // source-facing names like `vibes` still accept scheduler events emitted
+    // from the normalized runtime voice `vibraphone`.
     if (!eventVoice) return false;
     if (!lineVoice) return false;
     return lineVoice === eventVoice;
@@ -687,6 +1729,414 @@
     return null;
   }
 
+
+  function hasNonEmptySelection(state) {
+    try {
+      return state.selection && state.selection.ranges.some((range) => range && !range.empty);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function syncSelectionClass(view) {
+    if (!view || !view.dom) return;
+    view.dom.classList.toggle('cs-has-selection', hasNonEmptySelection(view.state));
+  }
+
+  function isDslTokenChar(ch) {
+    return /[A-Za-z0-9*?!&;_.\-\/:#π]/.test(String(ch || ''));
+  }
+
+  function dslTokenRangeAt(state, pos) {
+    const doc = state && state.doc;
+    if (!doc || !doc.length) return null;
+    const safePos = Math.max(0, Math.min(doc.length, Number(pos) || 0));
+    const line = doc.lineAt(safePos);
+    const text = line.text || '';
+    if (!text) return null;
+    let offset = Math.max(0, Math.min(text.length, safePos - line.from));
+    let probe = offset;
+
+    // If the click lands at a token's right edge, prefer the token to the left.
+    if (probe >= text.length || !isDslTokenChar(text[probe])) {
+      if (probe > 0 && isDslTokenChar(text[probe - 1])) probe -= 1;
+    }
+    if (probe < 0 || probe >= text.length || !isDslTokenChar(text[probe])) return null;
+
+    let from = probe;
+    let to = probe + 1;
+    while (from > 0 && isDslTokenChar(text[from - 1])) from -= 1;
+    while (to < text.length && isDslTokenChar(text[to])) to += 1;
+    if (from === to) return null;
+    return { from: line.from + from, to: line.from + to, line };
+  }
+
+  function selectDslTokenAtMouse(view, event) {
+    if (!view || !event) return false;
+    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY }, false);
+    if (pos == null) return false;
+    const range = dslTokenRangeAt(view.state, pos);
+    if (!range) return false;
+    view.dispatch({
+      selection: { anchor: range.from, head: range.to },
+      scrollIntoView: true,
+    });
+    return true;
+  }
+
+  function selectDslRowAtMouse(view, event) {
+    if (!view || !event) return false;
+    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY }, false);
+    if (pos == null) return false;
+    const line = view.state.doc.lineAt(pos);
+    view.dispatch({
+      selection: { anchor: line.from, head: line.to },
+      scrollIntoView: true,
+    });
+    return true;
+  }
+
+  const dslSelectionMousePlugin = Prec.highest(EditorView.domEventHandlers({
+    mousedown(event, view) {
+      if (!event || event.button !== 0) return false;
+      if (event.detail === 3) {
+        if (selectDslRowAtMouse(view, event)) {
+          event.preventDefault();
+          event.stopPropagation();
+          return true;
+        }
+      }
+      if (event.detail === 2) {
+        if (selectDslTokenAtMouse(view, event)) {
+          event.preventDefault();
+          event.stopPropagation();
+          return true;
+        }
+      }
+      return false;
+    },
+  }));
+
+  const selectionStateClassPlugin = ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.view = view;
+      syncSelectionClass(view);
+    }
+    update(update) {
+      if (update.selectionSet || update.docChanged || update.focusChanged) syncSelectionClass(update.view);
+    }
+    destroy() {
+      if (this.view && this.view.dom) this.view.dom.classList.remove('cs-has-selection');
+    }
+  });
+
+
+  function buildUserSelectionMaskDecorations(state) {
+    const selection = state && state.selection;
+    if (!selection || !selection.ranges || !selection.ranges.length) return Decoration.none;
+    const builder = new RangeSetBuilder();
+    const mark = Decoration.mark({ class: 'cs-user-selection-mask' });
+
+    for (const range of selection.ranges) {
+      if (!range || range.empty) continue;
+      const from = Math.max(0, Math.min(state.doc.length, range.from));
+      const to = Math.max(0, Math.min(state.doc.length, range.to));
+      if (to <= from) continue;
+
+      // Split by logical line so the mask paints as rectangular edit bands and
+      // never asks CodeMirror to style the hidden newline character itself.
+      const startLine = state.doc.lineAt(from);
+      const endLine = state.doc.lineAt(to);
+      for (let lineNo = startLine.number; lineNo <= endLine.number; lineNo += 1) {
+        const line = state.doc.line(lineNo);
+        const lineFrom = Math.max(from, line.from);
+        const lineTo = Math.min(to, line.to);
+        if (lineTo > lineFrom) builder.add(lineFrom, lineTo, mark);
+      }
+    }
+    return builder.finish();
+  }
+
+  const selectionMaskPlugin = ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.decorations = buildUserSelectionMaskDecorations(view.state);
+    }
+    update(update) {
+      if (update.selectionSet || update.docChanged) {
+        this.decorations = buildUserSelectionMaskDecorations(update.state);
+      }
+    }
+  }, {
+    decorations: (plugin) => plugin.decorations,
+  });
+
+  const setBlockMuteLinesEffect = StateEffect.define();
+
+  function normalizeBlockMuteLines(input) {
+    const out = new Map();
+    if (!input) return out;
+
+    if (input instanceof Map) {
+      for (const [line, state] of input.entries()) {
+        const n = Number(line);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        const s = state || {};
+        out.set(Math.floor(n), {
+          muted: Boolean(s.muted),
+          pending: Boolean(s.pending),
+          pendingMuted: s.pendingMuted == null ? Boolean(s.muted) : Boolean(s.pendingMuted),
+          tags: Array.isArray(s.tags) ? s.tags.slice() : [],
+        });
+      }
+      return out;
+    }
+
+    if (Array.isArray(input)) {
+      for (const entry of input) {
+        if (!entry) continue;
+        const n = Number(entry.line != null ? entry.line : entry.lineNumber);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        out.set(Math.floor(n), {
+          muted: Boolean(entry.muted),
+          pending: Boolean(entry.pending),
+          pendingMuted: entry.pendingMuted == null ? Boolean(entry.muted) : Boolean(entry.pendingMuted),
+          tags: Array.isArray(entry.tags) ? entry.tags.slice() : [],
+        });
+      }
+      return out;
+    }
+
+    if (typeof input === 'object') {
+      for (const key of Object.keys(input)) {
+        const n = Number(key);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        const state = input[key] || {};
+        out.set(Math.floor(n), {
+          muted: Boolean(state.muted),
+          pending: Boolean(state.pending),
+          pendingMuted: state.pendingMuted == null ? Boolean(state.muted) : Boolean(state.pendingMuted),
+          tags: Array.isArray(state.tags) ? state.tags.slice() : [],
+        });
+      }
+    }
+
+    return out;
+  }
+
+  class BlockMuteWidget extends WidgetType {
+    constructor(lineNumber, state) {
+      super();
+      this.lineNumber = lineNumber;
+      this.state = state || { muted: false, pending: false, pendingMuted: false, tags: [] };
+    }
+
+    eq(other) {
+      return other
+        && this.lineNumber === other.lineNumber
+        && Boolean(this.state.muted) === Boolean(other.state.muted)
+        && Boolean(this.state.pending) === Boolean(other.state.pending)
+        && Boolean(this.state.pendingMuted) === Boolean(other.state.pendingMuted)
+        && String((this.state.tags || []).join(',')) === String((other.state.tags || []).join(','));
+    }
+
+    toDOM() {
+      const isMuted = Boolean(this.state.muted);
+      const isPending = Boolean(this.state.pending);
+      const pendingMuted = this.state.pendingMuted == null ? isMuted : Boolean(this.state.pendingMuted);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'cs-mute-toggle';
+      if (isMuted) btn.classList.add('is-muted');
+      if (isPending) btn.classList.add('is-pending');
+      btn.setAttribute('data-repl-mute-line', String(this.lineNumber));
+      btn.setAttribute('aria-label', isMuted ? `Unmute block on line ${this.lineNumber}` : `Mute block on line ${this.lineNumber}`);
+      btn.setAttribute('aria-pressed', isMuted ? 'true' : 'false');
+      btn.appendChild(createMuteGlyph(isMuted));
+
+      if (isPending) {
+        const pendingDot = document.createElement('span');
+        pendingDot.className = 'cs-mute-pending-dot';
+        pendingDot.setAttribute('aria-hidden', 'true');
+        btn.appendChild(pendingDot);
+      }
+
+      const tags = Array.isArray(this.state.tags) ? this.state.tags.filter(Boolean) : [];
+      const titleState = isPending
+        ? (pendingMuted ? 'queued mute (next bar)' : 'queued unmute (next bar)')
+        : (isMuted ? 'muted' : 'live');
+      if (tags.length > 0) {
+        btn.title = `${titleState} · tags: ${tags.join(', ')}`;
+      } else {
+        btn.title = titleState;
+      }
+      return btn;
+    }
+
+    ignoreEvent() {
+      return false;
+    }
+  }
+
+  function buildBlockMuteDecorations(state, muteLines) {
+    const lines = muteLines instanceof Map ? muteLines : new Map();
+    const builder = new RangeSetBuilder();
+    for (let n = 1; n <= state.doc.lines; n++) {
+      const line = state.doc.line(n);
+      const trimmed = line.text.trim();
+      const head = trimmed ? trimmed.split(/\s+/, 1)[0].toLowerCase() : '';
+      const kind = lineHeadKind(head);
+      if (!/^voice-/.test(kind)) continue;
+
+      const muteState = lines.get(n) || { muted: false, pending: false, pendingMuted: false, tags: [] };
+      const lineClasses = [];
+      if (muteState.muted) lineClasses.push('cs-line-block-muted');
+      if (muteState.pending) lineClasses.push('cs-line-block-mute-pending');
+      if (lineClasses.length) {
+        builder.add(line.from, line.from, Decoration.line({
+          attributes: { class: lineClasses.join(' ') },
+        }));
+      }
+
+      builder.add(line.from, line.from, Decoration.widget({
+        widget: new BlockMuteWidget(n, muteState),
+        side: -1,
+      }));
+    }
+    return builder.finish();
+  }
+
+  const blockMuteDecorationsPlugin = ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.muteLines = normalizeBlockMuteLines(editorEnvRef.blockMuteLines || null);
+      this.decorations = buildBlockMuteDecorations(view.state, this.muteLines);
+    }
+    update(update) {
+      let changed = false;
+      for (const tr of update.transactions) {
+        for (const effect of tr.effects) {
+          if (effect.is(setBlockMuteLinesEffect)) {
+            this.muteLines = normalizeBlockMuteLines(effect.value);
+            changed = true;
+          }
+        }
+      }
+      if (changed || update.docChanged) {
+        this.decorations = buildBlockMuteDecorations(update.state, this.muteLines);
+      }
+    }
+  }, {
+    decorations: (plugin) => plugin.decorations,
+  });
+
+  // Build a list of block-header line numbers covered by the editor selection,
+  // so a mute click on one block can toggle every selected block at once.
+  // Returns null when the selection is empty / single-line / doesn't cover the
+  // clicked line, signaling "single-block mute" (the legacy behavior).
+  function collectMuteLinesInSelection(view, clickedLine) {
+    if (!view || !view.state) return null;
+    const selection = view.state.selection;
+    if (!selection || !Array.isArray(selection.ranges)) return null;
+
+    const lineSet = new Set();
+    for (const range of selection.ranges) {
+      if (!range || range.empty) continue;
+      const startLine = view.state.doc.lineAt(range.from).number;
+      const endLine = view.state.doc.lineAt(range.to).number;
+      for (let n = startLine; n <= endLine; n++) lineSet.add(n);
+    }
+    if (lineSet.size === 0 || !lineSet.has(clickedLine)) return null;
+
+    const decorPlugin = view.plugin(blockMuteDecorationsPlugin);
+    const muteLines = decorPlugin && Array.isArray(decorPlugin.muteLines)
+      ? decorPlugin.muteLines
+      : [];
+    const blockLineNumbers = muteLines
+      .map((m) => (m ? Number(m.line) : NaN))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const inSelection = blockLineNumbers
+      .filter((n) => lineSet.has(n))
+      .sort((a, b) => a - b);
+
+    if (inSelection.length <= 1) return null;
+    return { lineNumbers: inSelection, muteLines };
+  }
+
+  const blockMuteMousePlugin = Prec.highest(EditorView.domEventHandlers({
+    mousedown(event, view) {
+      if (!event || event.button !== 0) return false;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return false;
+      const btn = target.closest('[data-repl-mute-line]');
+      if (!btn) return false;
+      const line = Number(btn.getAttribute('data-repl-mute-line'));
+      event.preventDefault();
+      event.stopPropagation();
+      if (!Number.isFinite(line) || line <= 0) return true;
+      if (typeof editorEnvRef.onToggleBlockMute !== 'function') return true;
+
+      const clickedLine = Math.floor(line);
+      const multi = collectMuteLinesInSelection(view, clickedLine);
+
+      if (multi && multi.lineNumbers.length > 1) {
+        // Collective toggle: if any block in the selection is currently
+        // unmuted, mute all; if every selected block is already muted, unmute
+        // all. Mirrors how DAWs handle multi-track mute.
+        const stateByLine = new Map();
+        for (const m of multi.muteLines) {
+          if (m && Number.isFinite(Number(m.line))) {
+            stateByLine.set(Number(m.line), Boolean(m.muted));
+          }
+        }
+        const anyUnmuted = multi.lineNumbers.some((n) => !stateByLine.get(n));
+        const desiredMuted = anyUnmuted;
+        try {
+          editorEnvRef.onToggleBlockMute({
+            lineNumber: clickedLine,
+            lineNumbers: multi.lineNumbers,
+            desiredMuted,
+          });
+        } catch (_) {}
+        return true;
+      }
+
+      try { editorEnvRef.onToggleBlockMute({ lineNumber: clickedLine }); } catch (_) {}
+      return true;
+    },
+    click(event) {
+      const target = event && event.target;
+      if (!(target instanceof HTMLElement)) return false;
+      const btn = target.closest('[data-repl-mute-line]');
+      if (!btn) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    },
+  }));
+
+  function createMuteGlyph(muted) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    svg.setAttribute('class', 'cs-mute-icon');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.8');
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    if (muted) {
+      // Heroicons "speaker-x-mark" (outline).
+      path.setAttribute('d', 'M17.25 9.75 19.5 12m0 0 2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25m-10.5-6 4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z');
+    } else {
+      // Heroicons "speaker-wave" (outline).
+      path.setAttribute('d', 'M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z');
+    }
+    svg.appendChild(path);
+    return svg;
+  }
+
   function findCurrentBlockLines(state) {
     const selLine = state.doc.lineAt(state.selection.main.head).number;
     let start = selLine;
@@ -697,13 +2147,13 @@
       if (!trimmed) return true;
       if (/^\/\//.test(trimmed)) return false;
       const head = trimmed.split(/\s+/, 1)[0].toLowerCase();
-      return head === 'string' || head === 'sample' || head === 'input' || head === 'tempo' || head === 'meter';
+      return head === 'string' || head === 'sample' || head === 'piano' || head === 'violin' || head === 'cello' || head === 'marimba' || head === 'vibraphone' || head === 'vibes' || head === 'voice' || head === 'vox' || head === 'input' || head === 'sine' || head === 'osc' || head === 'noise' || head === 'pluck' || head === 'pulse' || head === 'drone' || head === 'drum' || head === 'tempo' || head === 'meter' || head === 'pickup' || head === 'anacrusis' || head === 'tuning' || head === 'eval' || head === 'evaluate';
     }
 
     for (let n = selLine; n >= 1; n--) {
       const text = state.doc.line(n).text;
       if (n !== selLine && isBoundary(text)) {
-        if (!text.trim() || /^(tempo|meter)\b/i.test(text.trim())) start = n + 1;
+        if (!text.trim() || /^(tempo|meter|pickup|anacrusis|tuning|eval|evaluate)\b/i.test(text.trim())) start = n + 1;
         else start = n;
         break;
       }
@@ -726,13 +2176,15 @@
     const now = Date.now();
     const builder = new RangeSetBuilder();
     const current = findCurrentBlockLines(view.state);
+    const beatCount = scoreGridBeatsPerBar(view.state.doc);
+    const pickupBeats = scoreGridPickupBeats(view.state.doc);
 
     for (let i = 1; i <= view.state.doc.lines; i++) {
       const line = view.state.doc.line(i);
       const text = line.text;
       const trimmed = text.trim();
       const head = trimmed ? trimmed.split(/\s+/, 1)[0].toLowerCase() : '';
-      const kind = lineHeadKind(head);
+      const kind = /^\s*(?:\/\/\/|\/\/\s*title\s*:|#\s*title\s*:)/i.test(text) ? 'metadata' : lineHeadKind(head);
       const pulse = pulses.get(i);
       const meter = meters.get(i);
       const leafState = leafStates && leafStates.get(i);
@@ -772,14 +2224,16 @@
       builder.add(line.from, line.from, Decoration.line({ attributes: attrs }));
 
       const ranges = tokenRanges(text);
+      const beatRow = scoreGridBeatRowForLine(line);
       for (const r of ranges) {
         const cls = r.comment ? 'cs-token cs-comment' : tokenCssClass(r.text, r.isHead);
         const tokenPulse = active && r.isHead ? ' cs-token-active' : '';
+        const beatClass = beatRow ? scoreGridBeatClassesForRange(beatRow, r, beatCount, pickupBeats) : '';
         // Leaf playback is drawn by an absolute overlay plate owned by the
         // ViewPlugin. Do not add layout-affecting classes to source tokens here:
         // the code text must stay perfectly registered while the runtime stamp
         // moves independently above/below the score grid.
-        builder.add(line.from + r.from, line.from + r.to, Decoration.mark({ class: cls + tokenPulse }));
+        builder.add(line.from + r.from, line.from + r.to, Decoration.mark({ class: cls + tokenPulse + (beatClass ? ` ${beatClass}` : '') }));
       }
     }
 
@@ -789,6 +2243,7 @@
   const cyberneticScorePlugin = ViewPlugin.fromClass(class {
     constructor(view) {
       this.view = view;
+      syncSelectionClass(view);
       this.pulses = new Map();
       this.meters = new Map();
       this.leafStates = new Map();
@@ -800,17 +2255,23 @@
       // identity.
       this.lineOwners = new Map();
       this.pendingLeafFrame = null;
+      this.pendingLeafRestart = false;
       this.timer = null;
       this.currentEpoch = null;
       this.seenLeafEvents = new Set();
       this.overlay = document.createElement('div');
       this.overlay.className = 'cs-leaf-highlight-layer';
       this.overlay.setAttribute('aria-hidden', 'true');
-      // Put the plate plane inside CodeMirror's scroll DOM so coordinates are
-      // measured in the same viewport as coordsAtPos(). The plane never receives
-      // input and never changes the text DOM.
-      const host = view.scrollDOM || view.dom;
+      // Keep the plate plane anchored to the editor viewport, then remeasure
+      // against CodeMirror's viewport coordinates on scroll. The plane never
+      // receives input and never changes the text DOM.
+      const host = view.dom;
+      const scrollHost = view.scrollDOM || view.dom;
+      this.overlayHost = host;
+      this.overlayScrollHost = scrollHost;
+      this.onOverlayScroll = () => this.scheduleLeafPlateFlush(false);
       host.appendChild(this.overlay);
+      scrollHost.addEventListener('scroll', this.onOverlayScroll, { passive: true });
       this.decorations = buildCyberneticScoreDecorations(view, this.pulses, this.meters, this.leafStates);
       this.unsubscribe = ensurePulseBus().on((payload) => this.receive(payload));
     }
@@ -824,17 +2285,24 @@
         cancelAnimationFrame(this.pendingLeafFrame);
         this.pendingLeafFrame = null;
       }
+      this.pendingLeafRestart = false;
       if (this.overlay) this.overlay.replaceChildren();
       this.decorations = buildCyberneticScoreDecorations(this.view, this.pulses, this.meters, this.leafStates);
       try { this.view.dispatch({ effects: csPulseNudge.of(Date.now()) }); } catch (_) {}
     }
 
+    removeLeafPlateElement(key, clearTimer = false) {
+      if (!this.overlay) return;
+      const plate = this.overlay.querySelector(`[data-leaf-plate="${key}"]`);
+      if (!plate) return;
+      if (clearTimer) window.clearTimeout(plate._csRemoveTimer);
+      if (plate.parentNode) plate.parentNode.removeChild(plate);
+    }
+
     removeLeafPlate(line) {
       const key = String(line);
       this.leafPlates.delete(key);
-      if (!this.overlay) return;
-      const plate = this.overlay.querySelector(`[data-leaf-plate="${key}"]`);
-      if (plate && plate.parentNode) plate.parentNode.removeChild(plate);
+      this.removeLeafPlateElement(key, true);
     }
 
     receive(payload) {
@@ -867,8 +2335,19 @@
         // block, regardless of speed/every gating.
         const ownerId = payload.blockId == null ? null : String(payload.blockId);
         if (ownerId) this.lineOwners.set(line, ownerId);
-        this.leafStates.delete(line);
-        this.removeLeafPlate(line);
+        // Only wipe the leaf plate when this block-position represents a slot
+        // that will not fire any leaf — e.g. an `every` silent advance. For
+        // a slot that fires a leaf, the leaf-fired payload overwrites the
+        // leafState entry directly. Wiping unconditionally caused intermittent
+        // missing highlights: when audioCtx.currentTime advances during the
+        // synchronous dispatch path between the block-position emit and the
+        // leaf-fired emit, the leaf-fired setTimeout ends up with a shorter
+        // delay than the block-position setTimeout for the same `time`, so
+        // the leaf fires first and the block-position then erases it.
+        if (payload.isSilentAdvance) {
+          this.leafStates.delete(line);
+          this.removeLeafPlate(line);
+        }
         this.requestRefresh();
         return;
       }
@@ -901,12 +2380,13 @@
         if (!range || !range.text) return;
         const payloadToken = normalizeLeafToken(payload && payload.token);
         const rangeToken = normalizeLeafToken(range.text);
-        const isRestEvent = leafStateClass(payload && payload.state) === 'rest' || isRestLikeLeafToken(payload && payload.token);
+        const payloadState = leafStateClass(payload && payload.state);
+        const isSilentCellEvent = payloadState === 'rest' || payloadState === 'held' || isRestLikeLeafToken(payload && payload.token);
         const isRestRange = isRestLikeLeafToken(range.text);
         const canAcceptGeneric = payloadToken === 'note' || payloadToken === '*' || payloadToken === 'sample';
-        if (isRestEvent && !isRestRange) return;
-        if (!isRestEvent && isRestRange) return;
-        if (payloadToken && !isRestEvent && !canAcceptGeneric && payloadToken !== rangeToken) return;
+        if (isSilentCellEvent && !isRestRange) return;
+        if (!isSilentCellEvent && isRestRange) return;
+        if (payloadToken && !isSilentCellEvent && !canAcceptGeneric && payloadToken !== rangeToken) return;
         // Rest/sustain leaves are true rhythmic events, but their visual
         // registration must be a short punch, not a full-slot occupancy. A
         // whole-beat rest in one voice can otherwise remain visible while a
@@ -916,13 +2396,13 @@
         const visualFromPayload = Number(payload && payload.visualDurationMs);
         const visualMs = Number.isFinite(visualFromPayload)
           ? Math.max(70, Math.min(360, visualFromPayload))
-          : (isRestEvent
+          : (isSilentCellEvent
               ? 110
               : Math.max(150, Math.min(300, Number(payload.duration) * 360 || CS_LEAF_RECENT_MS)));
         const leafState = {
           leafCount: count,
           currentIndex: index,
-          state: isRestEvent ? 'rest' : (payload.state || 'hit'),
+          state: payloadState,
           voice: payload.voice || previous.voice || '',
           token: payload.token || '',
           slotIndex: Number.isFinite(Number(payload.slotIndex)) ? Number(payload.slotIndex) : null,
@@ -958,10 +2438,18 @@
       if (!state || !state.range || !this.view || this.view.destroyed) return;
       const key = String(line);
       this.leafPlates.set(key, { line, state });
+      this.scheduleLeafPlateFlush(true);
+    }
+
+    scheduleLeafPlateFlush(restartAnimation) {
+      if (!this.view || this.view.destroyed || !this.leafPlates.size) return;
+      if (restartAnimation) this.pendingLeafRestart = true;
       if (this.pendingLeafFrame != null) return;
       this.pendingLeafFrame = requestAnimationFrame(() => {
+        const shouldRestart = this.pendingLeafRestart;
+        this.pendingLeafRestart = false;
         this.pendingLeafFrame = null;
-        this.flushLeafPlates();
+        this.flushLeafPlates(shouldRestart);
       });
     }
 
@@ -979,7 +2467,7 @@
       return plate;
     }
 
-    flushLeafPlates() {
+    flushLeafPlates(restartAnimation = true) {
       if (!this.view || this.view.destroyed || !this.overlay) return;
       for (const [key, item] of Array.from(this.leafPlates.entries())) {
         const line = item.line;
@@ -990,8 +2478,11 @@
         const to = docLine.from + Math.max(Number(state.range.to) || (Number(state.range.from) || 0) + 1, (Number(state.range.from) || 0) + 1);
         const start = this.view.coordsAtPos(from, 1);
         const end = this.view.coordsAtPos(to, -1) || start;
-        const hostRect = (this.view.scrollDOM || this.view.dom).getBoundingClientRect();
-        if (!start || !end || !hostRect) continue;
+        const hostRect = (this.overlayHost || this.view.dom).getBoundingClientRect();
+        if (!start || !end || !hostRect) {
+          this.removeLeafPlateElement(key);
+          continue;
+        }
 
         const rawLeft = Math.min(start.left, end.left);
         const rawRight = Math.max(start.right || start.left, end.right || end.left, start.left + 8);
@@ -1014,15 +2505,20 @@
         plate.style.transform = `translate3d(${left}px, ${top}px, 0)`;
         plate.style.setProperty('--cs-leaf-plate-w', `${width}px`);
         plate.style.setProperty('--cs-leaf-plate-ms', `${Math.max(90, Math.min(360, Number(state.visualMs) || 220))}ms`);
-        // Restart the relay-punch animation without touching the token element.
-        plate.classList.remove('is-firing');
-        void plate.offsetWidth;
-        plate.classList.add('is-firing');
-        window.clearTimeout(plate._csRemoveTimer);
-        const removeMs = Math.max(90, Math.min(360, Number(state.visualMs) || 220));
-        plate._csRemoveTimer = window.setTimeout(() => {
-          if (plate && plate.parentNode) plate.parentNode.removeChild(plate);
-        }, removeMs);
+        if (restartAnimation) {
+          // Restart the relay-punch animation only for new committed leaves.
+          // Scroll/geometry refreshes move the plate without extending its life.
+          plate.classList.remove('is-firing');
+          void plate.offsetWidth;
+          plate.classList.add('is-firing');
+          window.clearTimeout(plate._csRemoveTimer);
+          const removeMs = Math.max(90, Math.min(360, Number(state.visualMs) || 220));
+          plate._csRemoveTimer = window.setTimeout(() => {
+            if (plate && plate.parentNode) plate.parentNode.removeChild(plate);
+            const current = this.leafPlates.get(key);
+            if (current && current.state === state) this.leafPlates.delete(key);
+          }, removeMs);
+        }
       }
     }
 
@@ -1048,6 +2544,7 @@
     }
 
     update(update) {
+      if (update.selectionSet || update.docChanged || update.focusChanged) syncSelectionClass(update.view);
       const pulseNudged = update.transactions.some((tr) => tr.effects.some((e) => e.is(csPulseNudge)));
       if (update.docChanged || update.viewportChanged || update.selectionSet || pulseNudged) {
         this.decorations = buildCyberneticScoreDecorations(update.view, this.pulses, this.meters, this.leafStates);
@@ -1057,14 +2554,7 @@
         return;
       }
       if (update.geometryChanged || update.viewportChanged) {
-        // Geometry changes invalidate already-measured overlay plates. Do not
-        // retain them; the next valid leaf event will measure the current doc.
-        this.leafPlates.clear();
-        if (this.pendingLeafFrame != null) {
-          cancelAnimationFrame(this.pendingLeafFrame);
-          this.pendingLeafFrame = null;
-        }
-        if (this.overlay) this.overlay.replaceChildren();
+        this.scheduleLeafPlateFlush(false);
       }
     }
 
@@ -1072,6 +2562,7 @@
       if (this.unsubscribe) this.unsubscribe();
       if (this.timer) clearTimeout(this.timer);
       if (this.pendingLeafFrame != null) cancelAnimationFrame(this.pendingLeafFrame);
+      if (this.overlayScrollHost && this.onOverlayScroll) this.overlayScrollHost.removeEventListener('scroll', this.onOverlayScroll);
       if (this.overlay && this.overlay.parentNode) this.overlay.parentNode.removeChild(this.overlay);
     }
   }, {
@@ -1084,6 +2575,7 @@
 
   const replTheme = EditorView.theme({
     '&': {
+      position: 'relative',
       backgroundColor: '#ffffff',
       color: '#070707',
       fontFamily: '"Courier New", Courier, monospace',
@@ -1106,16 +2598,107 @@
       '--cs-sample-ink': '#070707',
       '--cs-input-ink': '#070707',
     },
+    '.cm-score-grid-spacer': {
+      display: 'inline-block',
+      width: 'var(--score-grid-gap, 0ch)',
+      minWidth: 'var(--score-grid-gap, 0ch)',
+      height: '1em',
+      pointerEvents: 'none',
+      userSelect: 'none',
+      verticalAlign: 'baseline',
+    },
+    '&.cm-score-grid-enabled .cm-line': {
+      // The beat grid is a score-field layer now, not a full-width line
+      // background. Keeping line backgrounds clear prevents the vertical grid
+      // from crossing row labels such as `string`, `sample`, or `attractor`.
+      backgroundImage: 'none',
+      backgroundSize: 'auto',
+    },
+    '&.cs-has-score-origin .cm-scroller::before': {
+      content: '""',
+      position: 'absolute',
+      top: 'var(--cs-score-origin-top, 0px)',
+      bottom: '0',
+      left: 'var(--cs-score-origin-x, 0px)',
+      right: '0',
+      width: 'auto',
+      borderLeft: '0',
+      boxShadow: 'none',
+      backgroundImage: 'none',
+      backgroundPosition: '0 0',
+      backgroundRepeat: 'repeat',
+      pointerEvents: 'none',
+      zIndex: '1',
+    },
+    '.cm-score-origin-rule': {
+      display: 'none',
+      position: 'absolute',
+      top: 'var(--cs-score-origin-top, 0px)',
+      bottom: '0',
+      left: 'var(--cs-score-origin-x, 0px)',
+      width: '0',
+      borderLeft: '1px solid rgba(7, 7, 7, 0.20)',
+      boxShadow: '1px 0 0 rgba(255, 212, 0, 0.10), -1px 0 0 rgba(0, 87, 255, 0.055)',
+      pointerEvents: 'none',
+      zIndex: '76',
+    },
+    '&.cs-has-score-origin .cm-score-origin-rule': {
+      display: 'block',
+    },
+    '&.cs-has-score-origin .cm-scroller::after': {
+      content: '""',
+      position: 'absolute',
+      top: 'var(--cs-score-origin-top, 0px)',
+      bottom: '0',
+      left: '0',
+      width: 'var(--cs-score-origin-label-width, 0px)',
+      backgroundImage: 'repeating-linear-gradient(135deg, rgba(7, 7, 7, 0.014) 0, rgba(7, 7, 7, 0.014) 2px, transparent 2px, transparent 7px)',
+      borderRight: '1px solid rgba(7, 7, 7, 0.035)',
+      pointerEvents: 'none',
+      zIndex: '0',
+    },
+    '&.cs-score-origin-grid .cm-scroller::before': {
+      backgroundImage:
+        'repeating-linear-gradient(90deg, rgba(255, 212, 0, 0.032) 0, rgba(255, 212, 0, 0.032) 1px, transparent 1px, transparent var(--cs-score-bar-width, 24ch)), repeating-linear-gradient(90deg, rgba(0, 87, 255, 0.026) 0, rgba(0, 87, 255, 0.026) 1px, transparent 1px, transparent var(--cs-score-beat-width, 6ch))',
+      backgroundPosition: '0 0, 0 0',
+    },
+    '&.cs-score-origin-grid.cs-score-has-pickup .cm-scroller::before': {
+      backgroundImage:
+        'linear-gradient(90deg, rgba(255, 212, 0, 0.028) 0, rgba(255, 212, 0, 0.028) var(--cs-score-pickup-width, 6ch), transparent var(--cs-score-pickup-width, 6ch), transparent 100%), repeating-linear-gradient(90deg, rgba(255, 212, 0, 0.032) 0, rgba(255, 212, 0, 0.032) 1px, transparent 1px, transparent var(--cs-score-bar-width, 24ch)), repeating-linear-gradient(90deg, rgba(0, 87, 255, 0.024) 0, rgba(0, 87, 255, 0.024) 1px, transparent 1px, transparent var(--cs-score-beat-width, 6ch))',
+      backgroundPosition: '0 0, var(--cs-score-pickup-width, 6ch) 0, var(--cs-score-pickup-width, 6ch) 0',
+    },
+    '.cm-score-pickup-downbeat-rule': {
+      display: 'none',
+      position: 'absolute',
+      top: 'var(--cs-score-origin-top, 0px)',
+      bottom: '0',
+      left: 'var(--cs-score-downbeat-x, 0px)',
+      width: '0',
+      borderLeft: '1px solid rgba(7, 7, 7, 0.28)',
+      boxShadow: '1px 0 0 rgba(255, 212, 0, 0.18), -1px 0 0 rgba(0, 87, 255, 0.08)',
+      pointerEvents: 'none',
+      zIndex: '75',
+    },
+    '&.cs-score-has-pickup .cm-score-pickup-downbeat-rule': {
+      display: 'block',
+    },
+    '&.cs-score-origin-grid .cm-score-origin-rule': {
+      borderLeftColor: 'rgba(7, 7, 7, 0.24)',
+      boxShadow: '1px 0 0 rgba(255, 212, 0, 0.14), -1px 0 0 rgba(0, 87, 255, 0.07)',
+    },
     '&.cm-focused': {
       outline: 'none',
     },
     '.cm-scroller': {
+      position: 'relative',
       backgroundColor: '#ffffff',
-      backgroundImage:
-        'linear-gradient(90deg, rgba(7,7,7,0.035) 1px, transparent 1px), linear-gradient(180deg, rgba(7,7,7,0.028) 1px, transparent 1px)',
+      // Keep the page/staff wash horizontal only. Vertical beat/grid columns
+      // are clipped to the score field via `.cs-score-origin-grid` above.
+      backgroundImage: 'linear-gradient(180deg, rgba(7,7,7,0.028) 1px, transparent 1px)',
       backgroundSize: '32px 32px',
     },
     '.cm-content': {
+      position: 'relative',
       caretColor: '#070707',
       padding: '1.05em 1.2em 1.05em 1.05em',
       minHeight: '22em',
@@ -1125,6 +2708,7 @@
     },
     '.cm-line': {
       position: 'relative',
+      overflow: 'visible',
       padding: '0 7.5rem 0 3.25rem',
       borderLeft: '4px solid transparent',
       borderRadius: '0',
@@ -1154,7 +2738,7 @@
       borderLeftColor: '#ffd400',
       boxShadow: 'inset 0 -2px 0 #ffd400',
     },
-    '.cm-line.cs-line-voice-sample': {
+    '.cm-line.cs-line-voice-sample, .cm-line.cs-line-voice-drum': {
       backgroundColor: '#ffffff',
       borderLeftColor: '#e3342f',
       boxShadow: 'inset 0 -2px 0 #e3342f',
@@ -1164,6 +2748,36 @@
       borderLeftColor: '#0057ff',
       boxShadow: 'inset 0 -2px 0 #0057ff',
     },
+    '.cm-line.cs-line-voice-piano': {
+      backgroundColor: '#ffffff',
+      borderLeftColor: '#0a9396',
+      boxShadow: 'inset 0 -2px 0 #0a9396',
+    },
+    '.cm-line.cs-line-voice-violin': {
+      backgroundColor: '#ffffff',
+      borderLeftColor: '#a04a2a',
+      boxShadow: 'inset 0 -2px 0 #a04a2a',
+    },
+    '.cm-line.cs-line-voice-cello': {
+      backgroundColor: '#ffffff',
+      borderLeftColor: '#5b3bb8',
+      boxShadow: 'inset 0 -2px 0 #5b3bb8',
+    },
+    '.cm-line.cs-line-voice-marimba': {
+      backgroundColor: '#ffffff',
+      borderLeftColor: '#008f5a',
+      boxShadow: 'inset 0 -2px 0 #008f5a',
+    },
+    '.cm-line.cs-line-voice-vibraphone, .cm-line.cs-line-voice-vibes': {
+      backgroundColor: '#ffffff',
+      borderLeftColor: '#00a8d8',
+      boxShadow: 'inset 0 -2px 0 #00a8d8',
+    },
+    '.cm-line.cs-line-voice-voice, .cm-line.cs-line-voice-voice, .cm-line.cs-line-voice-voice': {
+      backgroundColor: '#ffffff',
+      borderLeftColor: '#ba55d3',
+      boxShadow: 'inset 0 -2px 0 #ba55d3',
+    },
     '.cm-line.cs-line-live-control': {
       backgroundColor: '#ffffff',
       borderLeftColor: '#6c2cff',
@@ -1171,6 +2785,99 @@
     '.cm-line.cs-line-routing': {
       backgroundColor: '#ffffff',
       borderLeftColor: '#008f5a',
+    },
+    '.cm-line.cs-line-metadata': {
+      backgroundColor: '#fbfbfb',
+      borderLeftColor: '#070707',
+      boxShadow: 'inset 0 -1px 0 rgba(7,7,7,0.08)',
+    },
+    '.cm-line.cs-line-block-muted': {
+      opacity: '0.62',
+    },
+    '.cm-line.cs-line-block-mute-pending': {
+      boxShadow: 'inset 0 -2px 0 #070707, inset 0 0 0 1px rgba(7,7,7,0.3)',
+    },
+    '.cs-mute-toggle': {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      position: 'relative',
+      verticalAlign: 'baseline',
+      marginLeft: '0.08rem',
+      marginRight: '0.46rem',
+      width: '1.34rem',
+      height: '1.2rem',
+      border: '2px solid #070707',
+      backgroundColor: '#ffffff',
+      color: '#070707',
+      fontFamily: '"Courier New", Courier, monospace',
+      fontSize: '0.57rem',
+      fontWeight: '900',
+      letterSpacing: '0.045em',
+      lineHeight: '1',
+      padding: '0',
+      cursor: 'pointer',
+      zIndex: '5',
+      textTransform: 'none',
+      boxShadow: '2px 2px 0 #070707',
+      transform: 'translateY(-0.04rem)',
+      transition: 'transform 60ms ease, box-shadow 60ms ease, background-color 80ms ease, color 80ms ease',
+    },
+    '.cs-mute-toggle:hover': {
+      backgroundColor: '#f6f6f6',
+      transform: 'translate(-1px, calc(-0.04rem - 1px))',
+      boxShadow: '3px 3px 0 #070707',
+    },
+    '.cs-mute-toggle:active': {
+      transform: 'translate(0, -0.04rem)',
+      boxShadow: '1px 1px 0 #070707',
+    },
+    '.cs-mute-toggle.is-muted': {
+      backgroundColor: '#e3342f',
+      color: '#ffffff',
+    },
+    '.cs-mute-toggle.is-pending': {
+      backgroundImage: 'repeating-linear-gradient(135deg, #ffd400 0 4px, #ffffff 4px 8px)',
+      color: '#070707',
+    },
+    '.cs-mute-toggle.is-pending.is-muted': {
+      backgroundImage: 'repeating-linear-gradient(135deg, #ffd400 0 4px, #e3342f 4px 8px)',
+      color: '#070707',
+    },
+    '.cs-mute-icon': {
+      width: '0.86rem',
+      height: '0.86rem',
+      display: 'block',
+      stroke: 'currentColor',
+      fill: 'none',
+      pointerEvents: 'none',
+    },
+    '.cs-mute-pending-dot': {
+      position: 'absolute',
+      right: '-0.22rem',
+      top: '-0.22rem',
+      width: '0.38rem',
+      height: '0.38rem',
+      border: '2px solid #070707',
+      backgroundColor: '#ffd400',
+      boxShadow: '1px 1px 0 #070707',
+      pointerEvents: 'none',
+    },
+    '.cs-mute-toggle:focus-visible': {
+      outline: '2px solid #0057ff',
+      outlineOffset: '1px',
+    },
+    '.cm-line.cs-line-metadata::after': {
+      content: '""',
+      position: 'absolute',
+      left: '2.54rem',
+      top: '0.24em',
+      width: '0.18rem',
+      height: '1.12em',
+      background: '#e3342f',
+      border: '0',
+      boxShadow: '0.28rem 0 0 #ffd400, 0.56rem 0 0 #070707',
+      pointerEvents: 'none',
     },
     '.cm-line.cs-active-line': {
       animation: 'cs-line-stamp 780ms ease-out both',
@@ -1180,13 +2887,20 @@
       borderLeftColor: '#ffd400',
       boxShadow: 'inset 0 -2px 0 #ffd400, 3px 3px 0 #070707',
     },
-    '.cm-line.cs-pulse-sample': {
+    '.cm-line.cs-pulse-sample, .cm-line.cs-pulse-drum': {
       borderLeftColor: '#e3342f',
       boxShadow: 'inset 0 -2px 0 #e3342f, 3px 3px 0 #070707',
     },
     '.cm-line.cs-pulse-input, .cm-line.cs-pulse-mod': {
       borderLeftColor: '#0057ff',
       boxShadow: 'inset 0 -2px 0 #0057ff, 3px 3px 0 #070707',
+    },
+    '.cm-line.cs-pulse-violin': {
+      borderLeftColor: '#a04a2a',
+    },
+    '.cm-line.cs-pulse-piano': {
+      borderLeftColor: '#0a9396',
+      boxShadow: 'inset 0 -2px 0 #0a9396, 3px 3px 0 #070707',
     },
     '.cm-line.cs-metered-line::after': {
       content: '""',
@@ -1207,9 +2921,41 @@
     '.cm-cursor, .cm-dropCursor': {
       borderLeftColor: '#070707',
       borderLeftWidth: '2px',
+      boxShadow: '2px 0 0 #ffd400',
     },
-    '&.cm-focused .cm-selectionBackground, ::selection, .cm-selectionBackground': {
-      backgroundColor: 'rgba(0, 87, 255, 0.22)',
+    '.cm-selectionLayer': {
+      zIndex: '70',
+    },
+    '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
+      backgroundColor: 'rgba(255, 212, 0, 0.58)',
+      boxShadow: 'inset 0 0 0 1px rgba(7,7,7,0.72)',
+    },
+    '.cm-content ::selection, .cm-line ::selection, ::selection': {
+      backgroundColor: 'rgba(255, 212, 0, 0.62)',
+      color: '#070707',
+    },
+    '.cs-user-selection-mask': {
+      backgroundColor: '#ffe45c !important',
+      color: '#070707 !important',
+      boxShadow: 'inset 0 -2px 0 #070707, inset 0 1px 0 rgba(7,7,7,0.22)',
+      outline: '1px solid rgba(7,7,7,0.48)',
+      outlineOffset: '-1px',
+      textShadow: 'none !important',
+      textDecorationColor: '#070707 !important',
+      borderRadius: '0',
+    },
+    '.cs-user-selection-mask *': {
+      color: '#070707 !important',
+      backgroundColor: 'transparent !important',
+      textShadow: 'none !important',
+      textDecorationColor: '#070707 !important',
+    },
+    '&.cs-has-selection .cs-leaf-highlight-layer': {
+      opacity: '0.16',
+      zIndex: '1',
+    },
+    '&.cs-has-selection .cm-content': {
+      zIndex: '3',
     },
     '.cm-selectionMatch': {
       backgroundColor: '#ffd400',
@@ -1222,7 +2968,57 @@
       borderRadius: '0',
       textDecorationThickness: '2px',
       textUnderlineOffset: '0.18em',
-      transition: 'color 90ms ease, background-color 90ms ease, box-shadow 90ms ease, outline-color 90ms ease',
+      transition: 'color 90ms ease, background-color 90ms ease, box-shadow 90ms ease, outline-color 90ms ease, opacity 90ms ease, filter 90ms ease',
+    },
+    '.cs-token.cs-beat-strong': {
+      opacity: '1',
+      filter: 'brightness(1.08)',
+      backgroundColor: 'rgba(255, 212, 0, 0.20)',
+      outline: '1px solid rgba(7, 7, 7, 0.08)',
+    },
+    '.cs-token.cs-beat-secondary': {
+      opacity: '0.9',
+      filter: 'brightness(1.02)',
+      backgroundColor: 'rgba(255, 212, 0, 0.12)',
+    },
+    '.cs-token.cs-beat-weak': {
+      opacity: '0.74',
+      filter: 'saturate(0.92)',
+    },
+    '.cs-token.cs-beat-subdivision': {
+      opacity: '0.62',
+      filter: 'saturate(0.82)',
+    },
+    '.cs-token.cs-beat-subdivision-strong': {
+      opacity: '0.76',
+      backgroundColor: 'rgba(255, 212, 0, 0.08)',
+    },
+    '.cs-token.cs-beat-subdivision-secondary': {
+      opacity: '0.7',
+      backgroundColor: 'rgba(255, 212, 0, 0.055)',
+    },
+    '.cs-token.cs-beat-nested': {
+      opacity: '0.54',
+      filter: 'saturate(0.74)',
+    },
+    '.cs-token.cs-beat-rest': {
+      opacity: '0.45',
+      filter: 'saturate(0.55)',
+    },
+    '.cs-token.cs-pickup-gap, .cs-token.cs-beat-pickup-gap': {
+      opacity: '0.52',
+      color: '#6c6255',
+      backgroundColor: 'rgba(7, 7, 7, 0.035)',
+      outline: '1px dashed rgba(7, 7, 7, 0.16)',
+      boxShadow: 'inset 0 -0.16em 0 rgba(255, 212, 0, 0.10)',
+      filter: 'saturate(0.72)',
+    },
+    '.cs-token.cs-beat-group-shell': {
+      backgroundColor: 'rgba(7, 7, 7, 0.035)',
+    },
+    '.cm-line.cs-leaf-line-active .cs-token, .cs-token.cs-token-active': {
+      opacity: '1',
+      filter: 'brightness(1.08)',
     },
     '.cs-head': {
       color: '#070707',
@@ -1243,6 +3039,36 @@
     '.cs-voice-input': {
       color: '#070707',
       textDecoration: 'underline solid #0057ff',
+      textDecorationThickness: '3px',
+    },
+    '.cs-voice-piano': {
+      color: '#070707',
+      textDecoration: 'underline solid #0a9396',
+      textDecorationThickness: '3px',
+    },
+    '.cs-voice-violin': {
+      color: '#070707',
+      textDecoration: 'underline solid #a04a2a',
+      textDecorationThickness: '3px',
+    },
+    '.cs-voice-cello': {
+      color: '#070707',
+      textDecoration: 'underline solid #5b3bb8',
+      textDecorationThickness: '3px',
+    },
+    '.cs-voice-marimba': {
+      color: '#070707',
+      textDecoration: 'underline solid #008f5a',
+      textDecorationThickness: '3px',
+    },
+    '.cs-voice-vibraphone': {
+      color: '#070707',
+      textDecoration: 'underline solid #00a8d8',
+      textDecorationThickness: '3px',
+    },
+    '.cs-voice-voice, .cs-voice-vox': {
+      color: '#070707',
+      textDecoration: 'underline solid #ba55d3',
       textDecorationThickness: '3px',
     },
     '.cs-directive': {
@@ -1297,7 +3123,14 @@
       color: '#5f5147',
       fontStyle: 'italic',
       fontWeight: '650',
-      boxShadow: 'inset 3px 0 0 #070707',
+      boxShadow: 'inset 0 -2px 0 rgba(7,7,7,0.16)',
+    },
+    '.cm-line.cs-line-metadata .cs-comment': {
+      color: '#3f3832',
+      fontStyle: 'italic',
+      fontWeight: '800',
+      letterSpacing: '0.025em',
+      boxShadow: 'inset 0 -2px 0 rgba(0,87,255,0.2)',
     },
     '.cs-invalid': {
       color: '#d7263d',
@@ -1312,13 +3145,23 @@
       color: '#070707',
       outlineColor: '#070707',
     },
-    '.cm-line.cs-pulse-sample .cs-token-active': {
+    '.cm-line.cs-pulse-sample .cs-token-active, .cm-line.cs-pulse-drum .cs-token-active': {
       backgroundColor: '#e3342f',
       color: '#ffffff',
       outlineColor: '#070707',
     },
     '.cm-line.cs-pulse-input .cs-token-active, .cm-line.cs-pulse-mod .cs-token-active': {
       backgroundColor: '#0057ff',
+      color: '#ffffff',
+      outlineColor: '#070707',
+    },
+    '.cm-line.cs-pulse-piano .cs-token-active': {
+      backgroundColor: '#0a9396',
+      color: '#ffffff',
+      outlineColor: '#070707',
+    },
+    '.cm-line.cs-pulse-violin .cs-token-active': {
+      backgroundColor: '#a04a2a',
       color: '#ffffff',
       outlineColor: '#070707',
     },
@@ -1379,10 +3222,53 @@
       borderRadius: '999px',
       boxShadow: '4px 4px 0 #070707',
     },
+      '.cs-leaf-highlight-drum': {
+        backgroundColor: '#070707',
+        color: '#ffffff',
+        borderRadius: '2px',
+        border: '2px solid #ffffff',
+        boxShadow: '4px 4px 0 #e3342f',
+      },
     '.cs-leaf-highlight-input': {
       backgroundColor: '#0057ff',
       color: '#ffffff',
       borderRadius: '0 10px 10px 0',
+      boxShadow: '4px 4px 0 #070707',
+    },
+    '.cs-leaf-highlight-piano': {
+      backgroundColor: '#0a9396',
+      color: '#ffffff',
+      borderRadius: '0 0 6px 6px',
+      boxShadow: '4px 4px 0 #070707',
+    },
+    '.cs-leaf-highlight-violin': {
+      backgroundColor: '#a04a2a',
+      color: '#ffffff',
+      borderRadius: '0 0 6px 6px',
+      boxShadow: '4px 4px 0 #070707',
+    },
+    '.cs-leaf-highlight-cello': {
+      backgroundColor: '#5b3bb8',
+      color: '#ffffff',
+      borderRadius: '0 0 6px 6px',
+      boxShadow: '4px 4px 0 #070707',
+    },
+    '.cs-leaf-highlight-marimba': {
+      backgroundColor: '#b87516',
+      color: '#ffffff',
+      borderRadius: '0 0 6px 6px',
+      boxShadow: '4px 4px 0 #070707',
+    },
+    '.cs-leaf-highlight-vibraphone, .cs-leaf-highlight-vibes': {
+      backgroundColor: '#00a8d8',
+      color: '#ffffff',
+      borderRadius: '0 0 6px 6px',
+      boxShadow: '4px 4px 0 #070707',
+    },
+    '.cs-leaf-highlight-voice, .cs-leaf-highlight-vox': {
+      backgroundColor: '#ba55d3',
+      color: '#ffffff',
+      borderRadius: '0 0 6px 6px',
       boxShadow: '4px 4px 0 #070707',
     },
     '.cs-leaf-highlight-rest': {
@@ -1403,24 +3289,156 @@
       fontFamily: '"Courier New", Courier, monospace',
       fontSize: '13px',
       boxShadow: '4px 4px 0 #070707',
+      zIndex: '120',
+      overflow: 'hidden',
     },
     '.cm-tooltip.cm-tooltip-autocomplete': {
       borderRadius: '0',
+      minWidth: '13.5rem',
+      maxWidth: 'min(30rem, calc(100vw - 2.4rem))',
+    },
+    '.cm-tooltip-autocomplete > ul': {
+      margin: '0',
+      padding: '2px 0',
+      maxHeight: '15.5rem',
+      overflowY: 'auto',
     },
     '.cm-tooltip-autocomplete > ul > li': {
-      padding: '3px 9px',
+      display: 'grid',
+      gridTemplateColumns: 'minmax(0, 1fr) auto',
+      alignItems: 'baseline',
+      columnGap: '0.7rem',
+      padding: '4px 10px',
       fontFamily: '"Courier New", Courier, monospace',
+      borderBottom: '1px solid rgba(7,7,7,0.08)',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+    },
+    '.cm-tooltip-autocomplete > ul > li.cm-repl-suggest': {
+      position: 'relative',
+      paddingLeft: '4.8rem',
+    },
+    '.cm-tooltip-autocomplete > ul > li.cm-repl-suggest::before': {
+      position: 'absolute',
+      left: '0.55rem',
+      top: '50%',
+      transform: 'translateY(-50%)',
+      minWidth: '3.5rem',
+      padding: '0.12rem 0.28rem',
+      border: '2px solid #070707',
+      backgroundColor: '#ffffff',
+      color: '#070707',
+      fontSize: '0.5rem',
+      fontWeight: '900',
+      letterSpacing: '0.08em',
+      lineHeight: '1',
+      textTransform: 'uppercase',
+      textAlign: 'center',
+      boxShadow: '2px 2px 0 #070707',
+      boxSizing: 'border-box',
+      content: '""',
+      pointerEvents: 'none',
+    },
+    '.cm-tooltip-autocomplete > ul > li.cm-repl-suggest-voice::before': {
+      content: '"voice"',
+      backgroundColor: '#fff4c7',
+    },
+    '.cm-tooltip-autocomplete > ul > li.cm-repl-suggest-directive::before': {
+      content: '"directive"',
+      backgroundColor: '#dce9ff',
+    },
+    '.cm-tooltip-autocomplete > ul > li.cm-repl-suggest-param::before': {
+      content: '"param"',
+      backgroundColor: '#d9ffe8',
+    },
+    '.cm-tooltip-autocomplete > ul > li.cm-repl-suggest-effect::before': {
+      content: '"effect"',
+      backgroundColor: '#ffe1d7',
     },
     '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
       backgroundColor: '#0057ff',
       color: '#ffffff',
+      borderBottomColor: 'rgba(255,255,255,0.22)',
+      boxShadow: 'inset 0 2px 0 #070707, inset 0 -2px 0 #070707',
     },
-    '.cm-completionLabel': { color: '#070707', fontWeight: '800' },
-    '.cm-completionDetail': { color: '#5f6368', fontStyle: 'italic', marginLeft: '0.6em' },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected].cm-repl-suggest::before': {
+      backgroundColor: '#ffffff',
+      color: '#070707',
+      borderColor: '#ffffff',
+      boxShadow: '2px 2px 0 rgba(7,7,7,0.75)',
+    },
+    '.cm-tooltip-autocomplete > ul > li:last-child': {
+      borderBottom: '0',
+    },
+    '.cm-completionIcon': {
+      display: 'none',
+    },
+    '.cm-completionLabel': {
+      color: '#070707',
+      fontWeight: '900',
+      letterSpacing: '0',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+    },
+    '.cm-completionDetail': {
+      color: '#5f6368',
+      fontStyle: 'normal',
+      fontWeight: '700',
+      marginLeft: '0',
+      opacity: '0.92',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+    },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionLabel': {
+      color: '#ffffff',
+    },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail': {
+      color: '#d8e4ff',
+      opacity: '1',
+    },
+    '.cm-repl-completion-accept-key': {
+      display: 'none',
+      alignSelf: 'center',
+      justifySelf: 'end',
+      marginLeft: '0.65rem',
+      border: '2px solid #070707',
+      backgroundColor: '#ffd400',
+      color: '#070707',
+      boxShadow: '2px 2px 0 #070707',
+      fontSize: '0.58rem',
+      fontWeight: '900',
+      letterSpacing: '0.08em',
+      lineHeight: '1',
+      padding: '0.1rem 0.28rem',
+      textTransform: 'uppercase',
+      whiteSpace: 'nowrap',
+    },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-repl-completion-accept-key': {
+      display: 'inline-block',
+    },
+    '.cm-tooltip-autocomplete::after': {
+      content: '"TAB ACCEPTS · ENTER NEW LINE · ESC CLOSES"',
+      display: 'block',
+      borderTop: '2px solid #070707',
+      padding: '0.35rem 0.5rem',
+      backgroundImage: 'repeating-linear-gradient(135deg, rgba(7,7,7,0.08) 0, rgba(7,7,7,0.08) 2px, transparent 2px, transparent 6px)',
+      backgroundColor: '#ffffff',
+      color: '#070707',
+      fontFamily: '"Courier New", Courier, monospace',
+      fontSize: '0.62rem',
+      fontWeight: '900',
+      letterSpacing: '0.08em',
+      textTransform: 'uppercase',
+      whiteSpace: 'nowrap',
+    },
     '.cm-completionMatchedText': {
       textDecoration: 'none',
       fontWeight: '900',
       color: '#0057ff',
+    },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionMatchedText': {
+      color: '#ffd400',
+      textShadow: '1px 1px 0 rgba(7,7,7,0.45)',
     },
     '.cm-diagnostic': {
       fontFamily: '"Courier New", Courier, monospace',
@@ -1529,13 +3547,327 @@
   // completion — context-aware. Never auto-applies.
   // ============================================================================
 
-  function makeOption(label, detail) {
-    return detail ? { label, detail, type: 'keyword' } : { label, type: 'keyword' };
+  const COMPLETION_SECTIONS = Object.freeze({
+    voice: { name: 'voice', rank: 10 },
+    sample: { name: 'sample', rank: 14 },
+    pick: { name: 'pick', rank: 15 },
+    directive: { name: 'directive', rank: 20 },
+    tuning: { name: 'tuning', rank: 22 },
+    coupling: { name: 'coupling', rank: 30 },
+    live: { name: 'live', rank: 35 },
+    param: { name: 'param', rank: 40 },
+    effect: { name: 'effect', rank: 50 },
+    value: { name: 'value', rank: 60 },
+  });
+
+  const COMPLETION_BOOST = Object.freeze({
+    voice: 6,
+    sample: 5,
+    pick: 5,
+    directive: 5,
+    tuning: 6,
+    coupling: 3,
+    live: 1,
+    param: 2,
+    effect: 2,
+    value: 0,
+  });
+
+  function completionCommitToken(label) {
+    const raw = String(label || '').trim();
+    if (!raw) return '';
+    const spaceAt = raw.search(/\s/);
+    return spaceAt === -1 ? raw : raw.slice(0, spaceAt);
+  }
+
+  function completionApplyTokenSuffix(token) {
+    const target = String(token == null ? '' : token);
+    const commit = target.trim() ? target : completionCommitToken(target);
+    if (!commit) return null;
+    return (view, _completion, from, to) => {
+      const state = view && view.state;
+      if (!state || !state.doc) return false;
+      const docLen = state.doc.length;
+      const safeFrom = Math.max(0, Math.min(Number.isFinite(from) ? from : 0, docLen));
+      const safeTo = Math.max(safeFrom, Math.min(Number.isFinite(to) ? to : safeFrom, docLen));
+      const anchor = safeFrom + commit.length;
+
+      view.dispatch({
+        changes: { from: safeFrom, to: safeTo, insert: commit },
+        selection: { anchor },
+        userEvent: 'input.complete',
+      });
+
+      if (typeof closeCompletion === 'function') {
+        try { closeCompletion(view); } catch (_) {}
+      }
+      return true;
+    };
+  }
+
+  function completionSubsequenceMatch(needle, haystack) {
+    const n = String(needle || '').toLowerCase();
+    const h = String(haystack || '').toLowerCase();
+    if (!n) return true;
+    let i = 0;
+    for (let j = 0; j < h.length && i < n.length; j += 1) {
+      if (h[j] === n[i]) i += 1;
+    }
+    return i === n.length;
+  }
+
+  function completionFitBoost(label, active) {
+    const token = completionCommitToken(label).toLowerCase();
+    const query = String(active || '').trim().toLowerCase();
+    if (!token || !query) return 0;
+    if (token === query) return 100;
+    if (token.startsWith(query)) return 70 + Math.max(0, 14 - token.length);
+    if (token.split(/[._-]+/).some((part) => part.startsWith(query))) return 52;
+    if (completionSubsequenceMatch(query, token)) return 34;
+    return 0;
+  }
+
+  function completionRecentBoost(label) {
+    const token = completionCommitToken(label);
+    if (!token || token.length < 2 || /^[*~_.|;()]+$/.test(token)) return 0;
+    const docText = String(editorEnvRef.completionDocText || '');
+    if (!docText) return 0;
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    try {
+      return new RegExp(`(^|\\s)${escaped}(?=$|\\s|[|;)])`, 'i').test(docText) ? 15 : 0;
+    } catch (_) {
+      return docText.toLowerCase().includes(token.toLowerCase()) ? 8 : 0;
+    }
+  }
+
+  function completionLikelihoodBoost(option, categoryKey) {
+    const label = option && typeof option.label === 'string' ? option.label : '';
+    const active = String(editorEnvRef.completionActiveText || '');
+    let boost = 0;
+    boost += completionFitBoost(label, active);
+    boost += completionRecentBoost(label);
+
+    if (option && option.replOpensRow) boost += 40;
+    if (categoryKey === 'voice') boost += 20;
+    if (categoryKey === 'directive' || categoryKey === 'tuning') boost += 16;
+    if (categoryKey === 'param' || categoryKey === 'effect') boost += 10;
+    if (categoryKey === 'value') boost += 6;
+
+    const token = completionCommitToken(label).toLowerCase();
+    if (token === 'right' || token === 'center' || token === 'left') boost += 18;
+    if (token === 'mp' || token === 'mf' || token === 'p' || token === 'f') boost += 14;
+    if (token === 'bright' || token === 'dark') boost += 14;
+    if (/^[a-g][b#]?-?\d+$/i.test(token)) boost += 12;
+    return boost;
+  }
+
+  function withCompletionCategory(option, category) {
+    if (!option) return option;
+    const out = { ...option };
+    const label = typeof out.label === 'string' ? out.label : '';
+    const categoryKey = category || (typeof out.replCategory === 'string' ? out.replCategory : '');
+    if (categoryKey) {
+      out.replCategory = categoryKey;
+      if (!out.section && COMPLETION_SECTIONS[categoryKey]) out.section = COMPLETION_SECTIONS[categoryKey];
+      const baseBoost = Number.isFinite(COMPLETION_BOOST[categoryKey]) ? COMPLETION_BOOST[categoryKey] : 0;
+      const fitBoost = completionLikelihoodBoost(out, categoryKey);
+      out.boost = (Number.isFinite(out.boost) ? Number(out.boost) : baseBoost) + fitBoost;
+    }
+    if (typeof out.apply !== 'string' && typeof out.apply !== 'function') {
+      const insert = typeof out.replInsertText === 'string'
+        ? out.replInsertText
+        : completionCommitToken(label);
+      if (insert) out.apply = completionApplyTokenSuffix(insert);
+    }
+    if (label && /\s/.test(label) && typeof out.info !== 'string') {
+      const token = completionCommitToken(label);
+      if (token) out.info = `Tab completes '${token}' only. Remaining text is guidance.`;
+    }
+    return out;
+  }
+
+  function withCompletionCategoryList(options, category) {
+    if (!Array.isArray(options)) return [];
+    return options.map((opt) => withCompletionCategory(opt, category));
+  }
+
+  function completionKeyBindingRun(keyName, view) {
+    if (!Array.isArray(completionKeymap)) return false;
+    for (const binding of completionKeymap) {
+      if (!binding) continue;
+      if (binding.key !== keyName && binding.mac !== keyName && binding.win !== keyName && binding.linux !== keyName) continue;
+      if (typeof binding.run === 'function') {
+        return binding.run(view) === true;
+      }
+      return false;
+    }
+    return false;
+  }
+
+
+  function completionKeymapWithoutEnter() {
+    if (!Array.isArray(completionKeymap)) return [];
+    return completionKeymap.filter((binding) => {
+      if (!binding) return false;
+      return !['key', 'mac', 'win', 'linux'].some((field) => binding[field] === 'Enter');
+    });
+  }
+
+  function completionWordMatch(state, pos, expr) {
+    if (!state || !state.doc || !expr) return null;
+    const line = state.doc.lineAt(pos);
+    const before = line.text.slice(0, Math.max(0, pos - line.from));
+    if (!before) return null;
+    const flags = String(expr.flags || '').replace(/g/g, '');
+    const anchored = new RegExp(`(?:${expr.source})$`, flags);
+    const m = anchored.exec(before);
+    if (!m || !m[0]) return null;
+    return {
+      from: line.from + (before.length - m[0].length),
+      to: pos,
+      text: m[0],
+    };
+  }
+
+  function isLiveFeatureRefToken(raw) {
+    const tok = String(raw || '').trim().toLowerCase();
+    if (!tok) return false;
+    const m = tok.match(LIVE_REF_RE);
+    if (!m) return false;
+    return LIVE_FEATURE_SET.has(String(m[2] || '').toLowerCase());
+  }
+
+  function isLikelyNumericExpressionToken(raw) {
+    const tok = String(raw || '').trim().toLowerCase();
+    if (!tok) return false;
+    if (/^-?\d+$/.test(tok)) return true;
+    if (/^-?\d+\.\d+$/.test(tok)) return true;
+    if (/^-?\.\d+$/.test(tok)) return true;
+    if (/^-?\d+\/\d+$/.test(tok)) return true;
+    return /^-?(?:(?:\d+(?:\.\d+)?)|(?:\.\d+)|pi)(?:[*/]-?(?:(?:\d+(?:\.\d+)?)|(?:\.\d+)|pi))*$/.test(tok);
+  }
+
+  function classifyRowValuePhase(tokensSoFar, trailingSpace) {
+    const tokens = Array.isArray(tokensSoFar) ? tokensSoFar.slice() : [];
+    const committed = trailingSpace ? tokens : tokens.slice(0, -1);
+    const active = trailingSpace ? '' : String(tokens[tokens.length - 1] || '');
+    const liveRef = committed[0] || '';
+    const firstIsLiveRef = isLiveFeatureRefToken(liveRef);
+
+    if (!committed.length && isLiveFeatureRefToken(active)) {
+      return { kind: 'live-min', liveRef: active, active };
+    }
+    if (committed.length === 1 && firstIsLiveRef) {
+      return { kind: 'live-min', liveRef, active };
+    }
+    if (committed.length === 2 && firstIsLiveRef && isLikelyNumericExpressionToken(committed[1])) {
+      return { kind: 'live-max', liveRef, active };
+    }
+    return { kind: 'value', active };
+  }
+
+  function paramNumericOptions(param) {
+    const hints = PARAM_NUMERIC_HINTS[param] || ['0.25', '0.5', '0.75'];
+    const detail = PARAM_NUMERIC_DETAIL[param] || 'numeric value';
+    return hints.map((label) => ({ label, type: 'constant', detail }));
+  }
+
+  function paramValueContract(param) {
+    if (param === 'harm') return 'harm: simple|pair|triad|rich, 0-4, operators, or source.feature min max';
+    const named = PARAM_NAMED[param] || [];
+    if (named.length > 0) {
+      return `${param}: ${named.join('|')}, numeric value, operators, or source.feature min max`;
+    }
+    return `${param}: numeric value, operators, or source.feature min max`;
+  }
+
+  function buildParamBodyCompletion(param) {
+    const liveSources = liveSourcesForCompletion();
+    const named = PARAM_NAMED[param.name || ''] || [];
+    const phase = classifyRowValuePhase(param.tokensSoFar || [], param.trailingSpace === true);
+
+    if (phase.kind === 'live-min' || phase.kind === 'live-max') {
+      const numericHint = phase.kind === 'live-min' ? 'modulation min' : 'modulation max';
+      const opts = paramNumericOptions(param.name || '').map((opt) => ({
+        ...opt,
+        detail: `${numericHint} (${opt.detail})`,
+      }));
+      return {
+        from: param.from,
+        options: withCompletionCategoryList(opts, 'param'),
+        validFor: /^-?(?:\d+(?:\.\d+)?|\.\d+|pi(?:\/\d+)?)?(?:[*/]-?(?:\d+(?:\.\d+)?|\.\d+|pi))*$/,
+      };
+    }
+
+    const opts = [
+      ...named.map((v) => ({ label: v, type: 'constant', detail: param.name })),
+      ...paramNumericOptions(param.name || ''),
+      ...liveSources.flatMap((src) => LIVE_FEATURES.map((f) => ({
+        label: `${src}.${f}`,
+        type: 'variable',
+        detail: 'live modulation source',
+      }))),
+      ...COMMON_OPERATORS.map((op) => ({
+        label: op,
+        type: 'keyword',
+        detail: opDescription(op),
+      })),
+    ];
+    return {
+      from: param.from,
+      options: withCompletionCategoryList(
+        opts.map((opt) => ({
+          ...opt,
+          info: typeof opt.info === 'string' ? opt.info : paramValueContract(param.name || ''),
+        })),
+        'param'
+      ),
+    };
+  }
+
+  function buildEffectBodyCompletion(effect) {
+    const liveSources = liveSourcesForCompletion();
+    const phase = classifyRowValuePhase(effect.tokensSoFar || [], effect.trailingSpace === true);
+
+    if (phase.kind === 'live-min' || phase.kind === 'live-max') {
+      const hint = phase.kind === 'live-min' ? 'modulation min' : 'modulation max';
+      const opts = [
+        { label: '0.1', type: 'constant', detail: `${hint} (0..1)` },
+        { label: '0.4', type: 'constant', detail: `${hint} (0..1)` },
+        { label: '0.8', type: 'constant', detail: `${hint} (0..1)` },
+      ];
+      return {
+        from: effect.from,
+        options: withCompletionCategoryList(opts, 'effect'),
+        validFor: /^-?(?:\d+(?:\.\d+)?|\.\d+|pi(?:\/\d+)?)?(?:[*/]-?(?:\d+(?:\.\d+)?|\.\d+|pi))*$/,
+      };
+    }
+
+    const opts = [
+      ...EFFECT_NAMED.map((m) => ({ label: m, type: 'constant', detail: effect.name })),
+      { label: '0.25', type: 'constant', detail: '0..1' },
+      { label: '0.5', type: 'constant', detail: '0..1' },
+      { label: '0.75', type: 'constant', detail: '0..1' },
+      ...liveSources.flatMap((src) => LIVE_FEATURES.map((f) => ({
+        label: `${src}.${f}`,
+        type: 'variable',
+        detail: 'live modulation source',
+      }))),
+      ...COMMON_OPERATORS.map((op) => ({
+        label: op,
+        type: 'keyword',
+        detail: opDescription(op),
+      })),
+    ];
+    return {
+      from: effect.from,
+      options: withCompletionCategoryList(opts, 'effect'),
+    };
   }
 
   function classifyContext(state, pos, ctx) {
     const line = state.doc.lineAt(pos);
-    const beforeCursorOnLine = line.text.slice(0, pos - line.from);
+    const beforeCursorOnLine = line.text.slice(0, Math.max(0, pos - line.from));
 
     // Inside a comment? Don't complete.
     const commentIdx = beforeCursorOnLine.indexOf('//');
@@ -1551,15 +3883,16 @@
     // At line head? "trimmed" is either empty or a single bare word with no
     // trailing whitespace.
     if (trimmed.length === 0 || /^[A-Za-z][A-Za-z0-9_.-]*$/.test(trimmed)) {
-      return { kind: 'head', from: line.from + indentLen };
+      return { kind: 'head', from: line.from + indentLen, headWord: trimmed.toLowerCase() };
     }
 
     // Determine the line head (first whitespace-bounded token)
-    const headMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_.-]*)\s+(.*)$/);
+    const headMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_.-]*)(\s+)(.*)$/);
     if (!headMatch) return { kind: 'unknown', from };
 
     const head = headMatch[1].toLowerCase();
-    const rest = headMatch[2];
+    const rest = headMatch[3];
+    const trailingSpace = /\s$/.test(rest);
     const tokensSoFar = rest.trim().split(/\s+/).filter(Boolean);
 
     if (HEAD_COUPLING.has(head)) {
@@ -1567,22 +3900,40 @@
         kind: 'coupling-body',
         head,
         position: tokensSoFar.length,
+        tokensSoFar,
+        trailingSpace,
         from,
       };
     }
     if (HEAD_VOICE.has(head)) {
-      return { kind: 'voice-body', voice: head, from };
+      return { kind: 'voice-body', voice: head, from, tokensSoFar, trailingSpace };
+    }
+    if (HEAD_HARMONY.has(head)) {
+      return { kind: 'harmony-body', harmony: head, from, tokensSoFar, trailingSpace };
     }
     if (HEAD_PARAM.has(head)) {
-      return { kind: 'param-body', param: head, from };
+      return { kind: 'param-body', param: head, from, tokensSoFar, trailingSpace };
     }
     if (HEAD_EFFECT.has(head)) {
-      return { kind: 'effect-body', effect: head, from };
+      return { kind: 'effect-body', effect: head, from, tokensSoFar, trailingSpace };
     }
     if (HEAD_DIRECTIVE.has(head)) {
       return { kind: 'directive-body', directive: head, from };
     }
     return { kind: 'unknown', from };
+  }
+
+  function classifyContextAt(state, pos) {
+    return classifyContext(state, pos, {
+      matchBefore: (expr) => completionWordMatch(state, pos, expr),
+    });
+  }
+
+  function shouldOpenShiftCompletionForContext(here) {
+    if (!here || typeof here.kind !== 'string') return false;
+    if (here.kind === 'param-body' || here.kind === 'effect-body') return true;
+    if (here.kind === 'head' && (HEAD_PARAM.has(here.headWord) || HEAD_EFFECT.has(here.headWord))) return true;
+    return false;
   }
 
   function getSampleNamesSafe() {
@@ -1592,6 +3943,38 @@
   function getSampleGroupsSafe() {
     if (!editorEnvRef.getSampleGroups) return [];
     try { return editorEnvRef.getSampleGroups() || []; } catch (_) { return []; }
+  }
+  function getDrumKitsSafe() {
+    if (!editorEnvRef.getDrumKits) return [];
+    try { return editorEnvRef.getDrumKits() || []; } catch (_) { return []; }
+  }
+  function getGeneratedVideoIdsSafe() {
+    if (!editorEnvRef.getVideoGeneratedIds) return [];
+    try { return editorEnvRef.getVideoGeneratedIds() || []; } catch (_) { return []; }
+  }
+  function getTuningPresetIdsSafe() {
+    if (root.ReplTunings && typeof root.ReplTunings.listPresetIds === 'function') {
+      try { return root.ReplTunings.listPresetIds(200) || []; } catch (_) { return []; }
+    }
+    return [];
+  }
+
+  function videoDebugEnabledInEditor() {
+    return editorEnvRef.enableVideoDebug === true;
+  }
+
+  function voiceWordsForCompletion() {
+    if (videoDebugEnabledInEditor()) return VOICE_WORDS;
+    return VOICE_WORDS.filter((w) => w !== 'video');
+  }
+
+  function attractorsForCompletion() {
+    if (videoDebugEnabledInEditor()) return ATTRACTORS;
+    return ATTRACTORS.filter((a) => !VIDEO_LIVE_SOURCES.has(String(a || '').toLowerCase()));
+  }
+
+  function liveSourcesForCompletion() {
+    return videoDebugEnabledInEditor() ? LIVE_SOURCES : NON_VIDEO_LIVE_SOURCES;
   }
 
   // The completion source is referenced by language config above, so it must
@@ -1603,118 +3986,304 @@
     const explicit = ctx.explicit;
     const wordMatch = ctx.matchBefore(/[A-Za-z0-9_.\-#*&!~/]+/);
     const from = wordMatch ? wordMatch.from : ctx.pos;
+    editorEnvRef.completionActiveText = wordMatch ? String(wordMatch.text || '') : '';
+    editorEnvRef.completionDocText = ctx.state && ctx.state.doc ? ctx.state.doc.toString() : '';
 
     if (here.kind === 'head') {
+      if (explicit && here.headWord && HEAD_PARAM.has(here.headWord)) {
+        return buildParamBodyCompletion({
+          name: here.headWord,
+          from: ctx.pos,
+          tokensSoFar: [],
+          trailingSpace: true,
+        });
+      }
+      if (explicit && here.headWord && HEAD_EFFECT.has(here.headWord)) {
+        return buildEffectBodyCompletion({
+          name: here.headWord,
+          from: ctx.pos,
+          tokensSoFar: [],
+          trailingSpace: true,
+        });
+      }
       // Don't fire on every keystroke at a blank cursor; only when the user
       // is mid-word or has hit the trigger.
       if (!explicit && !wordMatch) return null;
       const opts = [
-        ...VOICE_WORDS.map((w) => ({ label: w, type: 'keyword', detail: 'voice' })),
-        ...DIRECTIVES.map((w) => ({ label: w, type: 'keyword', detail: 'directive' })),
-        ...PARAMS.map((w) => ({ label: w, type: 'property', detail: 'param' })),
-        ...EFFECTS.map((w) => ({ label: w, type: 'property', detail: 'effect' })),
-        ...COUPLING.map((w) => ({ label: w, type: 'keyword', detail: 'coupling' })),
+        ...voiceWordsForCompletion().map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'voice · opens row', replInsertText: `${w} `, replOpensRow: true }, 'voice')),
+        ...DIRECTIVES.map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'directive · opens row', replInsertText: `${w} `, replOpensRow: true }, 'directive')),
+        ...HARMONY_HEADS.map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'harmony · opens row', replInsertText: `${w} `, replOpensRow: true }, 'directive')),
+        ...PARAMS.map((w) => withCompletionCategory({ label: w, type: 'property', detail: 'param · opens row', replInsertText: `${w} `, replOpensRow: true }, 'param')),
+        ...EFFECTS.map((w) => withCompletionCategory({ label: w, type: 'property', detail: 'effect · opens row', replInsertText: `${w} `, replOpensRow: true }, 'effect')),
+        ...COUPLING.map((w) => withCompletionCategory({ label: w, type: 'keyword', detail: 'coupling · opens row', replInsertText: `${w} `, replOpensRow: true }, 'coupling')),
       ];
       return { from: here.from, options: opts, validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
     }
 
     if (here.kind === 'coupling-body') {
       if (here.head === 'attractor') {
-        const opts = ATTRACTORS.map((a) => ({ label: a, type: 'class', detail: 'attractor' }));
-        return { from, options: opts, validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
+        const opts = attractorsForCompletion().map((a) => ({ label: a, type: 'class', detail: 'attractor' }));
+        return { from, options: withCompletionCategoryList(opts, 'coupling'), validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
       }
       if (here.head === 'source') {
         if (here.position === 0) {
-          const opts = SOURCE_KEYS.map((s) => ({ label: s, type: 'property', detail: 'source key' }));
-          return { from, options: opts, validFor: /^[A-Za-z]+$/ };
+          const opts = [
+            ...SOURCE_KEYS.map((s) => ({ label: s, type: 'property', detail: 'source key' })),
+            ...(videoDebugEnabledInEditor()
+              ? [
+                  { label: 'camera', type: 'class', detail: 'video gen source' },
+                  { label: 'screen', type: 'class', detail: 'video gen source' },
+                  { label: 'file', type: 'class', detail: 'video gen source' },
+                  ...getGeneratedVideoIdsSafe().map((id) => ({ label: id, type: 'text', detail: 'generated video clip' })),
+                ]
+              : []),
+          ];
+          return { from, options: withCompletionCategoryList(opts, 'coupling'), validFor: /^[A-Za-z0-9_.-]*$/ };
         }
         return null;
       }
-        if (here.head === 'every') {
+        if (here.head === 'every' || here.head === 'enter' || here.head === 'exit') {
           const opts = [
-            { label: '4 bars', type: 'text', detail: 'every' },
-            { label: '8 beats', type: 'text', detail: 'every' },
+            { label: '4', type: 'constant', detail: `count for ${here.head} <N> bars/beats` },
+            { label: '8', type: 'constant', detail: `count for ${here.head} <N> bars/beats` },
+            { label: '16', type: 'constant', detail: `count for ${here.head} <N> bars/beats` },
             { label: 'bars', type: 'text', detail: 'unit' },
             { label: 'beats', type: 'text', detail: 'unit' },
           ];
-          return { from, options: opts };
+          return { from, options: withCompletionCategoryList(opts, 'coupling') };
         }
 
         if (here.head === 'time' || here.head === 'beat' || here.head === 'leaf' || here.head === 'choose' || here.head === 'trigger') {
+          const liveSources = liveSourcesForCompletion();
           const opts = [
-            ...LIVE_SOURCES.map((src) => ({ label: src, type: 'class', detail: 'live source' })),
-            ...LIVE_SOURCES.flatMap((src) => LIVE_FEATURES.map((f) => ({ label: `${src}.${f}`, type: 'variable', detail: here.head }))),
+            ...liveSources.map((src) => ({ label: src, type: 'class', detail: 'live source' })),
+            ...liveSources.flatMap((src) => LIVE_FEATURES.map((f) => ({ label: `${src}.${f}`, type: 'variable', detail: here.head }))),
           ];
-          return { from, options: opts, validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
+          return { from, options: withCompletionCategoryList(opts, 'live'), validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
         }
 
         if (here.head === 'fade') {
           const opts = [
-            { label: 'in 30s', type: 'function', detail: 'fade block in, then latch high' },
-            { label: 'out 30s', type: 'function', detail: 'fade block out, then latch silent' },
-            { label: 'inout 30s', type: 'function', detail: 'cycle in then out' },
-            { label: 'outin 30s', type: 'function', detail: 'cycle out then in' },
-            { label: 'inout 30s hold 10s', type: 'function', detail: 'breathing fade with high/low holds' },
-            { label: 'outin 8s hold 2s', type: 'function', detail: 'negative-space pulse' },
+            { label: 'in', type: 'function', detail: 'e.g. fade in 30s' },
+            { label: 'out', type: 'function', detail: 'e.g. fade out 30s' },
+            { label: 'inout', type: 'function', detail: 'e.g. fade inout 30s hold 10s' },
+            { label: 'outin', type: 'function', detail: 'e.g. fade outin 8s hold 2s' },
             { label: 'hold', type: 'keyword', detail: 'freeze current fade level' },
             { label: 'clear', type: 'keyword', detail: 'remove fade automation' },
           ];
-          return { from, options: opts };
+          return { from, options: withCompletionCategoryList(opts, 'coupling') };
         }
 
         return null;
     }
 
+    if (here.kind === 'harmony-body') {
+      let opts = [];
+      if (here.harmony === 'key') {
+        opts = [
+          { label: 'C major', type: 'constant', detail: 'tonal center' },
+          { label: 'A minor', type: 'constant', detail: 'minor key' },
+          { label: 'D dorian', type: 'constant', detail: 'modal key' },
+          { label: 'Eb major', type: 'constant', detail: 'flat-side modulation target' },
+        ];
+      } else if (here.harmony === 'prog') {
+        opts = ['pop', 'jazz-turnaround', 'circle', 'blues12', 'lament', 'andalusian', 'deceptive', 'backdoor', 'minor-line-cliche']
+          .map((label) => ({ label, type: 'constant', detail: 'progression macro' }));
+      } else if (here.harmony === 'chord') {
+        opts = HARMONY_CHORD_VALUES.map((label) => ({ label, type: 'constant', detail: 'chord / harmonic wildcard' }));
+      } else if (here.harmony === 'voicing') {
+        opts = HARMONY_VOICING_VALUES.map((label) => ({ label, type: 'constant', detail: 'voicing mode' }));
+      } else if (here.harmony === 'lead') {
+        opts = HARMONY_LEAD_VALUES.map((label) => ({ label, type: 'constant', detail: 'voice-leading behavior' }));
+      } else if (here.harmony === 'chord-open' || here.harmony === 'harmonic-risk') {
+        opts = ['.', '0', '0.2', '0.5', '0.8', '1', '*', '*!', '*~', '*&8']
+          .map((label) => ({ label, type: 'constant', detail: here.harmony === 'chord-open' ? '0..1 registral spread' : '0..1 harmonic permission' }));
+      } else if (here.harmony === 'register') {
+        opts = ['.', '2', '3', '4', '5'].map((label) => ({ label, type: 'constant', detail: 'register octave' }));
+      } else if (here.harmony === 'topline' || here.harmony === 'bassline') {
+        opts = ['.', 'E5', 'F5', 'root', 'third', 'fifth', 'seventh', 'bass', 'top']
+          .map((label) => ({ label, type: 'constant', detail: 'pinned note / chord tone' }));
+      } else if (here.harmony === 'sub') {
+        opts = ['.', 'tritone', 'tri', 'backdoor', 'mediant', 'dim-pass', 'negative', 'chromatic-planing']
+          .map((label) => ({ label, type: 'constant', detail: 'substitution surface' }));
+      }
+      return { from, options: withCompletionCategoryList(opts, 'directive'), validFor: /^[A-Za-z0-9:_.#*?\-/]*$/ };
+    }
+
     if (here.kind === 'directive-body') {
-      if (here.directive === 'meter') {
-        const opts = ['4/4', '3/4', '6/8', '5/4', '7/8'].map((m) => ({ label: m, type: 'constant' }));
+      if (here.directive === 'eval' || here.directive === 'evaluate') {
+        const opts = withCompletionCategoryList([
+          { label: 'reset', type: 'keyword', detail: 'queue evaluate at next bar reset when running' },
+          { label: 'keep', type: 'keyword', detail: "use with 'eval reset' to keep previous tails (default)" },
+          { label: 'cut', type: 'keyword', detail: "use with 'eval reset' to cut previous audio at boundary" },
+          { label: 'now', type: 'keyword', detail: 'evaluate immediately (default)' },
+        ], 'directive');
         return { from, options: opts };
       }
-      if (here.directive === 'tempo') {
-        const opts = ['60', '88', '110', '120', '140'].map((m) => ({ label: m, type: 'constant' }));
+      if (here.directive === 'meter') {
+        const opts = withCompletionCategoryList([
+          { label: '4/4', type: 'constant' },
+          { label: '3/4', type: 'constant' },
+          { label: '6/8', type: 'constant' },
+          { label: '5/4', type: 'constant' },
+          { label: '7/8', type: 'constant' },
+        ], 'directive');
         return { from, options: opts };
+      }
+      if (here.directive === 'swing') {
+        const opts = withCompletionCategoryList([
+          { label: 'off', type: 'constant', detail: 'straight timing' },
+          { label: 'light', type: 'constant', detail: 'subtle groove' },
+          { label: 'medium', type: 'constant', detail: 'classic 2:1 swing feel' },
+          { label: 'heavy', type: 'constant', detail: 'late offbeat shuffle' },
+          { label: '.5', type: 'constant', detail: 'classic swing amount' },
+          { label: '.35 1/16', type: 'constant', detail: 'sixteenth-note swing' },
+          { label: '2:1', type: 'constant', detail: 'ratio swing' },
+          { label: '3:1', type: 'constant', detail: 'heavy ratio swing' },
+        ], 'directive');
+        return { from, options: opts, validFor: /^[A-Za-z0-9:._/-]*$/ };
+      }
+      if (here.directive === 'inegales') {
+        const opts = withCompletionCategoryList([
+          { label: 'off', type: 'constant', detail: 'straight timing' },
+          { label: 'light', type: 'constant', detail: 'subtle long-short' },
+          { label: 'medium', type: 'constant', detail: 'notes inégales' },
+          { label: 'heavy', type: 'constant', detail: 'strong long-short' },
+          { label: 'french', type: 'constant', detail: 'French inégales profile' },
+          { label: '2:1', type: 'constant', detail: 'ratio' },
+          { label: '3:2', type: 'constant', detail: 'ratio' },
+        ], 'directive');
+        return { from, options: opts, validFor: /^[A-Za-z0-9:._-]*$/ };
+      }
+      if (here.directive === 'pickup' || here.directive === 'anacrusis') {
+        const opts = withCompletionCategoryList([
+          { label: '1', type: 'constant', detail: 'one beat pickup' },
+          { label: '1/2', type: 'constant', detail: 'half-beat pickup' },
+          { label: '3/2', type: 'constant', detail: 'beat-and-a-half pickup' },
+          { label: '3/8', type: 'constant', detail: 'fractional pickup span' },
+          { label: '5/16', type: 'constant', detail: 'sixteenth-grid pickup span' },
+          { label: '1/8+1/16+1/16', type: 'constant', detail: 'additive pickup span' },
+        ], 'directive');
+        return { from, options: opts, validFor: /^[0-9.+/]*$/ };
+      }
+      if (here.directive === 'tempo') {
+        const opts = withCompletionCategoryList([
+          { label: '60', type: 'constant' },
+          { label: '84', type: 'constant' },
+          { label: '92', type: 'constant' },
+          { label: '110', type: 'constant' },
+          { label: '120', type: 'constant' },
+          { label: '140', type: 'constant' },
+        ], 'directive');
+        return { from, options: opts };
+      }
+      if (here.directive === 'tuning') {
+        const line = ctx.state.doc.lineAt(ctx.pos);
+        const beforeCursorOnLine = line.text.slice(0, Math.max(0, ctx.pos - line.from));
+        const directiveArgs = beforeCursorOnLine
+          .replace(/^\s*tuning\b/i, '')
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        const isSecondArg = directiveArgs.length >= 2
+          || (directiveArgs.length === 1 && /[\s]$/.test(beforeCursorOnLine));
+        const presetIds = getTuningPresetIdsSafe();
+        if (isSecondArg) {
+          const opts = withCompletionCategoryList([
+            { label: '432', type: 'constant', detail: 'A4 override (Hz)' },
+            { label: '440', type: 'constant', detail: 'A4 override (Hz, default)' },
+            { label: '500', type: 'constant', detail: 'A4 override (Hz)' },
+          ], 'tuning');
+          return { from, options: opts, validFor: /^[0-9.]*$/ };
+        }
+        const opts = withCompletionCategoryList(
+          presetIds.length
+            ? presetIds.map((id) => ({ label: id, type: 'constant', detail: 'tuning preset id' }))
+            : [{ label: 'kirnberger-3', type: 'constant', detail: 'tuning preset id' }],
+          'tuning'
+        );
+        return { from, options: opts, validFor: /^[A-Za-z0-9_.\-/]*$/ };
       }
       return null;
     }
 
     if (here.kind === 'param-body') {
-      const named = PARAM_NAMED[here.param] || [];
-      const opts = [
-        ...named.map((v) => ({ label: v, type: 'constant', detail: here.param })),
-        ...LIVE_SOURCES.map((src) => ({ label: src, type: 'class', detail: 'live source' })),
-        ...LIVE_SOURCES.flatMap((src) => LIVE_FEATURES.slice(0, 8).map((f) => ({ label: `${src}.${f}`, type: 'variable', detail: 'live modulation' }))),
-        ...COMMON_OPERATORS.map((op) => ({
-          label: op, type: 'keyword',
-          detail: opDescription(op),
-        })),
-      ];
-      // For sample-only params, surface sample-friendly hints.
-      if (here.param === 'rate') {
-        opts.unshift({ label: '1', type: 'constant', detail: 'rate' });
+      if (here.param === 'style') {
+        const opts = ['surveillance', 'thermal', 'collage', 'ghost', 'difference']
+          .map((label) => ({ label, type: 'constant', detail: 'video gen style' }));
+        return { from, options: withCompletionCategoryList(opts, 'param') };
       }
-      return { from, options: opts };
+      if (here.param === 'seed') {
+        const opts = ['blackbox', 'archive', 'weather', 'camera', 'grid']
+          .map((label) => ({ label, type: 'text', detail: 'video gen seed' }));
+        return { from, options: withCompletionCategoryList(opts, 'param') };
+      }
+      if (here.param === 'duration') {
+        const opts = [
+          { label: '4s', type: 'constant', detail: 'seconds' },
+          { label: '6s', type: 'constant', detail: 'seconds' },
+          { label: '12s', type: 'constant', detail: 'seconds' },
+        ];
+        return { from, options: withCompletionCategoryList(opts, 'param') };
+      }
+      if (here.param === 'cache') {
+        const opts = ['live', 'memory', 'hold']
+          .map((label) => ({ label, type: 'constant', detail: 'video gen cache' }));
+        return { from, options: withCompletionCategoryList(opts, 'param') };
+      }
+      if (here.param === 'glide') {
+        const opts = [
+          { label: '0.04', type: 'constant', detail: 'seconds' },
+          { label: '0.08', type: 'constant', detail: 'seconds' },
+          { label: '0.16', type: 'constant', detail: 'seconds' },
+          { label: '0.32', type: 'constant', detail: 'seconds' },
+          { label: '60 restart', type: 'constant', detail: 'restart after descent' },
+          { label: '60 return', type: 'constant', detail: 'return over same duration' },
+          { label: '60 return 30', type: 'constant', detail: 'custom return duration' },
+          { label: '60 30', type: 'constant', detail: 'alias: return 30' },
+        ];
+        return { from, options: withCompletionCategoryList(opts, 'param'), validFor: /^[0-9.\sA-Za-z]*$/ };
+      }
+      const kitIds = here.param === 'kit'
+        ? getDrumKitsSafe().map((k) => (k && k.id ? String(k.id) : '')).filter(Boolean)
+        : [];
+      if (here.param === 'kit') {
+        const opts = kitIds.length
+          ? kitIds.map((id) => ({ label: id, type: 'constant', detail: 'drum kit id' }))
+          : [{ label: 'breakcore', type: 'constant', detail: 'drum kit id' }];
+        return { from, options: withCompletionCategoryList(opts, 'param'), validFor: /^[A-Za-z0-9_-]*$/ };
+      }
+      return buildParamBodyCompletion({
+        name: here.param,
+        from,
+        tokensSoFar: here.tokensSoFar,
+        trailingSpace: here.trailingSpace,
+      });
     }
 
     if (here.kind === 'effect-body') {
-      const opts = [
-        ...EFFECT_NAMED.map((m) => ({ label: m, type: 'constant', detail: here.effect })),
-        ...LIVE_SOURCES.flatMap((src) => LIVE_FEATURES.slice(0, 8).map((f) => ({ label: `${src}.${f}`, type: 'variable', detail: 'live modulation' }))),
-        { label: '0.25', type: 'constant', detail: '0..1' },
-        { label: '0.5', type: 'constant', detail: '0..1' },
-        ...COMMON_OPERATORS.map((op) => ({
-          label: op, type: 'keyword', detail: opDescription(op),
-        })),
-      ];
-      return { from, options: opts };
+      return buildEffectBodyCompletion({
+        name: here.effect,
+        from,
+        tokensSoFar: here.tokensSoFar,
+        trailingSpace: here.trailingSpace,
+      });
     }
 
     if (here.kind === 'voice-body') {
-      if (here.voice === 'string') {
+      if (here.voice === 'string' || here.voice === 'sine' || here.voice === 'osc' || here.voice === 'pluck' || here.voice === 'drone') {
         const opts = [
           { label: 'A3', type: 'variable', detail: 'pitch' },
           { label: 'C4', type: 'variable', detail: 'pitch' },
           { label: 'E4', type: 'variable', detail: 'pitch' },
           { label: 'G4', type: 'variable', detail: 'pitch' },
+          { label: '>6*', type: 'keyword', detail: 'pitch span start (down)' },
+          { label: '<6*', type: 'keyword', detail: 'pitch span start (up)' },
+          { label: '>>6*', type: 'keyword', detail: 'shared pitch span start (down)' },
+          { label: '<<6*', type: 'keyword', detail: 'shared pitch span start (up)' },
+          { label: 'G%', type: 'keyword', detail: 'pitch span end (same octave)' },
+          { label: 'Bb%', type: 'keyword', detail: 'pitch span end (same octave)' },
+          ...HARMONY_RENDER_VALUES.map((label) => ({ label, type: 'class', detail: 'active chord tone / harmony source' })),
           ...COMMON_OPERATORS.map((op) => ({ label: op, type: 'keyword', detail: opDescription(op) })),
           { label: '*4', type: 'keyword', detail: 'random pitch in oct 4' },
           { label: '*!4', type: 'keyword', detail: 'frozen random pitch in oct 4' },
@@ -1723,7 +4292,56 @@
           { label: '.', type: 'keyword', detail: 'rest' },
           { label: '|', type: 'keyword', detail: 'bar' },
         ];
-        return { from, options: opts };
+        return { from, options: withCompletionCategoryList(opts, 'voice') };
+      }
+      if (here.voice === 'noise' || here.voice === 'pulse') {
+        const opts = [
+          { label: '*', type: 'keyword', detail: here.voice === 'pulse' ? 'pulse hit' : 'noise hit' },
+          { label: '*!', type: 'keyword', detail: here.voice === 'pulse' ? 'frozen pulse hit' : 'frozen noise hit' },
+          { label: '~', type: 'keyword', detail: here.voice === 'pulse' ? 'held pulse cell' : 'held noise texture' },
+          { label: '.', type: 'keyword', detail: 'rest' },
+          { label: '|', type: 'keyword', detail: 'bar' },
+        ];
+        return { from, options: withCompletionCategoryList(opts, 'voice') };
+      }
+      if (here.voice === 'drum') {
+        const opts = [
+          { label: 'k', type: 'keyword', detail: 'kick lane' },
+          { label: 's', type: 'keyword', detail: 'snare lane' },
+          { label: 'h', type: 'keyword', detail: 'hat lane' },
+          { label: 'o', type: 'keyword', detail: 'other/perc lane' },
+          { label: 't', type: 'keyword', detail: 'tom lane' },
+          { label: 'r', type: 'keyword', detail: 'ride lane' },
+          { label: 'c', type: 'keyword', detail: 'crash lane' },
+          { label: '*', type: 'keyword', detail: 'random hit from kit pool' },
+          { label: 'k!', type: 'keyword', detail: 'frozen kick pick for this leaf' },
+          { label: 's!', type: 'keyword', detail: 'frozen snare pick for this leaf' },
+          { label: 'h!', type: 'keyword', detail: 'frozen hat pick for this leaf' },
+          { label: 'o!', type: 'keyword', detail: 'frozen other pick for this leaf' },
+          { label: 't!', type: 'keyword', detail: 'frozen tom pick for this leaf' },
+          { label: 'r!', type: 'keyword', detail: 'frozen ride pick for this leaf' },
+          { label: 'c!', type: 'keyword', detail: 'frozen crash pick for this leaf' },
+          { label: '*!', type: 'keyword', detail: 'frozen kit-pool pick for this leaf' },
+          { label: '~', type: 'keyword', detail: 'hold cell' },
+          { label: '.', type: 'keyword', detail: 'rest' },
+          { label: '|', type: 'keyword', detail: 'bar' },
+        ];
+        return { from, options: withCompletionCategoryList(opts, 'voice') };
+      }
+      if (here.voice === 'video') {
+        if (!videoDebugEnabledInEditor()) return null;
+        const opts = [
+          { label: 'camera', type: 'class', detail: 'webcam source' },
+          { label: 'screen', type: 'class', detail: 'screen/tab capture source' },
+          { label: 'file', type: 'class', detail: 'uploaded file source' },
+          { label: 'gen', type: 'class', detail: 'local generative block mode' },
+          { label: '*', type: 'keyword', detail: 'committed visual hit' },
+          { label: '*!', type: 'keyword', detail: 'frozen visual hit token' },
+          { label: '~', type: 'keyword', detail: 'hold cell' },
+          { label: '.', type: 'keyword', detail: 'rest' },
+          { label: '|', type: 'keyword', detail: 'bar' },
+        ];
+        return { from, options: withCompletionCategoryList(opts, 'voice'), validFor: /^[A-Za-z0-9_.!*~-]*$/ };
       }
       if (here.voice === 'input') {
         const opts = [
@@ -1731,7 +4349,7 @@
           { label: 'interface', type: 'class', detail: 'audio interface input' },
           { label: 'tab', type: 'class', detail: 'shared tab audio' },
         ];
-        return { from, options: opts, validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
+        return { from, options: withCompletionCategoryList(opts, 'voice'), validFor: /^[A-Za-z][A-Za-z0-9_.-]*$/ };
       }
       if (here.voice === 'sample') {
         const samples = getSampleNamesSafe();
@@ -1764,7 +4382,7 @@
         for (const name of samples) {
           opts.push({ label: name, type: 'text', detail: 'sample' });
         }
-        return { from, options: opts };
+        return { from, options: withCompletionCategoryList(opts, 'sample') };
       }
     }
 
@@ -1835,6 +4453,38 @@
       view.dispatch(view.state.replaceSelection('  '));
       return true;
     };
+    const completionMoveDown = (view) => {
+      if (typeof moveCompletionSelection === 'function') {
+        const move = moveCompletionSelection(true);
+        if (typeof move === 'function' && move(view) === true) return true;
+      }
+      return completionKeyBindingRun('ArrowDown', view);
+    };
+    const completionMoveUp = (view) => {
+      if (typeof moveCompletionSelection === 'function') {
+        const move = moveCompletionSelection(false);
+        if (typeof move === 'function' && move(view) === true) return true;
+      }
+      return completionKeyBindingRun('ArrowUp', view);
+    };
+    const completionPageDown = (view) => {
+      if (typeof moveCompletionSelection === 'function') {
+        const move = moveCompletionSelection(true, 'page');
+        if (typeof move === 'function' && move(view) === true) return true;
+      }
+      return completionKeyBindingRun('PageDown', view);
+    };
+    const completionPageUp = (view) => {
+      if (typeof moveCompletionSelection === 'function') {
+        const move = moveCompletionSelection(false, 'page');
+        if (typeof move === 'function' && move(view) === true) return true;
+      }
+      return completionKeyBindingRun('PageUp', view);
+    };
+    const completionClose = (view) => {
+      if (typeof closeCompletion === 'function' && closeCompletion(view) === true) return true;
+      return completionKeyBindingRun('Escape', view);
+    };
 
     return [
       // Higher precedence than defaults so Cmd-Enter never falls through.
@@ -1861,6 +4511,10 @@
           key: 'Escape',
           preventDefault: true,
           run: (view) => {
+            if (completionStatus(view.state) === 'active') {
+              completionClose(view);
+              return true;
+            }
             if (cmd.stop) cmd.stop();
             view.focus();
             return true;
@@ -1871,6 +4525,15 @@
           preventDefault: true,
           run: (view) => {
             if (cmd.share) cmd.share();
+            view.focus();
+            return true;
+          },
+        },
+        {
+          key: 'Mod-i',
+          preventDefault: true,
+          run: (view) => {
+            if (cmd.toggleIO) cmd.toggleIO();
             view.focus();
             return true;
           },
@@ -1896,15 +4559,43 @@
           run: indentLess,
         },
         {
-          // Enter accepts an open completion; otherwise falls through to
-          // the default newline insertion via lower-precedence keymaps.
-          key: 'Enter',
+          key: 'ArrowDown',
           run: (view) => {
-            if (completionStatus(view.state) === 'active') {
-              return acceptCompletion(view);
-            }
-            return false;
+            if (completionStatus(view.state) !== 'active') return false;
+            completionMoveDown(view);
+            return true;
           },
+        },
+        {
+          key: 'ArrowUp',
+          run: (view) => {
+            if (completionStatus(view.state) !== 'active') return false;
+            completionMoveUp(view);
+            return true;
+          },
+        },
+        {
+          key: 'PageDown',
+          run: (view) => {
+            if (completionStatus(view.state) !== 'active') return false;
+            completionPageDown(view);
+            return true;
+          },
+        },
+        {
+          key: 'PageUp',
+          run: (view) => {
+            if (completionStatus(view.state) !== 'active') return false;
+            completionPageUp(view);
+            return true;
+          },
+        },
+        {
+          // Enter is always a writing key in this REPL. Completion acceptance
+          // belongs to Tab, so returning false lets the lower default keymap
+          // insert a newline even while the completion tooltip is open.
+          key: 'Enter',
+          run: () => false,
         },
         {
           key: 'Ctrl-Space',
@@ -1926,6 +4617,14 @@
     // Bind environment refs used by the completion source.
     editorEnvRef.getSampleNames = opts.getSampleNames;
     editorEnvRef.getSampleGroups = opts.getSampleGroups;
+    editorEnvRef.getDrumKits = opts.getDrumKits;
+    editorEnvRef.getVideoGeneratedIds = opts.getVideoGeneratedIds;
+    editorEnvRef.enableVideoDebug = opts.enableVideoDebug === true;
+    editorEnvRef.scoreGridEnabled = opts.scoreGridEnabled !== false;
+    editorEnvRef.onToggleBlockMute = typeof opts.onToggleBlockMute === 'function'
+      ? opts.onToggleBlockMute
+      : null;
+    editorEnvRef.blockMuteLines = normalizeBlockMuteLines(opts.blockMuteLines || null);
 
     const onChange = typeof opts.onChange === 'function' ? opts.onChange : null;
 
@@ -1943,17 +4642,42 @@
       history(),
       drawSelection(),
       highlightActiveLine(),
-      highlightSelectionMatches(),
       bracketMatching(),
       replLanguageWithTags,
       syntaxHighlighting(replHighlight),
       cyberneticScorePlugin,
+      scoreGridPlugin,
+      scoreOriginRulerPlugin,
+      selectionStateClassPlugin,
+      selectionMaskPlugin,
+      blockMuteDecorationsPlugin,
+      blockMuteMousePlugin,
+      dslSelectionMousePlugin,
       autocompletion({
         override: [completionSource],
         activateOnTyping: true,
+        interactionDelay: 0,
+        filterStrict: true,
+        optionClass: (completion) => {
+          const category = completion && typeof completion.replCategory === 'string'
+            ? completion.replCategory
+            : '';
+          if (!category) return '';
+          return `cm-repl-suggest cm-repl-suggest-${category}`;
+        },
         defaultKeymap: false,
         closeOnBlur: true,
         icons: false,
+        addToOptions: [{
+          position: 90,
+          render() {
+            const key = document.createElement('span');
+            key.className = 'cm-repl-completion-accept-key';
+            key.textContent = 'TAB ACCEPT';
+            key.setAttribute('aria-hidden', 'true');
+            return key;
+          },
+        }],
       }),
       sanitizerFilter,
       replTheme,
@@ -1973,7 +4697,7 @@
       // keymap built last so it can reference the eventual view via closure.
       makeKeymap(opts.onCommand || {}),
       // baseline editing keymap, lower precedence
-      keymap.of([...defaultKeymap, ...historyKeymap, ...completionKeymap, ...searchKeymap, ...lintKeymap]),
+      keymap.of([...completionKeymapWithoutEnter(), ...defaultKeymap, ...historyKeymap, ...searchKeymap, ...lintKeymap]),
     ];
 
     if (parseFn) extensions.push(buildLinter(parseFn));
@@ -1986,6 +4710,7 @@
     });
 
     const view = new EditorView({ state, parent });
+    view.dom.classList.toggle('cm-score-grid-enabled', editorEnvRef.scoreGridEnabled === true);
 
     // Reinforce contentDOM attributes after mount in case the theme injects
     // extras downstream.
@@ -1997,6 +4722,37 @@
     cd.setAttribute('data-gramm', 'false');
     cd.setAttribute('data-gramm_editor', 'false');
     cd.setAttribute('data-enable-grammarly', 'false');
+
+    // Shift-only explicit completion trigger:
+    // if the cursor is parked on a param/effect row, tapping Shift opens
+    // the same legality-scoped completion menu without moving the caret.
+    let shiftTapSnapshot = null;
+    view.dom.addEventListener('keydown', (e) => {
+      if (!(e instanceof KeyboardEvent)) return;
+      if (e.key !== 'Shift' || e.repeat) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const sel = view.state.selection.main;
+      shiftTapSnapshot = {
+        anchor: sel.anchor,
+        head: sel.head,
+        docLen: view.state.doc.length,
+      };
+    });
+    view.dom.addEventListener('keyup', (e) => {
+      if (!(e instanceof KeyboardEvent)) return;
+      if (e.key !== 'Shift') return;
+      const snap = shiftTapSnapshot;
+      shiftTapSnapshot = null;
+      if (!snap) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (completionStatus(view.state) === 'active') return;
+      const sel = view.state.selection.main;
+      if (sel.anchor !== snap.anchor || sel.head !== snap.head) return;
+      if (view.state.doc.length !== snap.docLen) return;
+      const here = classifyContextAt(view.state, sel.head);
+      if (!shouldOpenShiftCompletionForContext(here)) return;
+      startCompletion(view);
+    });
 
     // Adapter API.
     const api = {
@@ -2027,6 +4783,13 @@
         view.dispatch({ selection: { anchor: clamped } });
       },
 
+      selectRange(from, to) {
+        const max = view.state.doc.length;
+        const f = Math.max(0, Math.min(max, from | 0));
+        const tt = Math.max(0, Math.min(max, to | 0));
+        view.dispatch({ selection: { anchor: f, head: tt }, scrollIntoView: true });
+      },
+
       dispatchTextChange(from, to, text) {
         const docLen = view.state.doc.length;
         const f = Math.max(0, Math.min(docLen, from | 0));
@@ -2039,6 +4802,25 @@
       replaceSelection(text) {
         const insert = typeof text === 'string' ? text : '';
         view.dispatch(view.state.replaceSelection(insert));
+      },
+
+      setScoreGridEnabled(enabled) {
+        const next = enabled !== false;
+        editorEnvRef.scoreGridEnabled = next;
+        view.dom.classList.toggle('cm-score-grid-enabled', next);
+        view.dispatch({ effects: setScoreGridEnabledEffect.of(next) });
+      },
+
+      getScoreGridEnabled() {
+        return editorEnvRef.scoreGridEnabled === true;
+      },
+
+      setMutedBlockLines(lines) {
+        const normalized = normalizeBlockMuteLines(lines || null);
+        editorEnvRef.blockMuteLines = normalized;
+        view.dispatch({
+          effects: setBlockMuteLinesEffect.of(normalized),
+        });
       },
 
       // Insert at the cursor, applying repl's surrounding-whitespace rule:

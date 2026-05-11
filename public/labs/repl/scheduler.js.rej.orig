@@ -1,0 +1,30 @@
+@@ -5330,16 +5330,26 @@
+             : '';
+ 
+           if (exactSampleName) {
+-            const kitPool = expandWeightedPoolNames(Array.isArray(kit.pool) ? kit.pool : []);
++            // `pick <sample-id>` is a lane-scoped exact selection, not a
++            // whole-block kit override. Only use the picked asset when the
++            // current drum token's lane pool actually contains it. Other lanes
++            // must keep resolving normally through their own lane-local pools,
++            // otherwise one picked kick can poison hats/snares/cymbals and
++            // starve both scheduling and editor leaf readout.
+             const sampleExistsInLane = pool.includes(exactSampleName);
++            const kitPool = expandWeightedPoolNames(Array.isArray(kit.pool) ? kit.pool : []);
+             const sampleExistsInKit = sampleExistsInLane
+               || kitPool.includes(exactSampleName)
+               || (root.SampleVoice && typeof root.SampleVoice.has === 'function' && root.SampleVoice.has(exactSampleName));
++
+             if (!sampleExistsInKit) {
+               reportMissingSample(`drum-sample:${kit.id}:${exactSampleName}`);
+-              return null;
++              // Missing pick should not suppress the lane's normal kit hit.
++            } else if (sampleExistsInLane || lane === '*') {
++              return [{ name: exactSampleName, gainMul: laneGainMul, rateMul }];
+             }
+-            return [{ name: exactSampleName, gainMul: laneGainMul, rateMul }];
++            // Pick exists elsewhere in the kit/sample bank, but not in this
++            // lane. Fall through to frozen/variance lane-local selection.
+           }
+ 
+           const freezeKey = `${kit.id}:${lane}`;

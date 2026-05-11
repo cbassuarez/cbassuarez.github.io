@@ -1,0 +1,92 @@
+--- orig/index.html	2026-05-10 22:50:03.277729068 +0000
++++ mod/index.html	2026-05-10 22:50:04.331356351 +0000
+@@ -9928,10 +9928,10 @@
+       position: relative !important;
+       display: grid !important;
+       grid-template-columns: minmax(0, 1fr) auto max-content max-content !important;
+-      align-items: start !important;
+-      gap: 0.28rem !important;
++      align-items: center !important;
++      gap: 0.22rem !important;
+       min-width: 0 !important;
+-      padding: 0.14rem 0.36rem 0.28rem !important;
++      padding: 0.22rem 0.34rem 0.22rem !important;
+       border-bottom: 0 !important;
+       background: #101010 !important;
+       color: var(--cs-white, #ffffff) !important;
+@@ -9945,7 +9945,7 @@
+     .transport-console-title {
+       color: var(--cs-white, #ffffff) !important;
+       opacity: 0.58 !important;
+-      transform: translateY(-0.03rem) !important;
++      transform: translateY(0.045rem) !important;
+     }
+ 
+     .transport-console--active .transport-console-title,
+@@ -9959,6 +9959,7 @@
+       border-left: 2px solid rgba(255, 255, 255, 0.28) !important;
+       color: var(--cs-yellow, #ffd400) !important;
+       opacity: 0.72 !important;
++      transform: translateY(0.045rem) !important;
+     }
+ 
+     .transport-console-state:empty {
+@@ -9980,22 +9981,26 @@
+ 
+     .transport-console-tool,
+     .transport-console-mini {
+-      min-width: 0 !important;
+-      min-height: 0 !important;
+-      padding: 0.06rem 0.16rem !important;
+-      border: 1px solid rgba(255, 255, 255, 0.68) !important;
++      display: inline-grid !important;
++      place-items: center !important;
++      width: 1.08rem !important;
++      height: 0.98rem !important;
++      min-width: 1.08rem !important;
++      min-height: 0.98rem !important;
++      padding: 0 !important;
++      border: 1px solid rgba(255, 255, 255, 0.42) !important;
+       background: #050505 !important;
+-      color: rgba(255, 255, 255, 0.84) !important;
++      color: rgba(255, 255, 255, 0.72) !important;
+       box-shadow: none !important;
+       font: inherit !important;
+-      font-size: 0.42rem !important;
++      font-size: 0.62rem !important;
+       line-height: 1 !important;
+-      letter-spacing: 0.08em !important;
+-      text-transform: uppercase !important;
++      letter-spacing: 0 !important;
++      text-transform: none !important;
+       cursor: pointer !important;
+       opacity: 0 !important;
+       pointer-events: none !important;
+-      transform: translateY(-0.12rem) !important;
++      transform: translateY(-0.02rem) !important;
+       transition: opacity 120ms ease, transform 120ms ease, color 120ms ease, border-color 120ms ease !important;
+     }
+ 
+@@ -10003,9 +10008,9 @@
+     .transport-console--active .transport-console-mini,
+     .transport-console:focus-within .transport-console-tool,
+     .transport-console:focus-within .transport-console-mini {
+-      opacity: 0.52 !important;
++      opacity: 0.38 !important;
+       pointer-events: auto !important;
+-      transform: translateY(0) !important;
++      transform: translateY(0.035rem) !important;
+     }
+ 
+     .transport-console-tool:hover,
+@@ -10359,8 +10364,8 @@
+             <div class="transport-console-head">
+               <span class="transport-console-title">console</span>
+               <span id="console-state" class="transport-console-state" aria-live="polite"></span>
+-              <button id="console-copy" class="transport-console-tool" type="button" title="Copy console output">copy</button>
+-              <button id="console-clear" class="transport-console-tool" type="button" title="Clear console output">clear</button>
++              <button id="console-copy" class="transport-console-tool" type="button" title="Copy console output" aria-label="Copy console output">⧉</button>
++              <button id="console-clear" class="transport-console-tool" type="button" title="Clear console output" aria-label="Clear console output">×</button>
+             </div>
+             <div id="console-lines" class="transport-console-lines" role="log" aria-live="polite" aria-relevant="additions text"></div>
+           </section>

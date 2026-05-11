@@ -1,0 +1,34 @@
+@@ -16,9 +16,9 @@
+           ['Shift (tap on param/effect rows)', 'open legal-value completion for that row'],
+           ['Tab', 'indent, or accept an open completion'],
+           ['ArrowUp / ArrowDown / PageUp / PageDown', 'when completion is open, navigate the suggestion menu'],
+-          ['Enter', 'when completion is open, append only the missing characters for the selected token']
++          ['Enter', 'new line; completion accepts with Tab, not Return']
+         ]},
+-        { type: 'p', text: 'Autocomplete suggestions may include multi-token examples as guidance, but Enter commits only the active token completion.' },
++        { type: 'p', text: 'Autocomplete suggestions may include multi-token examples as guidance, but Tab commits the active completion; Enter keeps writing the score.' },
+         { type: 'p', text: 'Evaluate is the execution gate. Replay is the re-arm control. Stop is the red interrupt. I/O opens the live-source and output-routing panel. Add eval reset as a top directive line to queue evaluate at the next bar reset while transport is running. Use eval reset cut to force a hard boundary, or eval reset keep to preserve tails (default).' }
+       ]
+     },
+@@ -28,16 +28,19 @@
+       summary: 'Top directives, voice headers, comments, patterns, and modulation values.',
+       blocks: [
+         { type: 'p', text: 'The language is line-based. Top directives describe score-level behavior. Voice headers begin blocks. Rows underneath a voice shape that block until the next voice header appears. A tuning directive applies forward from where it appears.' },
+-        { type: 'code', code: 'tempo 84\nmeter 4/4\neval reset\ntuning kirnberger-3 432\n\nstring *!4 (*4 A*) ~ C*!\ngain 0.55\npan *~\nbody glass\nspace 0.25' },
++        { type: 'code', code: 'tempo 84\nmeter 4/4\npickup 1\neval reset\ntuning kirnberger-3 432\n\nstring *!4 (*4 A*) ~ C*!\ngain 0.55\npan *~\nbody glass\nspace 0.25' },
+         { type: 'table', headers: ['part', 'role'], rows: [
+           ['tempo / meter', 'score timing directives'],
++          ['pickup / anacrusis', 'first-class pickup span; use ? as an omitted bookend, not a rest'],
+           ['tuning', 'forward-scoped pitch system directive (applies to following blocks)'],
+           ['string / sine / osc / pluck / drone / noise / pulse / drum / sample / piano / violin / cello / marimba / vibraphone / voice / input / video', 'voice headers that start blocks'],
+           ['gain / pan / space', 'surface rows that shape a voice'],
+           ['// comment', 'score annotation; ignored by the parser'],
+           ['mic.intensity 0.1 0.75', 'live modulation source mapped into a range']
+         ]},
+-        { type: 'callout', text: 'A block can be read vertically: first what speaks, then how it moves, where it sits, what it listens to, and what it remembers.' }
++        { type: 'callout', text: 'A block can be read vertically: first what speaks, then how it moves, where it sits, what it listens to, and what it remembers.' },
++        { type: 'callout', text: '? is an anacrusis bookend. It marks omitted pickup space at the beginning or end of a phrase. It is not a rest and never sounds.' },
++        { type: 'code', code: 'tempo 76\nmeter 4/4\npickup 3/8\n\npiano ? (. G4) (A4 B4) | C5 B4 A4 G4 | * * (*)?\nforce mp\ndecay 2.6\ngain .36' }
+       ]
+     },
+     {

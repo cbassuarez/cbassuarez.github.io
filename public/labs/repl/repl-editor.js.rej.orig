@@ -1,184 +1,425 @@
-@@ -543,7 +650,7 @@
-     return { start, end };
+@@ -107,36 +107,14 @@
+ 
+ 
+   // --------------------------------------------------------------------------
+-  // live score grid — visual-only cell alignment for voice/speed rows.
++  // live score grid — exact visual matrix overlay for voice/sequence rows.
+   // --------------------------------------------------------------------------
+ 
+   const setScoreGridEnabledEffect = StateEffect.define();
+   const SCORE_GRID_MIN_CELL_CH = 3;
+-  const SCORE_GRID_CELL_GAP_CH = 1;
+-  const SCORE_GRID_BAR_GAP_CH = 2;
+-
+-  class ScoreGridSpacerWidget extends WidgetType {
+-    constructor(widthCh) {
+-      super();
+-      this.widthCh = Math.max(0, Number(widthCh) || 0);
+-    }
+-
+-    eq(other) {
+-      return other && Math.abs(other.widthCh - this.widthCh) < 0.01;
+-    }
+-
+-    toDOM() {
+-      const span = document.createElement('span');
+-      span.className = 'cm-score-grid-spacer';
+-      span.setAttribute('aria-hidden', 'true');
+-      span.style.setProperty('--score-grid-gap', `${this.widthCh.toFixed(2)}ch`);
+-      return span;
+-    }
+-
+-    ignoreEvent() {
+-      return true;
+-    }
+-  }
++  const SCORE_GRID_CELL_GAP_CH = 1.35;
++  const SCORE_GRID_BAR_GAP_CH = 2.2;
++  const SCORE_GRID_HEAD_GAP_CH = 2;
+ 
+   function scoreGridLineHead(text) {
+     const m = String(text || '').match(/^(\s*)(\S+)(\s*)/);
+@@ -182,25 +160,18 @@
+ 
+       const to = i;
+       if (to > from) {
+-        tokens.push({ type: 'cell', text: text.slice(from, to), from, to, bar: barIndex, cell: cellIndex, trailingSpaces: 0 });
++        tokens.push({ type: 'cell', text: text.slice(from, to), from, to, bar: barIndex, cell: cellIndex });
+         cellIndex += 1;
+       }
+     }
+ 
+-    for (let t = 0; t < tokens.length; t += 1) {
+-      const token = tokens[t];
+-      let j = token.to;
+-      while (j < text.length && /\s/.test(text[j])) j += 1;
+-      token.trailingSpaces = Math.max(0, j - token.to);
+-    }
+-
+     return {
+       line,
+       text,
+       head: headInfo.head,
+       headFrom: headInfo.headFrom,
+       headTo: headInfo.headTo,
+-      headTrailingSpaces: headInfo.headTrailingSpaces,
++      restFrom: headInfo.restFrom,
+       tokens,
+       cells: tokens.filter((token) => token.type === 'cell'),
+       bars: tokens.filter((token) => token.type === 'bar'),
+@@ -215,25 +186,6 @@
+     return Boolean(row && String(row.head || '').toLowerCase() === 'speed');
    }
  
--  function buildCyberneticScoreDecorations(view, pulses, meters) {
-+  function buildCyberneticScoreDecorations(view, pulses, meters, leafStates) {
-     const now = Date.now();
-     const builder = new RangeSetBuilder();
-     const current = findCurrentBlockLines(view.state);
-@@ -556,6 +663,7 @@
-       const kind = lineHeadKind(head);
-       const pulse = pulses.get(i);
-       const meter = meters.get(i);
-+      const leafState = leafStates && leafStates.get(i);
-       const active = pulse && pulse.expires > now;
-       const metered = meter && meter.expires > now;
-       const isCurrent = i >= current.start && i <= current.end && trimmed;
-@@ -571,16 +679,32 @@
-       if (metered) classes.push('cs-metered-line');
+-  function scoreGridQueueSpacer(ops, absolutePos, widthCh) {
+-    const width = Math.max(0, Number(widthCh) || 0);
+-    if (width <= 0.05) return;
+-    ops.push({ pos: absolutePos, width });
+-  }
+-
+-  function scoreGridFlushSpacers(builder, ops) {
+-    const sorted = ops
+-      .filter((op) => op && Number.isFinite(op.pos) && Number(op.width) > 0.05)
+-      .sort((a, b) => (a.pos - b.pos) || (a.width - b.width));
+-
+-    for (const op of sorted) {
+-      builder.add(op.pos, op.pos, Decoration.widget({
+-        widget: new ScoreGridSpacerWidget(op.width),
+-        side: 1,
+-      }));
+-    }
+-  }
+-
+   function scoreGridIsAttachableSequenceRow(row) {
+     if (!row) return false;
+     const head = String(row.head || '').toLowerCase();
+@@ -270,88 +222,219 @@
+     return rows.length > 1 ? { rows, nextLineNumber: lineNumber } : null;
+   }
  
-       const attrs = { class: classes.join(' ') };
-+      const styleParts = [];
-       if (metered) {
-         const v = clamp01(meter.value);
--        attrs.style = `--cs-meter:${Math.round(v * 100)}%; --cs-meter-alpha:${(0.18 + v * 0.42).toFixed(3)};`;
-+        styleParts.push(`--cs-meter:${Math.round(v * 100)}%`);
-+        styleParts.push(`--cs-meter-alpha:${(0.18 + v * 0.42).toFixed(3)}`);
-       }
-+      if (leafState && /^voice-/.test(kind)) {
-+        const range = leafState.range || null;
-+        const left = range ? Math.max(0, Number(range.from) || 0) : 0;
-+        const width = range ? Math.max(1, (Number(range.to) || left + 1) - left) : 1;
-+        classes.push('cs-leaf-line-active', `cs-leaf-state-${leafStateClass(leafState.state)}`);
-+        attrs.class = classes.join(' ');
-+        styleParts.push(`--cs-leaf-left:${left}ch`);
-+        styleParts.push(`--cs-leaf-width:${width}ch`);
+-  function scoreGridApplyRows(builder, rows) {
+-    const parsed = rows.filter(Boolean);
+-    if (parsed.length < 2) return;
++  function scoreGridCollectBlocks(doc) {
++    const blocks = [];
++    let lineNumber = 1;
++    while (lineNumber <= doc.lines) {
++      const block = scoreGridCollectBlockRows(doc, lineNumber);
++      if (block) {
++        blocks.push(block);
++        lineNumber = Math.max(lineNumber + 1, block.nextLineNumber);
++        continue;
 +      }
-+      if (styleParts.length) attrs.style = styleParts.join(';') + ';';
-       builder.add(line.from, line.from, Decoration.line({ attributes: attrs }));
++      lineNumber += 1;
++    }
++    return blocks;
++  }
  
-+      const activeLeafRange = leafState && /^voice-/.test(kind) && leafState.range ? leafState.range : null;
-       for (const r of tokenRanges(text)) {
-         const cls = r.comment ? 'cs-token cs-comment' : tokenCssClass(r.text, r.isHead);
-         const tokenPulse = active && r.isHead ? ' cs-token-active' : '';
--        builder.add(line.from + r.from, line.from + r.to, Decoration.mark({ class: cls + tokenPulse }));
-+        const leafPulse = activeLeafRange && r.from === activeLeafRange.from && r.to === activeLeafRange.to
-+          ? ` cs-leaf-token-active cs-leaf-token-${leafStateClass(leafState.state)}`
-+          : '';
-+        builder.add(line.from + r.from, line.from + r.to, Decoration.mark({ class: cls + tokenPulse + leafPulse }));
-       }
-     }
+-    const ops = [];
+-    const headWidth = Math.max(...parsed.map((row) => scoreGridVisualLength(row.head))) + 2;
++  function scoreGridBuildColumnMap(rows) {
+     const widths = new Map();
++    const barlineAfter = new Set();
++    let maxBar = 0;
  
-@@ -592,8 +716,9 @@
-       this.view = view;
-       this.pulses = new Map();
-       this.meters = new Map();
-+      this.leafStates = new Map();
-       this.timer = null;
--      this.decorations = buildCyberneticScoreDecorations(view, this.pulses, this.meters);
-+      this.decorations = buildCyberneticScoreDecorations(view, this.pulses, this.meters, this.leafStates);
-       this.unsubscribe = ensurePulseBus().on((payload) => this.receive(payload));
-     }
- 
-@@ -602,12 +727,26 @@
-       if (!line || line > this.view.state.doc.lines) return;
-       const now = Date.now();
-       const intensity = clamp01(payload.intensity == null ? 1 : payload.intensity);
--      this.pulses.set(line, {
--        expires: now + CS_PULSE_MS,
--        kind: payload.kind || 'event',
--        voice: payload.voice || payload.color || '',
--        intensity,
--      });
-+      if (payload && payload.kind === 'leaf') {
-+        const lineText = this.view.state.doc.line(line).text;
-+        const range = locateLeafTokenRange(lineText, payload);
-+        this.leafStates.set(line, {
-+          leafCount: Math.max(1, Number(payload.leafCount) | 0),
-+          currentIndex: Math.max(0, Number(payload.leafIndex) | 0),
-+          state: payload.state || 'hit',
-+          voice: payload.voice || '',
-+          token: payload.token || '',
-+          range: range ? { from: range.from, to: range.to, text: range.text } : null,
-+          expires: now + Math.max(120, Math.min(320, Number(payload.duration) * 520 || 180)),
-+        });
-+      } else {
-+        this.pulses.set(line, {
-+          expires: now + CS_PULSE_MS,
-+          kind: payload.kind || 'event',
-+          voice: payload.voice || payload.color || '',
-+          intensity,
-+        });
+-    for (const row of parsed) {
++    for (const row of rows) {
+       for (const cell of row.cells) {
+         const key = `${cell.bar}:${cell.cell}`;
+         const width = Math.max(SCORE_GRID_MIN_CELL_CH, scoreGridVisualLength(cell.text));
+         widths.set(key, Math.max(widths.get(key) || 0, width));
++        maxBar = Math.max(maxBar, cell.bar);
 +      }
-       if (payload.meter || payload.kind === 'mod' || payload.kind === 'input') {
-         this.meters.set(line, { expires: now + CS_METER_MS, value: intensity });
++      for (const bar of row.bars) {
++        barlineAfter.add(bar.bar);
++        maxBar = Math.max(maxBar, bar.bar + 1);
        }
-@@ -616,7 +755,7 @@
- 
-     requestRefresh() {
-       if (!this.view || this.view.destroyed) return;
--      this.decorations = buildCyberneticScoreDecorations(this.view, this.pulses, this.meters);
-+      this.decorations = buildCyberneticScoreDecorations(this.view, this.pulses, this.meters, this.leafStates);
-       try { this.view.dispatch({ effects: csPulseNudge.of(Date.now()) }); } catch (_) {}
-       this.armCleanup();
      }
-@@ -632,15 +771,18 @@
-         for (const [line, m] of Array.from(this.meters.entries())) {
-           if (!m || m.expires <= now) this.meters.delete(line);
+ 
+-    for (const row of parsed) {
+-      const headDesiredTrailing = Math.max(1, headWidth - scoreGridVisualLength(row.head));
+-      scoreGridQueueSpacer(
+-        ops,
+-        row.line.from + row.headTo,
+-        headDesiredTrailing - row.headTrailingSpaces
+-      );
+-
+-      const tokens = row.tokens.slice().sort((a, b) => a.from - b.from);
+-      for (const token of tokens) {
+-        if (token.type === 'cell') {
+-          const key = `${token.bar}:${token.cell}`;
+-          const cellWidth = widths.get(key) || Math.max(SCORE_GRID_MIN_CELL_CH, scoreGridVisualLength(token.text));
+-          const desiredTrailing = Math.max(
+-            1,
+-            cellWidth - scoreGridVisualLength(token.text) + SCORE_GRID_CELL_GAP_CH
+-          );
+-          scoreGridQueueSpacer(
+-            ops,
+-            row.line.from + token.to,
+-            desiredTrailing - token.trailingSpaces
+-          );
+-        } else if (token.type === 'bar') {
+-          scoreGridQueueSpacer(
+-            ops,
+-            row.line.from + token.to,
+-            SCORE_GRID_BAR_GAP_CH - token.trailingSpaces
+-          );
++    const cellX = new Map();
++    const barX = new Map();
++    let x = 0;
++
++    for (let bar = 0; bar <= maxBar; bar += 1) {
++      let maxCell = -1;
++      for (const row of rows) {
++        for (const cell of row.cells) {
++          if (cell.bar === bar) maxCell = Math.max(maxCell, cell.cell);
          }
--        this.decorations = buildCyberneticScoreDecorations(this.view, this.pulses, this.meters);
-+        for (const [line, state] of Array.from(this.leafStates.entries())) {
-+          if (!state || state.expires <= now) this.leafStates.delete(line);
-+        }
-+        this.decorations = buildCyberneticScoreDecorations(this.view, this.pulses, this.meters, this.leafStates);
-         try { this.view.dispatch({ effects: csPulseNudge.of(Date.now()) }); } catch (_) {}
--        if (this.pulses.size || this.meters.size) this.armCleanup();
-+        if (this.pulses.size || this.meters.size || this.leafStates.size) this.armCleanup();
-       }, 120);
+       }
++      for (let cell = 0; cell <= maxCell; cell += 1) {
++        const key = `${bar}:${cell}`;
++        const width = widths.get(key) || SCORE_GRID_MIN_CELL_CH;
++        cellX.set(key, x);
++        x += width + SCORE_GRID_CELL_GAP_CH;
++      }
++      if (barlineAfter.has(bar)) {
++        barX.set(bar, x);
++        x += 1 + SCORE_GRID_BAR_GAP_CH;
++      }
+     }
+ 
+-    scoreGridFlushSpacers(builder, ops);
+-  }
+-
+-  function buildScoreGridDecorations(view) {
+-    if (!editorEnvRef.scoreGridEnabled) return Decoration.none;
+-    if (view.composing) return Decoration.none;
++    return { cellX, barX };
++  }
+ 
++  function buildScoreGridDecorations(view, blocks) {
++    if (!editorEnvRef.scoreGridEnabled || view.composing) return Decoration.none;
+     const builder = new RangeSetBuilder();
+-    const doc = view.state.doc;
+-    let lineNumber = 1;
+-
+-    while (lineNumber <= doc.lines) {
+-      const block = scoreGridCollectBlockRows(doc, lineNumber);
+-      if (block) {
+-        scoreGridApplyRows(builder, block.rows);
+-        lineNumber = Math.max(lineNumber + 1, block.nextLineNumber);
+-        continue;
++    for (const block of blocks || []) {
++      for (const row of block.rows || []) {
++        builder.add(row.line.from, row.line.from, Decoration.line({ attributes: { class: 'cm-score-grid-row' } }));
+       }
+-      lineNumber += 1;
+     }
+-
+     return builder.finish();
+   }
+ 
++  function scoreGridEscapeText(text) {
++    return String(text == null ? '' : text);
++  }
++
++  function scoreGridMeasureCh(view) {
++    const fallback = Number(view && view.defaultCharacterWidth);
++    if (Number.isFinite(fallback) && fallback > 0) return fallback;
++    return 8;
++  }
++
++  function scoreGridCoordsAt(view, pos, assoc) {
++    try { return view.coordsAtPos(pos, assoc); } catch (_) { return null; }
++  }
++
++  function scoreGridOverlayTokenClass(text, isHead) {
++    try { return tokenCssClass(text, isHead); } catch (_) { return isHead ? 'cs-token cs-head' : 'cs-token'; }
++  }
++
+   const scoreGridPlugin = ViewPlugin.fromClass(class {
+     constructor(view) {
+-      this.decorations = buildScoreGridDecorations(view);
++      this.view = view;
++      this.blocks = [];
++      this.decorations = Decoration.none;
++      this.frame = null;
++      this.overlay = document.createElement('div');
++      this.overlay.className = 'cm-score-grid-overlay';
++      this.overlay.setAttribute('aria-hidden', 'true');
++      this.scrollHost = view.scrollDOM || view.dom;
++      this.onScroll = () => this.scheduleRender();
++      view.dom.appendChild(this.overlay);
++      this.scrollHost.addEventListener('scroll', this.onScroll, { passive: true });
++      this.rebuild(view);
++    }
++
++    rebuild(view) {
++      this.blocks = editorEnvRef.scoreGridEnabled && !view.composing
++        ? scoreGridCollectBlocks(view.state.doc)
++        : [];
++      this.decorations = buildScoreGridDecorations(view, this.blocks);
++      this.scheduleRender();
      }
  
      update(update) {
-       if (update.docChanged || update.viewportChanged || update.selectionSet || update.transactions.some((tr) => tr.effects.some((e) => e.is(csPulseNudge)))) {
--        this.decorations = buildCyberneticScoreDecorations(update.view, this.pulses, this.meters);
-+        this.decorations = buildCyberneticScoreDecorations(update.view, this.pulses, this.meters, this.leafStates);
-       }
-     }
- 
-@@ -896,6 +1038,56 @@
-       color: '#ffffff',
-       outlineColor: '#070707',
-     },
-+    '.cm-line.cs-leaf-line-active': {
-+      backgroundImage: 'none',
-+      boxShadow: 'inset 4px 0 0 #ffd400',
-+    },
-+    '.cm-line.cs-leaf-line-active.cs-line-voice-sample, .cm-line.cs-leaf-line-active.cs-pulse-sample': {
-+      boxShadow: 'inset 4px 0 0 #e3342f',
-+    },
-+    '.cm-line.cs-leaf-line-active.cs-line-voice-input, .cm-line.cs-leaf-line-active.cs-pulse-input': {
-+      boxShadow: 'inset 4px 0 0 #0057ff',
-+    },
-+    '.cm-line.cs-leaf-state-rest': {
-+      backgroundImage: 'none',
-+      boxShadow: 'inset 4px 0 0 #070707',
-+    },
-+    '.cm-line .cs-leaf-token-active': {
-+      position: 'relative',
-+      zIndex: '1',
-+      display: 'inline-block',
-+      padding: '0 0.22ch',
-+      margin: '0 -0.22ch',
-+      minWidth: '1ch',
-+      lineHeight: '1.18',
-+      backgroundColor: '#ffd400',
-+      color: '#070707',
-+      border: '2px solid #070707',
-+      borderRadius: '0',
-+      boxShadow: '3px 3px 0 rgba(7,7,7,0.42)',
-+      textDecoration: 'none',
-+      animation: 'cs-token-stamp 380ms steps(2, end) both',
-+    },
-+    '.cm-line.cs-line-voice-sample .cs-leaf-token-active, .cm-line.cs-pulse-sample .cs-leaf-token-active': {
-+      backgroundColor: '#e3342f',
-+      color: '#ffffff',
-+      borderRadius: '999px',
-+    },
-+    '.cm-line.cs-line-voice-input .cs-leaf-token-active, .cm-line.cs-pulse-input .cs-leaf-token-active': {
-+      backgroundColor: '#0057ff',
-+      color: '#ffffff',
-+      borderRadius: '0 999px 999px 0',
-+    },
-+    '.cm-line .cs-leaf-token-rest': {
-+      backgroundColor: '#ffffff',
-+      color: '#070707',
-+      borderStyle: 'dashed',
-+      boxShadow: '3px 3px 0 rgba(7,7,7,0.32)',
-+    },
-+    '.cm-line .cs-leaf-token-mutated': {
-+      backgroundImage: 'repeating-linear-gradient(135deg, transparent 0, transparent 5px, rgba(7,7,7,0.2) 5px, rgba(7,7,7,0.2) 9px)',
-+    },
+       const toggled = update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setScoreGridEnabledEffect)));
+-      if (update.docChanged || update.viewportChanged || update.geometryChanged || toggled) {
+-        this.decorations = buildScoreGridDecorations(update.view);
++      if (update.docChanged || update.viewportChanged || update.geometryChanged || toggled || update.view.composing) {
++        this.rebuild(update.view);
++      } else if (editorEnvRef.scoreGridEnabled) {
++        this.scheduleRender();
++      }
++    }
 +
-     '.cm-tooltip': {
-       backgroundColor: '#ffffff',
-       border: '2px solid #070707',
++    scheduleRender() {
++      if (this.frame != null) return;
++      this.frame = requestAnimationFrame(() => {
++        this.frame = null;
++        this.renderOverlay();
++      });
++    }
++
++    renderOverlay() {
++      if (!this.overlay || !this.view || this.view.destroyed) return;
++      if (!editorEnvRef.scoreGridEnabled || this.view.composing || !this.blocks.length) {
++        this.overlay.replaceChildren();
++        return;
+       }
++
++      const hostRect = this.view.dom.getBoundingClientRect();
++      const chPx = scoreGridMeasureCh(this.view);
++      const frag = document.createDocumentFragment();
++
++      for (const block of this.blocks) {
++        const rows = block.rows || [];
++        if (rows.length < 2) continue;
++        const columns = scoreGridBuildColumnMap(rows);
++        let cellOriginPx = 0;
++        let sawVisibleRow = false;
++        const rowMetrics = [];
++
++        for (const row of rows) {
++          const headPos = row.line.from + row.headFrom;
++          const headStart = scoreGridCoordsAt(this.view, headPos, 1);
++          const headEnd = scoreGridCoordsAt(this.view, row.line.from + row.headTo, -1) || headStart;
++          if (!headStart || !headEnd) {
++            rowMetrics.push(null);
++            continue;
++          }
++          const left = Math.round(headStart.left - hostRect.left);
++          const top = Math.round(headStart.top - hostRect.top);
++          const bottom = Math.round(Math.max(headStart.bottom || headStart.top + 16, headEnd.bottom || headStart.bottom || headStart.top + 16) - hostRect.top);
++          const headRight = Math.round(Math.max(headEnd.right || headEnd.left || headStart.left, headStart.left + scoreGridVisualLength(row.head) * chPx) - hostRect.left);
++          cellOriginPx = Math.max(cellOriginPx, headRight + SCORE_GRID_HEAD_GAP_CH * chPx);
++          sawVisibleRow = true;
++          rowMetrics.push({ left, top, height: Math.max(16, bottom - top) });
++        }
++
++        if (!sawVisibleRow) continue;
++
++        rows.forEach((row, index) => {
++          const metric = rowMetrics[index];
++          if (!metric) return;
++          const rowEl = document.createElement('div');
++          rowEl.className = `cm-score-grid-overlay-row cm-score-grid-overlay-${String(row.head || 'row').replace(/[^a-z0-9_-]/gi, '').toLowerCase()}`;
++          rowEl.style.transform = `translate3d(0, ${metric.top}px, 0)`;
++          rowEl.style.height = `${metric.height}px`;
++
++          const headEl = document.createElement('span');
++          headEl.className = `cm-score-grid-overlay-head ${scoreGridOverlayTokenClass(row.head, true)}`;
++          headEl.textContent = scoreGridEscapeText(row.head);
++          headEl.style.transform = `translate3d(${metric.left}px, 0, 0)`;
++          rowEl.appendChild(headEl);
++
++          for (const token of row.tokens) {
++            if (token.type === 'cell') {
++              const xCh = columns.cellX.get(`${token.bar}:${token.cell}`);
++              if (xCh == null) continue;
++              const cellEl = document.createElement('span');
++              cellEl.className = `cm-score-grid-overlay-cell ${scoreGridOverlayTokenClass(token.text, false)}`;
++              cellEl.textContent = scoreGridEscapeText(token.text);
++              cellEl.style.transform = `translate3d(${Math.round(cellOriginPx + xCh * chPx)}px, 0, 0)`;
++              rowEl.appendChild(cellEl);
++            } else if (token.type === 'bar') {
++              const xCh = columns.barX.get(token.bar);
++              if (xCh == null) continue;
++              const barEl = document.createElement('span');
++              barEl.className = 'cm-score-grid-overlay-bar cs-token cs-operator';
++              barEl.textContent = '|';
++              barEl.style.transform = `translate3d(${Math.round(cellOriginPx + xCh * chPx)}px, 0, 0)`;
++              rowEl.appendChild(barEl);
++            }
++          }
++
++          frag.appendChild(rowEl);
++        });
++      }
++
++      this.overlay.replaceChildren(frag);
++    }
++
++    destroy() {
++      if (this.frame != null) cancelAnimationFrame(this.frame);
++      if (this.scrollHost && this.onScroll) this.scrollHost.removeEventListener('scroll', this.onScroll);
++      if (this.overlay && this.overlay.parentNode) this.overlay.parentNode.removeChild(this.overlay);
++      this.overlay = null;
+     }
+   }, {
+     decorations: (plugin) => plugin.decorations,
+@@ -2012,18 +2095,49 @@
+       '--cs-sample-ink': '#070707',
+       '--cs-input-ink': '#070707',
+     },
+-    '.cm-score-grid-spacer': {
+-      display: 'inline-block',
+-      width: 'var(--score-grid-gap, 0ch)',
+-      height: '1px',
++    '.cm-score-grid-overlay': {
++      position: 'absolute',
++      inset: '0',
++      zIndex: '35',
++      pointerEvents: 'none',
++      overflow: 'hidden',
++      contain: 'strict',
++    },
++    '.cm-score-grid-overlay-row': {
++      position: 'absolute',
++      left: '0',
++      right: '0',
++      top: '0',
++      fontFamily: 'inherit',
++      fontSize: 'inherit',
++      lineHeight: 'inherit',
++      whiteSpace: 'pre',
+       pointerEvents: 'none',
+-      userSelect: 'none',
+-      verticalAlign: 'baseline',
++    },
++    '.cm-score-grid-overlay-head, .cm-score-grid-overlay-cell, .cm-score-grid-overlay-bar': {
++      position: 'absolute',
++      left: '0',
++      top: '0',
++      display: 'inline-block',
++      whiteSpace: 'pre',
++      willChange: 'transform',
+     },
+     '&.cm-score-grid-enabled .cm-line': {
+       backgroundImage: 'linear-gradient(90deg, rgba(0,87,255,0.055) 1px, transparent 1px)',
+       backgroundSize: '4ch 100%',
+     },
++    '&.cm-score-grid-enabled .cm-content .cm-line.cm-score-grid-row .cs-token': {
++      color: 'transparent !important',
++      textShadow: 'none !important',
++      WebkitTextFillColor: 'transparent !important',
++    },
++    '&.cm-score-grid-enabled .cm-content .cm-line.cm-score-grid-row .cs-mute-toggle, &.cm-score-grid-enabled .cm-content .cm-line.cm-score-grid-row .cs-mute-toggle *': {
++      color: 'var(--cs-ink) !important',
++      WebkitTextFillColor: 'var(--cs-ink) !important',
++    },
++    '&.cm-score-grid-enabled .cm-content .cm-line.cm-score-grid-row .cm-selectionBackground': {
++      visibility: 'visible',
++    },
+     '&.cm-focused': {
+       outline: 'none',
+     },

@@ -1,0 +1,455 @@
+--- orig/index.html	2026-05-10 22:32:10.284021347 +0000
++++ mod/index.html	2026-05-10 22:32:11.505220689 +0000
+@@ -9757,6 +9757,226 @@
+         }
+       }
+ 
++
++
++    /* ------------------------------------------------------------------
++       Transport console module — compact black diagnostic readout.
++       Late, ID-scoped overrides so older transport-strip geometry cannot win.
++    ------------------------------------------------------------------ */
++    .controls.transport-strip {
++      grid-template-columns:
++        7.2rem
++        minmax(15rem, 18rem)
++        minmax(6.8rem, 7.6rem)
++        minmax(7.2rem, 8.8rem)
++        1.18rem
++        minmax(18rem, 1fr)
++        minmax(10rem, 14rem) !important;
++    }
++
++    .controls.transport-strip .transport-cluster-divider {
++      grid-column: 5 !important;
++      grid-row: 1 / 3 !important;
++      align-self: stretch !important;
++      justify-self: center !important;
++      width: 0 !important;
++      min-width: 0 !important;
++      margin: 0 !important;
++      border-left: 3px solid var(--cs-line, #070707) !important;
++      background: transparent !important;
++      box-shadow: none !important;
++      pointer-events: none !important;
++      z-index: 4 !important;
++    }
++
++    .controls.transport-strip .transport-console {
++      grid-column: 6 !important;
++      grid-row: 1 / 3 !important;
++      display: grid !important;
++      grid-template-rows: auto minmax(0, 1fr) !important;
++      min-width: 0 !important;
++      min-height: 0 !important;
++      box-sizing: border-box !important;
++      border: 3px solid var(--cs-line, #070707) !important;
++      background: #050505 !important;
++      color: #f7f7f7 !important;
++      box-shadow: 7px 7px 0 rgba(7, 7, 7, 0.28) !important;
++      overflow: hidden !important;
++      font-family: "Courier New", Courier, monospace !important;
++      text-transform: none !important;
++      letter-spacing: 0 !important;
++      line-height: 1.16 !important;
++    }
++
++    .transport-console-head {
++      display: grid !important;
++      grid-template-columns: minmax(0, 1fr) auto auto auto !important;
++      align-items: center !important;
++      gap: 0.34rem !important;
++      min-height: 1.06rem !important;
++      padding: 0.22rem 0.34rem !important;
++      border-bottom: 2px solid var(--cs-line, #070707) !important;
++      background: #0a0a0a !important;
++      color: #ffffff !important;
++      font-size: 0.54rem !important;
++      font-weight: 900 !important;
++      letter-spacing: 0.12em !important;
++      text-transform: uppercase !important;
++    }
++
++    .transport-console-title {
++      min-width: 0 !important;
++      overflow: hidden !important;
++      text-overflow: ellipsis !important;
++      white-space: nowrap !important;
++      color: #ffffff !important;
++    }
++
++    .transport-console-state {
++      display: inline-block !important;
++      min-width: 2.6rem !important;
++      padding: 0.08rem 0.2rem !important;
++      border: 1px solid #ffffff !important;
++      background: #ffffff !important;
++      color: #070707 !important;
++      text-align: center !important;
++      line-height: 1 !important;
++    }
++
++    .transport-console-state--success { background: var(--cs-green, #008f5a) !important; color: #ffffff !important; }
++    .transport-console-state--warn { background: var(--cs-yellow, #ffd400) !important; color: #070707 !important; }
++    .transport-console-state--error { background: var(--cs-red, #e3342f) !important; color: #ffffff !important; }
++
++    .transport-console-tool {
++      display: inline-grid !important;
++      place-items: center !important;
++      min-height: 1rem !important;
++      padding: 0.1rem 0.24rem !important;
++      border: 1px solid #ffffff !important;
++      background: #050505 !important;
++      color: #ffffff !important;
++      box-shadow: 2px 2px 0 rgba(255, 212, 0, 0.36) !important;
++      font: inherit !important;
++      font-size: 0.5rem !important;
++      line-height: 1 !important;
++      letter-spacing: 0.08em !important;
++      text-transform: uppercase !important;
++      cursor: pointer !important;
++    }
++
++    .transport-console-tool:hover,
++    .transport-console-tool:focus-visible {
++      background: var(--cs-yellow, #ffd400) !important;
++      color: #070707 !important;
++      outline: 1px solid var(--cs-yellow, #ffd400) !important;
++      outline-offset: 1px !important;
++    }
++
++    .transport-console-lines {
++      min-height: 0 !important;
++      overflow: auto !important;
++      padding: 0.3rem 0.38rem 0.34rem !important;
++      background:
++        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 13px),
++        #050505 !important;
++      color: #f7f7f7 !important;
++      font-size: clamp(0.55rem, 0.72vw, 0.68rem) !important;
++      font-weight: 700 !important;
++      letter-spacing: 0.015em !important;
++      line-height: 1.22 !important;
++      scrollbar-width: thin !important;
++    }
++
++    .console-line {
++      display: grid !important;
++      grid-template-columns: 1rem minmax(0, 1fr) !important;
++      gap: 0.26rem !important;
++      align-items: baseline !important;
++      margin: 0 0 0.12rem !important;
++      color: #ffffff !important;
++    }
++
++    .console-glyph {
++      font-weight: 900 !important;
++      text-align: center !important;
++      color: currentColor !important;
++    }
++
++    .console-message {
++      min-width: 0 !important;
++      overflow: hidden !important;
++      text-overflow: ellipsis !important;
++      white-space: nowrap !important;
++    }
++
++    .console-line--error { color: #ff4a3d !important; }
++    .console-line--warn { color: #ffd400 !important; }
++    .console-line--success { color: #00d084 !important; }
++    .console-line--info { color: #f7f7f7 !important; }
++
++    .console-code {
++      display: inline-block !important;
++      padding: 0 0.18rem !important;
++      border: 1px solid currentColor !important;
++      background: #ffffff !important;
++      color: #070707 !important;
++      font-weight: 900 !important;
++    }
++
++    .controls.transport-strip #reference-toggle {
++      grid-column: 7 !important;
++      grid-row: 1 !important;
++      background: #ffffff !important;
++      color: #070707 !important;
++      border-left: 2px solid var(--cs-line, #070707) !important;
++    }
++
++    .controls.transport-strip #docs-toggle {
++      grid-column: 7 !important;
++      grid-row: 2 !important;
++      background: #ffffff !important;
++      color: #070707 !important;
++      border-left: 2px solid var(--cs-line, #070707) !important;
++    }
++
++    @media (max-width: 74rem) {
++      .controls.transport-strip {
++        grid-template-columns: 6.8rem minmax(12rem, 1fr) 7rem 8rem !important;
++        grid-template-rows: 3.15rem 2.65rem 2.65rem 2.65rem 5rem !important;
++      }
++
++      .controls.transport-strip .transport-cluster-divider {
++        display: none !important;
++      }
++
++      .controls.transport-strip .transport-console {
++        grid-column: 2 / 5 !important;
++        grid-row: 3 !important;
++      }
++
++      .controls.transport-strip #reference-toggle {
++        grid-column: 2 / 4 !important;
++        grid-row: 4 !important;
++      }
++
++      .controls.transport-strip #docs-toggle {
++        grid-column: 4 !important;
++        grid-row: 4 !important;
++      }
++    }
++
++    @media (max-width: 52rem) {
++      .controls.transport-strip .transport-console,
++      .controls.transport-strip #reference-toggle,
++      .controls.transport-strip #docs-toggle {
++        grid-column: auto !important;
++        grid-row: auto !important;
++      }
++
++      .controls.transport-strip .transport-console {
++        min-height: 5rem !important;
++      }
++    }
+ </style>
+ </head>
+ <body class="repl-loading" data-loading-phase="boot">
+@@ -9969,6 +10189,25 @@
+             </button>
+           </span>
+ 
++          <span class="transport-cluster-divider" aria-hidden="true"></span>
++
++          <section
++            id="console-output"
++            class="transport-console"
++            aria-live="polite"
++            aria-label="REPL console output"
++          >
++            <div class="transport-console-head">
++              <span class="transport-console-title">console</span>
++              <span id="console-state" class="transport-console-state">ready</span>
++              <button id="console-copy" class="transport-console-tool" type="button" title="Copy console output">copy</button>
++              <button id="console-clear" class="transport-console-tool" type="button" title="Clear console output">clear</button>
++            </div>
++            <div id="console-lines" class="transport-console-lines" role="log" aria-live="polite" aria-relevant="additions text">
++              <div class="console-line console-line--info"><span class="console-glyph">▌</span><span class="console-message">ready.</span></div>
++            </div>
++          </section>
++
+           <button
+             id="reference-toggle"
+             class="transport-button transport-reference"
+--- orig/repl.js	2026-05-10 22:32:10.294739448 +0000
++++ mod/repl.js	2026-05-10 22:32:33.545922274 +0000
+@@ -67,6 +67,11 @@
+     const replSkeletonStatus = document.getElementById('repl-skeleton-status');
+   let videoExamplesEnabled = true;
+   const errorList = document.getElementById('errors');
++  const consoleRoot = document.getElementById('console-output');
++  const consoleLinesEl = document.getElementById('console-lines');
++  const consoleStateEl = document.getElementById('console-state');
++  const consoleCopyBtn = document.getElementById('console-copy');
++  const consoleClearBtn = document.getElementById('console-clear');
+   const patchTitleChip = document.getElementById('patch-title-chip');
+   const beatDotsEl = document.getElementById('beat-dots');
+   const blockRowsEl = document.getElementById('block-rows');
+@@ -191,6 +196,130 @@
+       }, 140);
+     }
+ 
++    function createReplConsole(opts) {
++      const rootEl = opts && opts.root;
++      const linesEl = opts && opts.lines;
++      const stateEl = opts && opts.state;
++      const copyBtn = opts && opts.copy;
++      const clearBtn = opts && opts.clear;
++      const maxLines = 42;
++      const entries = [];
++      const glyphs = {
++        error: '×',
++        warn: '⚠',
++        success: '✓',
++        info: '▌',
++      };
++
++      function levelName(level) {
++        const raw = String(level || 'info').toLowerCase();
++        return raw === 'error' || raw === 'warn' || raw === 'success' || raw === 'info' ? raw : 'info';
++      }
++
++      function stateName(level) {
++        if (level === 'error') return 'error';
++        if (level === 'warn') return 'warn';
++        if (level === 'success') return 'ok';
++        return 'msg';
++      }
++
++      function sanitize(message) {
++        return String(message == null ? '' : message)
++          .replace(/\s+/g, ' ')
++          .trim()
++          .slice(0, 360);
++      }
++
++      function render() {
++        if (!linesEl) return;
++        linesEl.innerHTML = '';
++        const visible = entries.length ? entries : [{ level: 'info', message: 'ready.', time: Date.now() }];
++        for (const entry of visible) {
++          const level = levelName(entry.level);
++          const row = document.createElement('div');
++          row.className = `console-line console-line--${level}`;
++          if (entry.line != null) row.dataset.line = String(entry.line);
++          if (entry.source) row.dataset.source = String(entry.source);
++
++          const glyph = document.createElement('span');
++          glyph.className = 'console-glyph';
++          glyph.textContent = glyphs[level] || glyphs.info;
++
++          const msg = document.createElement('span');
++          msg.className = 'console-message';
++          msg.textContent = entry.message || '';
++
++          row.appendChild(glyph);
++          row.appendChild(msg);
++          linesEl.appendChild(row);
++        }
++        try { linesEl.scrollTop = linesEl.scrollHeight; } catch (_) {}
++      }
++
++      function push(level, message, meta) {
++        const nextLevel = levelName(level);
++        const msg = sanitize(message);
++        if (!msg) return;
++        entries.push({
++          level: nextLevel,
++          message: msg,
++          source: meta && meta.source ? String(meta.source) : '',
++          line: meta && meta.line != null ? meta.line : null,
++          time: Date.now(),
++        });
++        while (entries.length > maxLines) entries.shift();
++        if (stateEl) {
++          stateEl.textContent = stateName(nextLevel);
++          stateEl.className = `transport-console-state transport-console-state--${nextLevel}`;
++        }
++        render();
++      }
++
++      function clear() {
++        entries.length = 0;
++        if (stateEl) {
++          stateEl.textContent = 'ready';
++          stateEl.className = 'transport-console-state';
++        }
++        render();
++      }
++
++      async function copy() {
++        const text = entries.map((entry) => {
++          const line = entry.line != null ? `line ${entry.line}: ` : '';
++          return `[${levelName(entry.level)}] ${line}${entry.message}`;
++        }).join('\n');
++        if (!text) return;
++        try {
++          await navigator.clipboard.writeText(text);
++          push('success', 'console copied.', { source: 'runtime' });
++        } catch (_) {
++          push('warn', 'could not copy console output.', { source: 'runtime' });
++        }
++      }
++
++      if (copyBtn) copyBtn.addEventListener('click', copy);
++      if (clearBtn) clearBtn.addEventListener('click', clear);
++      if (rootEl && linesEl) render();
++
++      return {
++        push,
++        clear,
++        info: (message, meta) => push('info', message, meta),
++        warn: (message, meta) => push('warn', message, meta),
++        error: (message, meta) => push('error', message, meta),
++        success: (message, meta) => push('success', message, meta),
++      };
++    }
++
++    const replConsole = createReplConsole({
++      root: consoleRoot,
++      lines: consoleLinesEl,
++      state: consoleStateEl,
++      copy: consoleCopyBtn,
++      clear: consoleClearBtn,
++    });
++
+     function renderCommandSampleLoadingSkeleton(shell) {
+       const grid = document.createElement('div');
+       grid.className = 'command-sample-loading-grid';
+@@ -736,14 +865,21 @@
+         const li = document.createElement('li');
+         li.textContent = `line ${e.line}: ${e.message}`;
+         errorList.appendChild(li);
++        if (replConsole) {
++          replConsole.error(`line ${e.line}: ${e.message}`, {
++            source: 'parser',
++            line: e && e.line,
++          });
++        }
+       }
+     }
+ 
+-  function showWarning(text) {
++  function showWarning(text, meta) {
+     const li = document.createElement('li');
+     li.textContent = text;
+     li.style.color = '#a04';
+     errorList.appendChild(li);
++    if (replConsole) replConsole.warn(text, meta || { source: 'runtime' });
+   }
+ 
+   function videoDebugEnabled() {
+@@ -1185,6 +1321,7 @@
+         scheduler.start();
+         syncEditorBlockMuteLines();
+         lastRuntimeErrorText = '';
++        if (replConsole) replConsole.success('complete.', { source: 'runtime' });
+       } catch (err) {
+         lastRuntimeErrorText = err && err.stack ? err.stack : String(err || 'unknown runtime error');
+         showWarning(`runtime error — ${err && err.message ? err.message : 'see field report diagnostics'}`);
+@@ -1219,6 +1356,7 @@
+         scheduler.start();
+       }
+       syncEditorBlockMuteLines();
++      if (replConsole) replConsole.info('replay.', { source: 'runtime' });
+     }
+ 
+     function stop() {
+@@ -1228,6 +1366,7 @@
+       syncEditorBlockMuteLines();
+       setStatusLine();
+       clearActiveClasses();
++      if (replConsole) replConsole.info('stopped.', { source: 'runtime' });
+     }
+ 
+     function bootScheduler() {
+@@ -3217,6 +3356,7 @@
+           if (examplePopover && !examplePopover.hidden) {
+             renderExamplePopover();
+           }
++          if (replConsole) replConsole.info(`loaded example: ${label}`, { source: 'examples' });
+         }
+     } catch (err) {
+       console.warn('[repl] failed to load example:', file, err);

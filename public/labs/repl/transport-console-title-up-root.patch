@@ -1,0 +1,23 @@
+--- a/index.html	2026-05-10 22:47:01.197663984 +0000
++++ b/index.html	2026-05-10 22:47:02.217116920 +0000
+@@ -9928,10 +9928,10 @@
+       position: relative !important;
+       display: grid !important;
+       grid-template-columns: minmax(0, 1fr) auto max-content max-content !important;
+-      align-items: center !important;
++      align-items: start !important;
+       gap: 0.28rem !important;
+       min-width: 0 !important;
+-      padding: 0.28rem 0.36rem !important;
++      padding: 0.14rem 0.36rem 0.28rem !important;
+       border-bottom: 0 !important;
+       background: #101010 !important;
+       color: var(--cs-white, #ffffff) !important;
+@@ -9945,6 +9945,7 @@
+     .transport-console-title {
+       color: var(--cs-white, #ffffff) !important;
+       opacity: 0.58 !important;
++      transform: translateY(-0.03rem) !important;
+     }
+ 
+     .transport-console--active .transport-console-title,

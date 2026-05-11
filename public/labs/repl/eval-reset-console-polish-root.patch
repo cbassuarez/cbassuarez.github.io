@@ -1,0 +1,259 @@
+diff -ruN orig/index.html mod/index.html
+--- orig/index.html	2026-05-10 23:14:34.046513959 +0000
++++ mod/index.html	2026-05-10 23:14:35.045251919 +0000
+@@ -9910,7 +9910,7 @@
+       grid-column: 6 !important;
+       grid-row: 1 / 3 !important;
+       display: grid !important;
+-      grid-template-rows: 1.45rem minmax(0, 1fr) !important;
++      grid-template-rows: 1.18rem minmax(0, 1fr) !important;
+       min-width: 0 !important;
+       min-height: 0 !important;
+       box-sizing: border-box !important;
+@@ -9929,15 +9929,17 @@
+       display: grid !important;
+       grid-template-columns: minmax(0, 1fr) auto max-content max-content !important;
+       align-items: center !important;
+-      gap: 0.18rem !important;
++      gap: 0.14rem !important;
+       min-width: 0 !important;
+-      height: 1.45rem !important;
++      height: 1.18rem !important;
++      max-height: 1.18rem !important;
+       box-sizing: border-box !important;
+-      padding: 0.10rem 0.28rem 0.08rem !important;
++      padding: 0.03rem 0.24rem 0.03rem !important;
++      overflow: hidden !important;
+       border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+       background: #101010 !important;
+       color: var(--cs-white, #ffffff) !important;
+-      font-size: 0.58rem !important;
++      font-size: 0.54rem !important;
+       font-weight: 900 !important;
+       line-height: 1 !important;
+       letter-spacing: 0.12em !important;
+@@ -9947,7 +9949,7 @@
+     .transport-console-title {
+       color: var(--cs-white, #ffffff) !important;
+       opacity: 0.58 !important;
+-      transform: translateY(-0.01rem) !important;
++      transform: translateY(0) !important;
+     }
+ 
+     .transport-console--active .transport-console-title,
+@@ -9961,7 +9963,7 @@
+       border-left: 2px solid rgba(255, 255, 255, 0.28) !important;
+       color: var(--cs-yellow, #ffd400) !important;
+       opacity: 0.72 !important;
+-      transform: translateY(-0.01rem) !important;
++      transform: translateY(0) !important;
+     }
+ 
+     .transport-console-state:empty {
+@@ -9977,6 +9979,10 @@
+       color: var(--cs-yellow, #ffd400) !important;
+     }
+ 
++    .transport-console-state--queued {
++      color: #9ad7ff !important;
++    }
++
+     .transport-console-state--error {
+       color: var(--cs-red, #e3342f) !important;
+     }
+@@ -9985,24 +9991,24 @@
+     .transport-console-mini {
+       display: inline-grid !important;
+       place-items: center !important;
+-      width: 1.42rem !important;
+-      height: 1.04rem !important;
+-      min-width: 1.42rem !important;
+-      min-height: 1.04rem !important;
++      width: 1.12rem !important;
++      height: 0.78rem !important;
++      min-width: 1.12rem !important;
++      min-height: 0.78rem !important;
+       padding: 0 !important;
+       border: 1px solid rgba(255, 255, 255, 0.42) !important;
+       background: #050505 !important;
+       color: rgba(255, 255, 255, 0.72) !important;
+       box-shadow: none !important;
+       font: inherit !important;
+-      font-size: 0.88rem !important;
++      font-size: 0.66rem !important;
+       line-height: 1 !important;
+       letter-spacing: 0 !important;
+       text-transform: none !important;
+       cursor: pointer !important;
+       opacity: 0 !important;
+       pointer-events: none !important;
+-      transform: translateY(-0.02rem) !important;
++      transform: translateY(0) !important;
+       transition: opacity 120ms ease, transform 120ms ease, color 120ms ease, border-color 120ms ease !important;
+     }
+ 
+@@ -10012,7 +10018,7 @@
+     .transport-console:focus-within .transport-console-mini {
+       opacity: 0.58 !important;
+       pointer-events: auto !important;
+-      transform: translateY(0.02rem) !important;
++      transform: translateY(0) !important;
+     }
+ 
+     .transport-console-tool:hover,
+@@ -10031,7 +10037,7 @@
+       min-height: 0 !important;
+       max-height: none !important;
+       overflow: auto !important;
+-      padding: 0.18rem 0.38rem 0.28rem !important;
++      padding: 0.14rem 0.38rem 0.28rem !important;
+       border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+       background:
+         repeating-linear-gradient(0deg, rgba(255,255,255,0.026) 0 1px, transparent 1px 1.04rem),
+@@ -10063,13 +10069,16 @@
+     }
+ 
+     .console-message {
+-      min-width: 0 !important;
+-      overflow: hidden !important;
+-      text-overflow: ellipsis !important;
++      min-width: max-content !important;
++      max-width: none !important;
++      overflow: visible !important;
++      text-overflow: clip !important;
++      white-space: pre !important;
+     }
+ 
+     .console-line--error { color: var(--cs-red, #e3342f) !important; }
+     .console-line--warn { color: var(--cs-yellow, #ffd400) !important; }
++    .console-line--queued { color: #9ad7ff !important; }
+     .console-line--success { color: #00d084 !important; }
+     .console-line--info { color: var(--cs-white, #ffffff) !important; }
+ 
+diff -ruN orig/repl.js mod/repl.js
+--- orig/repl.js	2026-05-10 23:14:34.059687409 +0000
++++ mod/repl.js	2026-05-10 23:15:31.710625029 +0000
+@@ -209,19 +209,21 @@
+       const glyphs = {
+         error: '×',
+         warn: '⚠',
++        queued: '⧖',
+         success: '✓',
+         info: '▌',
+       };
+ 
+       function normalizedLevel(level) {
+         const raw = String(level || 'info').toLowerCase();
+-        if (raw === 'error' || raw === 'warn' || raw === 'success' || raw === 'info') return raw;
++        if (raw === 'error' || raw === 'warn' || raw === 'queued' || raw === 'success' || raw === 'info') return raw;
+         return 'info';
+       }
+ 
+       function stateFor(level) {
+         if (level === 'error') return 'error';
+         if (level === 'warn') return 'warn';
++        if (level === 'queued') return 'queued';
+         if (level === 'success') return 'ok';
+         return 'msg';
+       }
+@@ -383,7 +385,7 @@
+         const nextLevel = normalizedLevel(level);
+         const msg = sanitizeMessage(message);
+         if (!msg) return;
+-        if (nextLevel === 'success' && /^complete\.?$/i.test(msg)) {
++        if (nextLevel === 'success' && (/^complete\.?$/i.test(msg) || /^eval reset applied\b/i.test(msg))) {
+           pinnedDiagnostic = null;
+           clearEditorDiagnostic();
+         }
+@@ -441,6 +443,7 @@
+         clear,
+         info: (message, meta) => push('info', message, meta),
+         warn: (message, meta) => push('warn', message, meta),
++        queued: (message, meta) => push('queued', message, meta),
+         error: (message, meta) => push('error', message, meta),
+         success: (message, meta) => push('success', message, meta),
+       };
+@@ -1462,13 +1465,14 @@
+         if (scheduler.isRunning() && evaluatePolicy.mode === 'reset' && typeof scheduler.queueEvaluateAtReset === 'function') {
+           const when = scheduler.queueEvaluateAtReset(result.program, { stopVoices: evaluatePolicy.cutOnReset });
+           if (Number.isFinite(Number(when))) {
+-            showWarning(
+-              evaluatePolicy.cutOnReset
+-                ? 'evaluate queued — next bar reset will cut previous audio (eval reset cut)'
+-                : 'evaluate queued — next bar reset keeps previous tails (eval reset keep)',
+-              { source: 'scheduler' }
+-            );
+-            setTimeout(clearErrors, 1800);
++            const resetMode = evaluatePolicy.cutOnReset ? 'cut' : 'keep tails';
++            const message = `eval reset armed — next bar / ${resetMode}`;
++            if (replConsole && typeof replConsole.queued === 'function') {
++              replConsole.queued(message, { source: 'scheduler' });
++            } else if (replConsole) {
++              replConsole.info(message, { source: 'scheduler' });
++            }
++            setStatusLine();
+           }
+           syncEditorBlockMuteLines();
+           lastRuntimeErrorText = '';
+@@ -1556,6 +1560,15 @@
+     const masterBus = window.StringVoice.getMasterBus();
+     scheduler = window.ReplScheduler.create({ audioCtx, masterBus });
+     syncEditorBlockMuteLines();
++    if (typeof scheduler.onEvaluateResetApplied === 'function') {
++      scheduler.onEvaluateResetApplied((detail) => {
++        const cut = Boolean(detail && detail.stopVoices);
++        const message = cut
++          ? 'eval reset applied — previous audio cut.'
++          : 'eval reset applied — tails preserved.';
++        if (replConsole) replConsole.success(message, { source: 'scheduler' });
++      });
++    }
+     scheduler.onMissingSample((name) => {
+       if (typeof name === 'string' && name.startsWith('drum-kit:')) {
+         const id = name.slice('drum-kit:'.length) || '(missing)';
+diff -ruN orig/scheduler.js mod/scheduler.js
+--- orig/scheduler.js	2026-05-10 23:14:34.069067163 +0000
++++ mod/scheduler.js	2026-05-10 23:14:35.054019216 +0000
+@@ -84,6 +84,7 @@
+       let pendingEvaluate = null;
+       const missingSampleSeen = new Set();
+       let onMissingCallback = null;
++      let onEvaluateResetAppliedCallback = null;
+       let runtimeEpoch = 0;
+       let runtimeEventSeq = 0;
+       const pendingEditorPulseTimers = new Set();
+@@ -1192,6 +1193,15 @@
+             : block._arrangeOrigin;
+         }
+         seedProgramMuteDefaults(program, false);
++        if (typeof onEvaluateResetAppliedCallback === 'function') {
++          try {
++            onEvaluateResetAppliedCallback({
++              resetTime: originTime,
++              stopVoices: Boolean(stopVoices),
++              program,
++            });
++          } catch (_) {}
++        }
+       }
+ 
+       function stop() {
+@@ -1433,6 +1443,10 @@
+ 
+     function onMissingSample(fn) { onMissingCallback = fn; }
+ 
++    function onEvaluateResetApplied(fn) {
++      onEvaluateResetAppliedCallback = typeof fn === 'function' ? fn : null;
++    }
++
+     function reportMissingSample(name) {
+       if (missingSampleSeen.has(name)) return;
+       missingSampleSeen.add(name);
+@@ -6912,6 +6926,7 @@
+         toggleBlockMutedByLine,
+         getMuteStates,
+         onMissingSample,
++        onEvaluateResetApplied,
+         now,
+         isRunning: () => running,
+       };

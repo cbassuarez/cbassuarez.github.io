@@ -1,0 +1,40 @@
+--- a/index.html
++++ b/index.html
+@@ -10149,7 +10149,8 @@
+         grid-row: 2 !important;
+         background: #0b66b8 !important;
+         color: #ffffff !important;
+-        border-radius: 0 1.25rem 1.25rem 0 !important;
++        /* Button F: square-left, square top-right, rounded bottom-right only. */
++        border-radius: 0 0 1.25rem 0 !important;
+       }
+ 
+       .controls.transport-strip #samples-toggle .button-main {
+@@ -10168,17 +10169,22 @@
+         grid-row: 2 !important;
+         background: #ffd400 !important;
+         color: #070707 !important;
+-        border-radius: 0 !important;
++        /* Button E: rounded top corners, square bottom edge. */
++        border-radius: 1.05rem 1.05rem 0 0 !important;
++        grid-template-rows: 0.72rem auto !important;
++        gap: 0.10rem !important;
++        padding: 0.34rem 0.42rem 0.38rem !important;
+       }
+ 
+       .controls.transport-strip #onboarding-help .button-main {
+-        font-size: clamp(0.9rem, 1.25vw, 1.06rem) !important;
+-        letter-spacing: 0.12em !important;
++        font-size: clamp(0.7rem, 1.05vw, 0.86rem) !important;
++        letter-spacing: 0.06em !important;
+       }
+ 
+       .controls.transport-strip #onboarding-help .button-shortcut {
+-        font-size: clamp(0.72rem, 1.22vw, 0.96rem) !important;
+-        letter-spacing: 0.16em !important;
++        font-size: clamp(0.58rem, 0.92vw, 0.76rem) !important;
++        letter-spacing: 0.13em !important;
++        white-space: nowrap !important;
+       }
+ 
+       .controls.transport-strip #samples-toggle:hover,

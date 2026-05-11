@@ -1,0 +1,6 @@
+source/iowa/raw/
+source/iowa/converted/
+source/iowa-marimba/raw/
+source/*
+public/instruments/iowa-piano/audio/**/*.aiff
+.DS_Store

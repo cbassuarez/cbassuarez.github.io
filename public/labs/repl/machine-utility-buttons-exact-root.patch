@@ -1,0 +1,222 @@
+--- a/index.html	2026-05-10 09:30:57.254396265 +0000
++++ b/index.html	2026-05-10 09:30:57.263729597 +0000
+@@ -10080,44 +10080,60 @@
+         100% { clip-path: inset(0 0 0 0); transform: translate(0, 0); }
+       }
+ 
+-      /* Utility buttons — explicit machine controls.
+-         COMMAND PALETTE uses the blue Button-F slab; FIELD MANUAL uses the
+-         yellow Button-E slab. Keep the existing IDs/click handlers intact. */
+-      .controls.transport-strip .repl-machine-button {
++      /* Utility buttons v2 — exact Button E/F machine slabs.
++         COMMAND PALETTE is Button F: blue, square-left, rounded-right.
++         FIELD MANUAL is Button E: yellow, square slab. Existing IDs and
++         click handlers stay intact; rollups below intentionally beat older
++         transport/button reset rules. */
++      .controls.transport-strip #samples-toggle,
++      .controls.transport-strip #onboarding-help {
+         isolation: isolate !important;
+         position: relative !important;
+         display: grid !important;
+-        grid-template-rows: minmax(0, 1fr) auto !important;
++        grid-template-rows: auto auto !important;
+         place-items: center !important;
+         align-content: center !important;
+-        gap: 0.14rem !important;
+-        min-width: 0 !important;
+-        min-height: 2.72rem !important;
++        justify-content: stretch !important;
++        gap: 0.18rem !important;
+         width: 100% !important;
+         height: 100% !important;
++        min-width: 0 !important;
++        min-height: 0 !important;
+         box-sizing: border-box !important;
+         margin: 0 !important;
+-        padding: 0.36rem 0.62rem 0.32rem !important;
++        padding: 0.38rem 0.62rem 0.34rem !important;
+         border: 3px solid #070707 !important;
+         font-family: "Courier New", Courier, monospace !important;
+         font-weight: 900 !important;
+         text-transform: uppercase !important;
+         letter-spacing: 0.14em !important;
++        line-height: 1 !important;
+         cursor: pointer !important;
+-        overflow: hidden !important;
++        overflow: visible !important;
+         appearance: none !important;
+         transform: translate(0, 0) !important;
+-        box-shadow: 6px 6px 0 rgba(7, 7, 7, 0.24) !important;
++        box-shadow: 7px 7px 0 rgba(7, 7, 7, 0.24) !important;
++      }
++
++      .controls.transport-strip #samples-toggle::before,
++      .controls.transport-strip #samples-toggle::after,
++      .controls.transport-strip #onboarding-help::before,
++      .controls.transport-strip #onboarding-help::after {
++        content: none !important;
++        display: none !important;
+       }
+ 
+-      .controls.transport-strip .repl-machine-button .button-main,
+-      .controls.transport-strip .repl-machine-button .button-shortcut {
++      .controls.transport-strip #samples-toggle .button-main,
++      .controls.transport-strip #samples-toggle .button-shortcut,
++      .controls.transport-strip #onboarding-help .button-main,
++      .controls.transport-strip #onboarding-help .button-shortcut {
+         position: relative !important;
+         z-index: 2 !important;
+         display: block !important;
+         min-width: 0 !important;
+         min-height: 0 !important;
+         margin: 0 !important;
++        padding: 0 !important;
+         border: 0 !important;
+         background: transparent !important;
+         box-shadow: none !important;
+@@ -10128,72 +10144,80 @@
+         pointer-events: none !important;
+       }
+ 
+-      .controls.transport-strip .repl-machine-button .button-main {
+-        font-size: clamp(0.82rem, 1.55vw, 1.04rem) !important;
+-        letter-spacing: 0.16em !important;
+-      }
+-
+-      .controls.transport-strip .repl-machine-button .button-shortcut {
+-        font-size: clamp(0.48rem, 0.82vw, 0.62rem) !important;
+-        letter-spacing: 0.12em !important;
+-        opacity: 0.94 !important;
+-      }
+-
+-      .controls.transport-strip #samples-toggle.repl-machine-button,
+-      .controls.transport-strip #samples-toggle.repl-machine-button:hover,
+-      .controls.transport-strip #samples-toggle.repl-machine-button:focus-visible {
++      .controls.transport-strip #samples-toggle {
++        grid-column: 2 !important;
++        grid-row: 2 !important;
+         background: #0b66b8 !important;
+         color: #ffffff !important;
+         border-radius: 0 1.25rem 1.25rem 0 !important;
+-        border-color: #070707 !important;
+       }
+ 
+-      .controls.transport-strip #samples-toggle.repl-machine-button::before,
+-      .controls.transport-strip #samples-toggle.repl-machine-button::after {
+-        content: none !important;
+-        display: none !important;
++      .controls.transport-strip #samples-toggle .button-main {
++        font-size: clamp(0.9rem, 1.55vw, 1.12rem) !important;
++        letter-spacing: 0.17em !important;
++      }
++
++      .controls.transport-strip #samples-toggle .button-shortcut {
++        font-size: clamp(0.5rem, 0.82vw, 0.64rem) !important;
++        letter-spacing: 0.14em !important;
++        opacity: 0.98 !important;
+       }
+ 
+-      .controls.transport-strip #onboarding-help.repl-machine-button,
+-      .controls.transport-strip #onboarding-help.repl-machine-button:hover,
+-      .controls.transport-strip #onboarding-help.repl-machine-button:focus-visible {
++      .controls.transport-strip #onboarding-help {
++        grid-column: 4 !important;
++        grid-row: 2 !important;
+         background: #ffd400 !important;
+         color: #070707 !important;
+         border-radius: 0 !important;
+-        border-color: #070707 !important;
+       }
+ 
+-      .controls.transport-strip #onboarding-help.repl-machine-button::before,
+-      .controls.transport-strip #onboarding-help.repl-machine-button::after {
+-        content: none !important;
+-        display: none !important;
++      .controls.transport-strip #onboarding-help .button-main {
++        font-size: clamp(0.9rem, 1.25vw, 1.06rem) !important;
++        letter-spacing: 0.12em !important;
+       }
+ 
+-      .controls.transport-strip #onboarding-help.repl-machine-button .button-main {
+-        display: inline-grid !important;
+-        place-items: center !important;
+-        min-width: 1.3rem !important;
+-        min-height: 1.05rem !important;
+-        padding: 0.04rem 0.22rem !important;
+-        border: 3px solid #070707 !important;
+-        background: #ffffff !important;
+-        color: #070707 !important;
+-        font-size: clamp(0.72rem, 1.15vw, 0.92rem) !important;
+-        line-height: 1 !important;
+-        box-shadow: 2px 2px 0 rgba(7, 7, 7, 0.22) !important;
++      .controls.transport-strip #onboarding-help .button-shortcut {
++        font-size: clamp(0.72rem, 1.22vw, 0.96rem) !important;
++        letter-spacing: 0.16em !important;
+       }
+ 
+-      .controls.transport-strip .repl-machine-button:hover,
+-      .controls.transport-strip .repl-machine-button:focus-visible {
++      .controls.transport-strip #samples-toggle:hover,
++      .controls.transport-strip #samples-toggle:focus-visible,
++      .controls.transport-strip #onboarding-help:hover,
++      .controls.transport-strip #onboarding-help:focus-visible {
+         transform: translate(-1px, -1px) !important;
+-        box-shadow: 7px 7px 0 rgba(7, 7, 7, 0.30) !important;
++        box-shadow: 8px 8px 0 rgba(7, 7, 7, 0.30) !important;
+         outline: 2px solid #070707 !important;
+         outline-offset: 2px !important;
++        filter: contrast(1.04) !important;
+       }
+ 
+-      .controls.transport-strip .repl-machine-button:active {
++      .controls.transport-strip #samples-toggle:active,
++      .controls.transport-strip #onboarding-help:active {
+         transform: translate(3px, 3px) !important;
+-        box-shadow: 2px 2px 0 rgba(7, 7, 7, 0.22) !important;
++        box-shadow: 2px 2px 0 rgba(7, 7, 7, 0.26) !important;
++        filter: none !important;
++      }
++
++      @media (max-width: 74rem) {
++        .controls.transport-strip #samples-toggle {
++          grid-column: 2 !important;
++          grid-row: 2 !important;
++        }
++
++        .controls.transport-strip #onboarding-help {
++          grid-column: 4 !important;
++          grid-row: 2 !important;
++        }
++      }
++
++      @media (max-width: 52rem) {
++        .controls.transport-strip #samples-toggle,
++        .controls.transport-strip #onboarding-help {
++          grid-column: auto !important;
++          grid-row: auto !important;
++          min-height: 2.7rem !important;
++        }
+       }
+ 
+       @media (prefers-reduced-motion: reduce) {
+@@ -11248,7 +11272,7 @@
+           ['play', 'transport-button transport-evaluate'],
+           ['safe-play', 'transport-button transport-replay'],
+           ['stop', 'transport-button transport-stop'],
+-          ['samples-toggle', 'transport-button transport-command'],
++          ['samples-toggle', 'transport-button transport-command repl-machine-button repl-machine-button--command'],
+           ['input-toggle', 'transport-button transport-io'],
+           ['reference-toggle', 'transport-button transport-reference'],
+           ['docs-toggle', 'transport-button transport-docs']
+@@ -11265,6 +11289,11 @@
+           if (videoBtn) videoBtn.className = 'transport-button transport-video';
+         }
+ 
++        var onboardingHelp = document.getElementById('onboarding-help');
++        if (onboardingHelp) {
++          onboardingHelp.className = 'transport-button transport-help repl-help-trigger repl-machine-button repl-machine-button--manual';
++        }
++
+         var row = editorWrap.querySelector('.patch-identity-row');
+         if (!row) {
+           row = document.createElement('div');

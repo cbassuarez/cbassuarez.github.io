@@ -1,0 +1,29 @@
+{
+  "generatedAt": "2026-05-09T23:57:59.343Z",
+  "root": "/Users/seb/Documents/site/public/labs/repl",
+  "siteRoot": "/Users/seb/Documents/site/public",
+  "manifests": [
+    {
+      "manifest": "/Users/seb/Documents/site/public/labs/repl/samples/manifest.json",
+      "manifestHash": "996b57983eb8c682e7dfcdb66fa1a1afbcc612fe8fa7b03751134e6878aa333c",
+      "totalSamples": 4268,
+      "validatedSamples": 4268,
+      "skippedSamples": [],
+      "missingSamples": [],
+      "zeroByteSamples": [],
+      "caseMismatchSamples": [],
+      "badKitRefs": [],
+      "orphanAudioFiles": []
+    }
+  ],
+  "totals": {
+    "manifests": 1,
+    "totalSamples": 4268,
+    "validatedSamples": 4268,
+    "missingSamples": 0,
+    "zeroByteSamples": 0,
+    "caseMismatchSamples": 0,
+    "badKitRefs": 0,
+    "orphanAudioFiles": 0
+  }
+}

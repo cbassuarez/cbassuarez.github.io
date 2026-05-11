@@ -1,0 +1,163 @@
+diff -uNr orig/index.html mod/index.html
+--- orig/index.html	2026-05-10 22:44:28.691148912 +0000
++++ mod/index.html	2026-05-10 22:44:29.734273732 +0000
+@@ -9925,14 +9925,15 @@
+     }
+ 
+     .transport-console-head {
++      position: relative !important;
+       display: grid !important;
+-      grid-template-columns: auto auto max-content max-content !important;
++      grid-template-columns: minmax(0, 1fr) auto max-content max-content !important;
+       align-items: center !important;
+-      gap: 0.34rem !important;
++      gap: 0.28rem !important;
+       min-width: 0 !important;
+       padding: 0.28rem 0.36rem !important;
+-      border-bottom: 2px solid var(--cs-line, #070707) !important;
+-      background: #111111 !important;
++      border-bottom: 0 !important;
++      background: #101010 !important;
+       color: var(--cs-white, #ffffff) !important;
+       font-size: 0.58rem !important;
+       font-weight: 900 !important;
+@@ -9943,13 +9944,24 @@
+ 
+     .transport-console-title {
+       color: var(--cs-white, #ffffff) !important;
++      opacity: 0.58 !important;
++    }
++
++    .transport-console--active .transport-console-title,
++    .transport-console:focus-within .transport-console-title {
++      opacity: 1 !important;
+     }
+ 
+     .transport-console-state {
+       justify-self: start !important;
+       padding-left: 0.32rem !important;
+-      border-left: 2px solid rgba(255, 255, 255, 0.42) !important;
++      border-left: 2px solid rgba(255, 255, 255, 0.28) !important;
+       color: var(--cs-yellow, #ffd400) !important;
++      opacity: 0.72 !important;
++    }
++
++    .transport-console-state:empty {
++      display: none !important;
+     }
+ 
+     .transport-console-state--success,
+@@ -9969,42 +9981,63 @@
+     .transport-console-mini {
+       min-width: 0 !important;
+       min-height: 0 !important;
+-      padding: 0.12rem 0.24rem !important;
+-      border: 2px solid var(--cs-white, #ffffff) !important;
++      padding: 0.06rem 0.16rem !important;
++      border: 1px solid rgba(255, 255, 255, 0.68) !important;
+       background: #050505 !important;
+-      color: var(--cs-white, #ffffff) !important;
+-      box-shadow: 2px 2px 0 var(--cs-yellow, #ffd400) !important;
++      color: rgba(255, 255, 255, 0.84) !important;
++      box-shadow: none !important;
+       font: inherit !important;
+-      font-size: 0.5rem !important;
++      font-size: 0.42rem !important;
+       line-height: 1 !important;
+       letter-spacing: 0.08em !important;
+       text-transform: uppercase !important;
+       cursor: pointer !important;
++      opacity: 0 !important;
++      pointer-events: none !important;
++      transform: translateY(-0.12rem) !important;
++      transition: opacity 120ms ease, transform 120ms ease, color 120ms ease, border-color 120ms ease !important;
++    }
++
++    .transport-console--active .transport-console-tool,
++    .transport-console--active .transport-console-mini,
++    .transport-console:focus-within .transport-console-tool,
++    .transport-console:focus-within .transport-console-mini {
++      opacity: 0.52 !important;
++      pointer-events: auto !important;
++      transform: translateY(0) !important;
+     }
+ 
+     .transport-console-tool:hover,
+     .transport-console-tool:focus-visible,
+     .transport-console-mini:hover,
+     .transport-console-mini:focus-visible {
++      opacity: 1 !important;
+       background: var(--cs-yellow, #ffd400) !important;
++      border-color: var(--cs-yellow, #ffd400) !important;
+       color: var(--cs-line, #070707) !important;
+       outline: none !important;
+     }
+ 
+     .transport-console-lines {
++      display: none !important;
+       min-height: 0 !important;
+       max-height: none !important;
+       overflow: auto !important;
+-      padding: 0.32rem 0.42rem 0.38rem !important;
++      padding: 0.28rem 0.42rem 0.34rem !important;
++      border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+       background:
+-        repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 1.04rem),
++        repeating-linear-gradient(0deg, rgba(255,255,255,0.026) 0 1px, transparent 1px 1.04rem),
+         #050505 !important;
+       color: var(--cs-white, #ffffff) !important;
+-      font-size: 0.68rem !important;
++      font-size: 0.66rem !important;
+       line-height: 1.24 !important;
+       text-transform: none !important;
+     }
+ 
++    .transport-console--active .transport-console-lines {
++      display: block !important;
++    }
++
+     .console-line {
+       display: grid !important;
+       grid-template-columns: 1rem minmax(0, 1fr) !important;
+@@ -10324,13 +10357,11 @@
+           >
+             <div class="transport-console-head">
+               <span class="transport-console-title">console</span>
+-              <span id="console-state" class="transport-console-state">ready</span>
++              <span id="console-state" class="transport-console-state" aria-live="polite"></span>
+               <button id="console-copy" class="transport-console-tool" type="button" title="Copy console output">copy</button>
+               <button id="console-clear" class="transport-console-tool" type="button" title="Clear console output">clear</button>
+             </div>
+-            <div id="console-lines" class="transport-console-lines" role="log" aria-live="polite" aria-relevant="additions text">
+-              <div class="console-line console-line--info"><span class="console-glyph">▌</span><span class="console-message">ready.</span></div>
+-            </div>
++            <div id="console-lines" class="transport-console-lines" role="log" aria-live="polite" aria-relevant="additions text"></div>
+           </section>
+ 
+           <button
+diff -uNr orig/repl.js mod/repl.js
+--- orig/repl.js	2026-05-10 22:44:28.699587190 +0000
++++ mod/repl.js	2026-05-10 22:44:29.736035844 +0000
+@@ -232,10 +232,11 @@
+       }
+ 
+       function render() {
++        if (rootEl) rootEl.classList.toggle('transport-console--active', entries.length > 0);
+         if (!linesEl) return;
+         linesEl.innerHTML = '';
+-        const visible = entries.length ? entries : [{ level: 'info', message: 'ready.', time: Date.now() }];
+-        for (const entry of visible) {
++        if (!entries.length) return;
++        for (const entry of entries) {
+           const level = normalizedLevel(entry.level);
+           const row = document.createElement('div');
+           row.className = `console-line console-line--${level}`;
+@@ -280,7 +281,7 @@
+       function clear() {
+         entries.length = 0;
+         if (stateEl) {
+-          stateEl.textContent = 'ready';
++          stateEl.textContent = '';
+           stateEl.className = 'transport-console-state';
+         }
+         render();
