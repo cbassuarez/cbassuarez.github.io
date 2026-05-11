@@ -22,15 +22,23 @@ Resolution order in client:
 2. `VITE_TMYAD_API_BASE`
 3. if neither exists, run in mock/offline preview mode
 
-## Expected external API endpoints
+## Backend implementation
 
-The site calls a separate TMAYD backend API. These endpoints are not implemented in this site repo.
+The TMAYD backend now lives in this repo under `workers/tmayd-api/` and is
+deployed to Cloudflare. Production routes:
 
-- `GET  {API_BASE}/api/tmayd/status`
-- `GET  {API_BASE}/api/tmayd/live/latest`
-- `GET  {API_BASE}/api/tmayd/reels/today`
-- `GET  {API_BASE}/api/tmayd/reels/:date`
-- `POST {API_BASE}/api/tmayd/submissions`
+- `cbassuarez.com/api/tmayd/*`     (same-origin, hits the Worker via a CF route)
+- `www.cbassuarez.com/api/tmayd/*` (same)
+
+Operational details live in `docs/tmayd-runbook.md`.
+
+## Public API endpoints (implemented)
+
+- `GET  /api/tmayd/status`
+- `GET  /api/tmayd/live/latest`     — returns inactive shape; camera not wired yet
+- `GET  /api/tmayd/reels/today`     — returns empty manifest
+- `GET  /api/tmayd/reels/:date`     — returns empty manifest
+- `POST /api/tmayd/submissions`     — requires Turnstile token in body
 
 ## Status response shape
 

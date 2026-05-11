@@ -299,7 +299,7 @@ export async function fetchReelByDate(date) {
   };
 }
 
-export async function submitTmaydMessage({ text, consent, displayName } = {}) {
+export async function submitTmaydMessage({ text, consent, displayName, turnstileToken } = {}) {
   const messageText = typeof text === 'string' ? text.trim() : '';
 
   if (!isApiConfigured()) {
@@ -316,6 +316,9 @@ export async function submitTmaydMessage({ text, consent, displayName } = {}) {
   };
   if (typeof displayName === 'string' && displayName.trim()) {
     payload.displayName = displayName.trim();
+  }
+  if (typeof turnstileToken === 'string' && turnstileToken) {
+    payload.turnstileToken = turnstileToken;
   }
 
   const result = await safeFetchJson('/api/tmayd/submissions', {
