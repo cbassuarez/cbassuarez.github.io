@@ -1,8 +1,9 @@
 import type { Env } from "../types";
 import { isProd, json, nowIso, readJsonBody, uuid } from "../lib/json";
 import {
-  deterministicModerate,
-  moderateDisplayName
+  moderateDisplayName,
+  moderateSubmission,
+  moderationReady
 } from "../lib/moderation";
 import { verifyTurnstile } from "../lib/turnstile";
 import { hashClientIp } from "../lib/auth";
@@ -149,10 +150,11 @@ export async function handleSubmission(request: Request, env: Env): Promise<Resp
     );
   }
 
-  // Moderation mode gate.
-  const mode = env.MODERATION_MODE || "deterministic_only";
-  const detOnlyAllowed = env.TMAYD_ALLOW_DETERMINISTIC_ONLY_IN_PROD === "true";
-  if (isProd(env) && mode === "deterministic_only" && !detOnlyAllowed) {
+  // Moderation readiness gate. Closes intake if e.g. mode=bedrock but the
+  // Bedrock credentials are not set, or mode=deterministic_only without the
+  // explicit production-allowed flag.
+  const modReady = moderationReady(env);
+  if (isProd(env) && !modReady.ready) {
     await recordAttempt(env, ipHash, "unavailable");
     return json(
       {
@@ -192,7 +194,7 @@ export async function handleSubmission(request: Request, env: Env): Promise<Resp
   const text = typeof body.text === "string" ? body.text : "";
   const minChars = parseInt(env.TMAYD_MIN_CHARS, 10) || 3;
   const maxChars = parseInt(env.TMAYD_MAX_CHARS, 10) || 700;
-  const result = deterministicModerate(text, { minChars, maxChars });
+  const result = await moderateSubmission(text, env, { minChars, maxChars });
   if (!result.ok) {
     await recordAttempt(env, ipHash, result.kind);
     await env.DB.prepare(

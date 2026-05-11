@@ -228,13 +228,63 @@ endpoints return an empty manifest. When wiring the camera:
 This rollout intentionally leaves those endpoints' shape correct so the
 frontend keeps rendering empty-archive UI without errors.
 
+## Moderation modes
+
+The worker supports a layered moderation pipeline. The deterministic regex
+layer always runs first (cheap, blocks PII shapes before any third-party
+call). Subsequent layers depend on `MODERATION_MODE`.
+
+| `MODERATION_MODE`   | Pipeline                                  | Intake-ready when             |
+|---------------------|-------------------------------------------|-------------------------------|
+| `deterministic_only`| det                                       | `TMAYD_ALLOW_DETERMINISTIC_ONLY_IN_PROD=true` |
+| `bedrock`           | det → Bedrock Guardrails (fail-closed)    | Bedrock secrets all set       |
+| `strict`            | det → Bedrock Guardrails (fail-closed)    | Bedrock secrets all set       |
+
+`bedrock` and `strict` currently share the same pipeline; `strict` is reserved
+for future layers (e.g. an additional model-as-judge pass).
+
+Failure modes for Bedrock are **always fail-closed**: HTTP error, network
+error, malformed response, or missing credentials → reject with a generic
+public message; the rejection counter records the specific reason
+(`bedrock_http_500`, `pii_email`, `content_hate`, …) but never the raw text.
+
+### Wiring up Bedrock Guardrails
+
+1. Create a guardrail in the AWS Bedrock console for the region you'll use.
+   Configure at least:
+   - **Sensitive information policy**: BLOCK on `NAME`, `EMAIL`, `PHONE`,
+     `ADDRESS`, `US_SOCIAL_SECURITY_NUMBER`, `IP_ADDRESS`, `URL`.
+   - **Content policy**: BLOCK on `HATE`, `VIOLENCE`, `SEXUAL`, `MISCONDUCT`,
+     `PROMPT_ATTACK` at HIGH confidence.
+   - **Word policy**: managed list "Profanity" → BLOCK.
+   - **Topic policy**: optional; add custom topics your project wants closed.
+2. Note the guardrail ID and a published version (default `DRAFT`).
+3. Create an IAM user/role with `bedrock:ApplyGuardrail` only.
+4. Set the worker secrets:
+   ```bash
+   echo "$BEDROCK_GUARDRAIL_ID" | npx wrangler secret put BEDROCK_GUARDRAIL_ID
+   echo "1"                      | npx wrangler secret put BEDROCK_GUARDRAIL_VERSION
+   echo "us-west-2"              | npx wrangler secret put AWS_REGION
+   echo "$AKID"                  | npx wrangler secret put AWS_ACCESS_KEY_ID
+   echo "$SECRET"                | npx wrangler secret put AWS_SECRET_ACCESS_KEY
+   ```
+5. Flip the mode in `workers/tmayd-api/wrangler.jsonc`:
+   ```jsonc
+   "MODERATION_MODE": "bedrock"
+   ```
+   and redeploy: `cd workers/tmayd-api && npx wrangler deploy`.
+6. Verify: `curl -s https://cbassuarez.com/api/tmayd/status | jq` should
+   still report `intakeOpen: true`. If it reports `unavailable`, Bedrock
+   isn't configured to the worker's satisfaction — re-check secrets.
+
+To revert to deterministic-only without Bedrock:
+```jsonc
+"MODERATION_MODE": "deterministic_only"
+```
+plus `TMAYD_ALLOW_DETERMINISTIC_ONLY_IN_PROD=true` (already the default).
+
 ## Known limitations
 
-- Moderation is `deterministic_only`. Bedrock Guardrails integration is
-  stubbed (env vars defined; the moderation call is not yet wired). With
-  `TMAYD_ALLOW_DETERMINISTIC_ONLY_IN_PROD=true`, the worker accepts a
-  best-effort regex pipeline. Tighten later by setting Bedrock secrets and
-  flipping `MODERATION_MODE=bedrock`.
 - No image captures yet; the camera path is wire-shaped only.
 - The OptiPlex has a local `tmayd-status.service` listening on
   `0.0.0.0:8080`. It is on a private building Wi-Fi and is **not** the public

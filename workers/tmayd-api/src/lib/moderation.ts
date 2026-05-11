@@ -1,5 +1,6 @@
-import type { ModerationResult } from "../types";
+import type { Env, ModerationResult } from "../types";
 import { MODERATION_VERSION } from "../types";
+import { bedrockConfigured, bedrockModerate } from "./bedrock";
 
 /**
  * Deterministic moderation. Returns either `ok: true` with a cleaned message
@@ -134,4 +135,83 @@ function reject(
   message: string
 ): ModerationResult {
   return { ok: false, kind, reason, message };
+}
+
+/**
+ * Layered moderation orchestrator.
+ *
+ * - Always runs the deterministic regex layer first. It is cheap, has no
+ *   third-party dependency, and catches obvious PII shapes before sending
+ *   anything outbound to AWS.
+ * - In `bedrock` or `strict` modes, the cleaned text is then sent to AWS
+ *   Bedrock Guardrails. If Bedrock is misconfigured or unreachable, the
+ *   request is rejected (fail-closed) — never accept on a Bedrock error.
+ * - In `deterministic_only` mode, the function returns immediately after
+ *   the regex layer. Production should only run in this mode when
+ *   `TMAYD_ALLOW_DETERMINISTIC_ONLY_IN_PROD=true`; the route layer enforces
+ *   that gate before reaching this function.
+ *
+ * `_bedrockFetcher` is for tests only.
+ */
+export async function moderateSubmission(
+  rawText: string,
+  env: Env,
+  opts: { minChars: number; maxChars: number },
+  _bedrockFetcher?: typeof fetch
+): Promise<ModerationResult> {
+  const det = deterministicModerate(rawText, opts);
+  if (!det.ok) return det;
+
+  const mode = (env.MODERATION_MODE || "deterministic_only").toLowerCase();
+  if (mode === "deterministic_only") {
+    return det;
+  }
+
+  if (mode !== "bedrock" && mode !== "strict") {
+    // Unknown mode: treat as misconfiguration; fail closed.
+    return reject(
+      "hard",
+      "moderation_misconfigured",
+      "This message cannot be accepted. Please submit a non-identifying reflection about your day."
+    );
+  }
+
+  if (!bedrockConfigured(env)) {
+    return reject(
+      "hard",
+      "bedrock_not_configured",
+      "This message cannot be accepted. Please submit a non-identifying reflection about your day."
+    );
+  }
+
+  const bed = await bedrockModerate(det.cleaned, env, _bedrockFetcher);
+  if (!bed.ok) return bed;
+
+  // In strict mode we already required Bedrock; in bedrock mode same path.
+  return {
+    ok: true,
+    cleaned: det.cleaned,
+    moderationVersion: bed.moderationVersion
+  };
+}
+
+/**
+ * Tells the route layer whether moderation is currently ready to accept
+ * submissions. If the configured mode requires Bedrock but Bedrock is not
+ * configured, intake must close.
+ */
+export function moderationReady(env: Env): { ready: boolean; reason: string } {
+  const mode = (env.MODERATION_MODE || "deterministic_only").toLowerCase();
+  if (mode === "deterministic_only") {
+    const allowed = env.TMAYD_ALLOW_DETERMINISTIC_ONLY_IN_PROD === "true";
+    return allowed
+      ? { ready: true, reason: "deterministic_only_allowed" }
+      : { ready: false, reason: "deterministic_only_disallowed" };
+  }
+  if (mode === "bedrock" || mode === "strict") {
+    return bedrockConfigured(env)
+      ? { ready: true, reason: mode }
+      : { ready: false, reason: "bedrock_not_configured" };
+  }
+  return { ready: false, reason: "unknown_mode" };
 }
