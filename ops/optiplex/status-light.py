@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import select
 import signal
 import socket
 import subprocess
@@ -176,6 +177,11 @@ def _probe_lifx(want_mac: str, timeout_s: float) -> Optional[tuple[str, str]]:
     """Send a LIFX GetService probe out every host interface's directed
     broadcast. Returns the first (mac, ip) responder.
 
+    Uses one socket per interface, bound to that interface's source IP, and
+    listens for replies on the same socket. The LIFX bulb replies to the
+    source port of the request — so the send-socket *must* be the
+    receive-socket, otherwise the reply hits a closed port.
+
     If `want_mac` is set, only that MAC is accepted — useful on networks where
     multiple LIFX devices coexist or where an old responder might still be in
     ARP caches.
@@ -184,54 +190,55 @@ def _probe_lifx(want_mac: str, timeout_s: float) -> Optional[tuple[str, str]]:
     if not ifaces:
         return None
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    # SO_REUSEADDR so we can re-bind on restart without TIME_WAIT pain.
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("", 0))
-    sock.settimeout(0.25)
-
+    socks: list[socket.socket] = []
     for src_ip, bcast in ifaces:
         try:
-            # Bind-by-sendto trick: setting IP_MULTICAST_IF doesn't apply to
-            # broadcast; instead we send from a fresh socket per source IP.
-            tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            tx.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            tx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            tx.bind((src_ip, 0))
-            tx.sendto(_LIFX_GET_SERVICE, (bcast, 56700))
-            tx.close()
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((src_ip, 0))
+            s.setblocking(False)
+            s.sendto(_LIFX_GET_SERVICE, (bcast, 56700))
+            socks.append(s)
         except OSError as exc:
             log("warn", "lifx_probe_send_failed", iface_ip=src_ip, message=str(exc))
-            continue
 
-    start = time.time()
-    found: dict[str, str] = {}  # mac -> ip
-    while time.time() - start < timeout_s:
-        try:
-            data, addr = sock.recvfrom(2048)
-        except socket.timeout:
-            continue
-        except OSError:
-            break
-        if len(data) < 14:
-            continue
-        mac = ":".join(f"{b:02x}" for b in data[8:14])
-        ip = addr[0]
-        if want_mac and mac != want_mac:
-            continue
-        if mac not in found:
-            found[mac] = ip
-            log("info", "lifx_probe_reply", mac=mac, ip=ip)
-            if want_mac:
-                break
-    sock.close()
+    if not socks:
+        return None
+
+    found: dict[str, str] = {}
+    try:
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            remaining = max(0.0, deadline - time.time())
+            ready, _, _ = select.select(socks, [], [], min(0.25, remaining))
+            for s in ready:
+                try:
+                    data, addr = s.recvfrom(2048)
+                except OSError:
+                    continue
+                if len(data) < 14:
+                    continue
+                mac = ":".join(f"{b:02x}" for b in data[8:14])
+                ip = addr[0]
+                if want_mac and mac != want_mac:
+                    continue
+                if mac not in found:
+                    found[mac] = ip
+                    log("info", "lifx_probe_reply", mac=mac, ip=ip)
+                    if want_mac:
+                        return (want_mac, ip)
+    finally:
+        for s in socks:
+            try:
+                s.close()
+            except OSError:
+                pass
 
     if not found:
         return None
     if want_mac and want_mac in found:
         return (want_mac, found[want_mac])
-    # No target requested — pick deterministically.
     chosen_mac = sorted(found.keys())[0]
     return (chosen_mac, found[chosen_mac])
 
