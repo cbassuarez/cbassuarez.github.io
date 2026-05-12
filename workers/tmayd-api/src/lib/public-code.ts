@@ -52,7 +52,11 @@ export function formatDateKey(d: Date): string {
   return `${y}${m}${day}`;
 }
 
-const PUBLIC_CODE_RE = /^DAY-\d{8}-\d{4}$/;
+// Allocator pads to 4 digits, but \d{4,} keeps validation future-proof for the
+// unlikely case of >9999 submissions in a single UTC day (the daily counter
+// would naturally grow to 5+ digits without padding). Format itself is
+// unchanged: DAY-YYYYMMDD-NNNN.
+const PUBLIC_CODE_RE = /^DAY-\d{8}-\d{4,}$/;
 export function isValidPublicCode(code: string): boolean {
   return typeof code === "string" && PUBLIC_CODE_RE.test(code);
 }

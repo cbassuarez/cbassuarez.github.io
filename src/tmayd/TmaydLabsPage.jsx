@@ -68,12 +68,12 @@ function parseRoute(pathname) {
     return result;
   }
 
-  const dayMatch = pathname.match(/^\/labs\/tell-me-about-your-day\/day\/(DAY-\d{8}-\d{4})\/?$/);
+  const dayMatch = pathname.match(/^\/labs\/tell-me-about-your-day\/day\/(DAY-\d{8}-\d{4,})\/?$/);
   if (dayMatch) {
     const code = dayMatch[1];
     result.isReel = true;
     result.highlightPublicCode = code;
-    const m = code.match(/^DAY-(\d{4})(\d{2})(\d{2})-\d{4}$/);
+    const m = code.match(/^DAY-(\d{4})(\d{2})(\d{2})-\d{4,}$/);
     if (m) {
       result.initialDate = `${m[1]}-${m[2]}-${m[3]}`;
     }
@@ -124,6 +124,31 @@ export default function TmaydLabsPage({ pathname }) {
       }
     };
   }, []);
+
+  // Lock outer (html/body) scroll while TMAYD is mounted — the receipt is
+  // the only scroll surface.
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtml = html.style.overflow;
+    const prevBody = body.style.overflow;
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    return () => {
+      html.style.overflow = prevHtml;
+      body.style.overflow = prevBody;
+    };
+  }, []);
+
+  function handleJumpToSubmit() {
+    const target = document.getElementById('submit');
+    if (!target) return;
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target.scrollIntoView({
+      behavior: prefersReduced ? 'auto' : 'smooth',
+      block: 'start'
+    });
+  }
 
   if (routeState.isOps) {
     return (
@@ -181,6 +206,16 @@ export default function TmaydLabsPage({ pathname }) {
         {routeState.notice ? (
           <p className="tmayd-section-label">{routeState.notice}</p>
         ) : null}
+
+        <p className="tmayd-jump">
+          <button
+            type="button"
+            className="tmayd-button tmayd-button--jump"
+            onClick={handleJumpToSubmit}
+          >
+            submit ↓
+          </button>
+        </p>
       </section>
 
       <hr className="tmayd-rule" />
@@ -189,6 +224,7 @@ export default function TmaydLabsPage({ pathname }) {
 
       <hr className="tmayd-rule" />
 
+      <div id="submit" />
       <TmaydSubmissionForm
         intakeOpen={Boolean(status?.intakeOpen)}
         statusMessage={status?.message || ''}

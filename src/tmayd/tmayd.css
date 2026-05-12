@@ -1,32 +1,62 @@
 /* TMAYD — thermal-paper visual system. All rules scoped under .tmayd-root
    so styles cannot reach the rest of the deliberately-retro site. */
 
+/* Thermal Sans Mono — 12x24 bitmap font by Mike Billington (mike42),
+   derived from GNU Unifont. GPLv2 with the GNU Font Embedding Exception.
+   Built from the v0.2 BDF release; pixel grid preserved as vector squares
+   so it scales without losing the thermal-printer feel. */
+@font-face {
+  font-family: "Thermal Sans Mono";
+  src: url("/fonts/thermal-sans-mono-24.woff2") format("woff2"),
+       url("/fonts/thermal-sans-mono-24.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 .tmayd-root {
   --tm-bg: #15110d;
-  --tm-paper: #f3ead8;
-  --tm-paper-edge: #e6dac0;
-  --tm-ink: #1a1612;
-  --tm-ink-soft: rgba(26, 22, 18, 0.62);
-  --tm-ink-faint: rgba(26, 22, 18, 0.28);
+  --tm-paper: #ffffff;
+  --tm-paper-edge: #f4f4f4;
+  --tm-ink: #232323;
+  --tm-ink-soft: rgba(35, 35, 35, 0.62);
+  --tm-ink-faint: rgba(35, 35, 35, 0.26);
   --tm-mark: #a62828;
-  --tm-accept: #4a6b2b;
+  --tm-accept: #2b6b2b;
 
-  --tm-serif: "Times New Roman", Times, serif;
-  --tm-mono: "Courier New", Courier, monospace;
+  /* Receipt printer prints one font, at one weight. Both vars resolve to it
+     so existing rules can keep their semantic split (serif vs mono) without
+     changing the visual outcome. Fallback stays monospace so a FOUT looks
+     receipt-ish, not Times-y. */
+  --tm-serif: "Thermal Sans Mono", "Courier New", Courier, monospace;
+  --tm-mono: "Thermal Sans Mono", "Courier New", Courier, monospace;
 
   --tm-paper-max: 640px;
-  --tm-gutter: 16px;
+  --tm-gutter: clamp(12px, 3vw, 32px);
 
   background: var(--tm-bg);
   color: var(--tm-ink);
   font-family: var(--tm-serif);
-  font-size: 17px;
-  line-height: 1.55;
-  min-height: 100vh;
-  padding: clamp(20px, 4vw, 56px) var(--tm-gutter);
+  font-size: 18px;
+  line-height: 1.42;
+  /* Thermal Sans Mono's 12-dot cell leaves a lot of air around narrow letters.
+     Pull cells together with negative tracking so words read as words, not as
+     letter-spaced labels. Uppercase rules below still set their own positive
+     tracking, which overrides this.
+
+     word-spacing compensates: letter-spacing also shrinks the gap at space
+     characters, so without word-spacing words would visually run together.
+     Keep word-spacing ≈ |letter-spacing| wherever letter-spacing is negative. */
+  letter-spacing: -0.44em;
+  word-spacing: 0.44em;
+  height: 100vh;
+  height: 100dvh;
+  padding: var(--tm-gutter);
   display: flex;
   justify-content: center;
+  align-items: stretch;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .tmayd-root *,
@@ -60,39 +90,67 @@
 
 /* ── receipt column ──────────────────────────────────────────────── */
 
+/* drop-shadow follows the clipped (zigzag) silhouette, unlike box-shadow.
+   The filter is on the wrapper so it doesn't apply to scrollable content. */
+.tmayd-receipt-shadow {
+  filter: drop-shadow(0 18px 36px rgba(0, 0, 0, 0.45))
+          drop-shadow(0 4px 10px rgba(0, 0, 0, 0.3));
+  width: 100%;
+  max-width: var(--tm-paper-max);
+  height: 100%;
+  display: flex;
+}
+
 .tmayd-receipt {
   background: var(--tm-paper);
   color: var(--tm-ink);
   width: 100%;
-  max-width: var(--tm-paper-max);
-  padding: clamp(28px, 5vw, 56px) clamp(20px, 5vw, 44px);
+  height: 100%;
   position: relative;
-  box-shadow:
-    0 30px 60px -20px rgba(0, 0, 0, 0.55),
-    0 8px 16px -8px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  /* Jagged tear edges along the top and bottom — like a thermal receipt
+     ripped off the roll. Sides stay flat. */
+  clip-path: polygon(
+    0% 9px,
+    3.125% 0%, 6.25% 9px, 9.375% 0%, 12.5% 9px, 15.625% 0%,
+    18.75% 9px, 21.875% 0%, 25% 9px, 28.125% 0%, 31.25% 9px,
+    34.375% 0%, 37.5% 9px, 40.625% 0%, 43.75% 9px, 46.875% 0%,
+    50% 9px, 53.125% 0%, 56.25% 9px, 59.375% 0%, 62.5% 9px,
+    65.625% 0%, 68.75% 9px, 71.875% 0%, 75% 9px, 78.125% 0%,
+    81.25% 9px, 84.375% 0%, 87.5% 9px, 90.625% 0%, 93.75% 9px,
+    96.875% 0%, 100% 9px,
+    100% calc(100% - 9px),
+    96.875% 100%, 93.75% calc(100% - 9px), 90.625% 100%,
+    87.5% calc(100% - 9px), 84.375% 100%, 81.25% calc(100% - 9px),
+    78.125% 100%, 75% calc(100% - 9px), 71.875% 100%,
+    68.75% calc(100% - 9px), 65.625% 100%, 62.5% calc(100% - 9px),
+    59.375% 100%, 56.25% calc(100% - 9px), 53.125% 100%,
+    50% calc(100% - 9px), 46.875% 100%, 43.75% calc(100% - 9px),
+    40.625% 100%, 37.5% calc(100% - 9px), 34.375% 100%,
+    31.25% calc(100% - 9px), 28.125% 100%, 25% calc(100% - 9px),
+    21.875% 100%, 18.75% calc(100% - 9px), 15.625% 100%,
+    12.5% calc(100% - 9px), 9.375% 100%, 6.25% calc(100% - 9px),
+    3.125% 100%, 0% calc(100% - 9px)
+  );
 }
 
-.tmayd-receipt::before,
-.tmayd-receipt::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 12px;
-  background-image:
-    radial-gradient(circle at 6px 6px, var(--tm-bg) 3px, transparent 3.5px);
-  background-size: 14px 12px;
-  background-repeat: repeat-x;
-  pointer-events: none;
+/* The actual scrollable content area inside the receipt. */
+.tmayd-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: clamp(28px, 4vw, 48px) clamp(20px, 4vw, 36px);
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tm-ink-faint) transparent;
 }
 
-.tmayd-receipt::before {
-  top: -6px;
-}
-
-.tmayd-receipt::after {
-  bottom: -6px;
-}
+.tmayd-scroll::-webkit-scrollbar { width: 6px; }
+.tmayd-scroll::-webkit-scrollbar-track { background: transparent; }
+.tmayd-scroll::-webkit-scrollbar-thumb { background: var(--tm-ink-faint); }
+.tmayd-scroll::-webkit-scrollbar-thumb:hover { background: var(--tm-ink-soft); }
 
 /* ── typography ──────────────────────────────────────────────────── */
 
@@ -102,7 +160,8 @@
   font-family: var(--tm-serif);
   font-weight: 400;
   margin: 0;
-  letter-spacing: -0.01em;
+  word-spacing: 0.36em;
+  letter-spacing: -0.36em;
 }
 
 .tmayd-root p {
@@ -118,7 +177,7 @@
   display: inline-block;
   font-family: var(--tm-mono);
   font-size: 0.72rem;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--tm-ink-soft);
 }
@@ -132,7 +191,7 @@
 .tmayd-header__eyebrow {
   font-family: var(--tm-mono);
   font-size: 0.72rem;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--tm-ink-soft);
   margin-bottom: 6px;
@@ -140,16 +199,20 @@
 
 .tmayd-header__title {
   font-family: var(--tm-serif);
-  font-size: clamp(1.8rem, 5.4vw, 2.6rem);
-  line-height: 1.06;
-  letter-spacing: -0.015em;
+  font-size: clamp(1.6rem, 5vw, 2.3rem);
+  line-height: 1.05;
+  /* Headings need MORE negative tracking than body — at 30+px each empty
+     pixel-column in a cell is very visible, so pull the wordmark together.
+     Pair with word-spacing so spaces don't disappear. */
+  letter-spacing: -0.32em;
+  word-spacing: 0.32em;
   margin: 0;
 }
 
 .tmayd-header__code {
   font-family: var(--tm-mono);
   font-size: 0.78rem;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--tm-ink-soft);
   margin-top: 10px;
@@ -159,7 +222,7 @@
   margin-top: 18px;
   font-family: var(--tm-mono);
   font-size: 0.78rem;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--tm-ink-soft);
 }
@@ -172,7 +235,7 @@
 
 .tmayd-rule {
   border: 0;
-  border-top: 1px dotted var(--tm-ink-faint);
+  border-top: 3px dotted var(--tm-ink-faint);
   margin: 28px 0;
 }
 
@@ -193,32 +256,44 @@
 }
 
 /* ── about / copy block ──────────────────────────────────────────── */
+.tmayd-copy h1 {
+  letter-spacing: -0.52em;
+  word-spacing: 0.52em;
+  margin: 0 0 8px;
+}
 
 .tmayd-copy h2 {
   font-size: 1.12rem;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.52em;
+  word-spacing: 0.52em;
   margin: 0 0 8px;
 }
 
 .tmayd-copy p {
   font-size: 1rem;
-  line-height: 1.6;
+  line-height: 1.45;
+  word-spacing: 0.32em;
+  letter-spacing: -0.32em;
 }
 
 .tmayd-notice {
   border-left: 2px solid var(--tm-mark);
   padding: 4px 0 4px 14px;
   margin: 16px 0;
+  word-spacing: 0.32em;
+  letter-spacing: -0.32em;
 }
 
 .tmayd-notice__label {
   display: block;
   font-family: var(--tm-mono);
   font-size: 0.7rem;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--tm-mark);
   margin-bottom: 4px;
+  word-spacing: 0.32em;
+  letter-spacing: -0.32em;
 }
 
 /* ── status panel ────────────────────────────────────────────────── */
@@ -237,7 +312,7 @@
 
 .tmayd-status__key {
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.05em;
   color: var(--tm-ink-soft);
   flex-shrink: 0;
 }
@@ -260,7 +335,7 @@
   margin: 10px 0 4px;
   font-family: var(--tm-mono);
   font-size: 0.84rem;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -307,7 +382,7 @@
   display: inline-block;
   font-family: var(--tm-mono);
   font-size: 0.72rem;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   padding: 2px 6px;
   border: 1px solid currentColor;
@@ -333,7 +408,7 @@
   display: block;
   font-family: var(--tm-mono);
   font-size: 0.72rem;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--tm-ink-soft);
   margin-bottom: 6px;
@@ -345,7 +420,7 @@
   min-height: 9.5em;
   font-family: var(--tm-mono);
   font-size: 0.95rem;
-  line-height: 1.55;
+  line-height: 1.4;
   color: var(--tm-ink);
   background: var(--tm-paper-edge);
   border: 1px solid var(--tm-ink);
@@ -370,7 +445,7 @@
   text-align: right;
   font-family: var(--tm-mono);
   font-size: 0.78rem;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.02em;
   color: var(--tm-ink-soft);
   margin-top: 4px;
 }
@@ -435,7 +510,7 @@
   display: block;
   font-family: var(--tm-mono);
   font-size: 0.72rem;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--tm-ink-soft);
   margin-bottom: 8px;
@@ -453,7 +528,7 @@
   display: inline-block;
   font-family: var(--tm-mono);
   font-size: 0.88rem;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--tm-paper);
   background: var(--tm-ink);
@@ -494,12 +569,48 @@
   background: transparent;
   font-size: 0.74rem;
   padding: 6px 10px;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.06em;
 }
 
 .tmayd-button--ghost:hover:not(:disabled) {
   background: var(--tm-ink);
   color: var(--tm-paper);
+}
+
+/* Jump-to-submit button — full-width, filled, prominent. */
+.tmayd-button--jump {
+  display: block;
+  width: 100%;
+  color: var(--tm-paper);
+  background: var(--tm-ink);
+  border: 1px solid var(--tm-ink);
+  font-family: var(--tm-mono);
+  font-size: 0.92rem;
+  text-transform: uppercase;
+  padding: 14px 22px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-decoration: none;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.tmayd-button--jump:hover:not(:disabled) {
+  background: #000;
+  color: var(--tm-paper);
+  text-decoration: none;
+}
+
+.tmayd-button--jump:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.tmayd-jump {
+  margin: 20px 0 0;
+}
+
+#submit {
+  scroll-margin-top: 24px;
 }
 
 /* result block — "printed receipt" output */
@@ -518,7 +629,7 @@
 .tmayd-result__header {
   font-family: var(--tm-mono);
   font-size: 0.78rem;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   margin-bottom: 6px;
 }
@@ -529,14 +640,14 @@
 .tmayd-result__body {
   font-family: var(--tm-serif);
   font-size: 1rem;
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
 .tmayd-result__pill {
   display: inline-block;
   font-family: var(--tm-mono);
   font-size: 0.82rem;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.05em;
   border: 1px solid var(--tm-ink);
   padding: 3px 10px;
   margin-left: 6px;
@@ -565,7 +676,7 @@
 .tmayd-footer__colophon {
   font-family: var(--tm-mono);
   font-size: 0.72rem;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--tm-ink-soft);
   text-align: right;
@@ -589,7 +700,7 @@
 .tmayd-figure__caption {
   font-family: var(--tm-mono);
   font-size: 0.78rem;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--tm-ink-soft);
   margin-top: 6px;
@@ -618,7 +729,7 @@
 .tmayd-checks__symbol {
   flex-shrink: 0;
   width: 4.2em;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
 }
 
 .tmayd-checks__symbol--ok   { color: var(--tm-accept); }
@@ -644,7 +755,7 @@
   cursor: pointer;
   font-family: var(--tm-mono);
   font-size: 0.84rem;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--tm-ink);
   list-style: none;
@@ -681,10 +792,11 @@
 .tmayd-cycle__headline {
   font-family: var(--tm-serif);
   font-size: clamp(1.1rem, 3.4vw, 1.32rem);
-  line-height: 1.25;
+  line-height: 1.2;
   color: var(--tm-ink);
   margin: 0 0 18px;
-  letter-spacing: -0.005em;
+  letter-spacing: -0.44em;
+  word-spacing: 0.44em;
 }
 
 .tmayd-cycle__diagram {
@@ -722,7 +834,7 @@
 .tmayd-cycle__label {
   font-family: var(--tm-mono);
   font-size: 0.7rem;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--tm-ink-soft);
   white-space: nowrap;
@@ -731,7 +843,7 @@
 
 .tmayd-cycle__step--active .tmayd-cycle__label {
   color: var(--tm-ink);
-  letter-spacing: 0.18em;
+  letter-spacing: 0.08em;
 }
 
 .tmayd-cycle__connector {
@@ -768,7 +880,7 @@
 .tmayd-cycle__subline {
   font-family: var(--tm-serif);
   font-size: 1rem;
-  line-height: 1.55;
+  line-height: 1.45;
   color: var(--tm-ink);
   margin: 0 0 10px;
 }
@@ -776,7 +888,7 @@
 .tmayd-cycle__heartbeat {
   font-family: var(--tm-mono);
   font-size: 0.72rem;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--tm-ink-soft);
   margin: 0;
@@ -811,10 +923,10 @@
   }
   .tmayd-cycle__label {
     font-size: 0.62rem;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.02em;
   }
   .tmayd-cycle__step--active .tmayd-cycle__label {
-    letter-spacing: 0.14em;
+    letter-spacing: 0.06em;
   }
 }
 

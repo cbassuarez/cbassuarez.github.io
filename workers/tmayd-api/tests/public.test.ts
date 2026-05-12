@@ -222,3 +222,88 @@ describe("submissions: rate limiting", () => {
     expect(lastStatus).toBe(429);
   });
 });
+
+describe("/d/:publicCode resolver", () => {
+  // Direct row insert keeps these tests independent of the submission /
+  // moderation / rate-limit pipeline. The resolver only cares that a row
+  // exists with the given public_code.
+  async function seedSubmission(publicCode: string, status = "accepted"): Promise<string> {
+    const { env } = await import("cloudflare:test");
+    const id = `id-${publicCode}`;
+    await (env.DB as D1Database)
+      .prepare(
+        "INSERT INTO submissions (id, public_code, accepted_text, display_name, status, moderation_version, created_at) " +
+          "VALUES (?1, ?2, ?3, NULL, ?4, 'v1', ?5)"
+      )
+      .bind(id, publicCode, "secret accepted text not exposed by resolver", status, new Date().toISOString())
+      .run();
+    return id;
+  }
+
+  async function getNoRedirect(path: string): Promise<Response> {
+    return SELF.fetch(`https://api.test${path}`, {
+      redirect: "manual",
+      headers: { origin: ORIGIN }
+    });
+  }
+
+  it("redirects 302 to frontend day route for a known publicCode", async () => {
+    const code = "DAY-20260511-0001";
+    await seedSubmission(code);
+
+    const res = await getNoRedirect(`/d/${code}`);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(`/labs/tell-me-about-your-day/day/${code}`);
+  });
+
+  it("returns 404 for a well-formed but unknown publicCode", async () => {
+    const res = await getNoRedirect("/d/DAY-20260511-9999");
+    expect(res.status).toBe(404);
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("returns 404 for malformed publicCode (wrong prefix)", async () => {
+    const res = await getNoRedirect("/d/NIGHT-20260511-0001");
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 for malformed publicCode (too few seq digits)", async () => {
+    const res = await getNoRedirect("/d/DAY-20260511-1");
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 for malformed publicCode (non-numeric tail)", async () => {
+    const res = await getNoRedirect("/d/DAY-20260511-abcd");
+    expect(res.status).toBe(404);
+  });
+
+  it("accepts 5+ digit sequence (\\d{4,}) per format spec", async () => {
+    const code = "DAY-20260511-12345";
+    await seedSubmission(code);
+
+    const res = await getNoRedirect(`/d/${code}`);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(`/labs/tell-me-about-your-day/day/${code}`);
+  });
+
+  it("does not leak internal IDs, accepted text, or moderation metadata", async () => {
+    const code = "DAY-20260511-0007";
+    const internalId = await seedSubmission(code);
+
+    const res = await getNoRedirect(`/d/${code}`);
+    const body = await res.text();
+    // The internal submission UUID is never sent; neither is the raw text.
+    expect(body).not.toContain(internalId);
+    expect(body).not.toContain("secret accepted text");
+    expect(body).not.toContain("moderation_version");
+    expect(body).not.toContain("v1");
+  });
+
+  it("404 body is opaque (no row details)", async () => {
+    const res = await getNoRedirect("/d/DAY-20260511-9998");
+    const body = await res.text();
+    expect(body).not.toContain("submission");
+    expect(body).not.toContain("public_code");
+    expect(body).not.toContain("DAY-20260511-9998");
+  });
+});

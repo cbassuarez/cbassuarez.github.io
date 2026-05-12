@@ -13,8 +13,73 @@ import {
   platformRateOk,
   recordAttempt
 } from "../lib/rate-limit";
-import { nextPublicCode } from "../lib/public-code";
+import { isValidPublicCode, nextPublicCode } from "../lib/public-code";
 import { resolveStatus, statusFromResolved } from "../lib/settings";
+
+const DAY_ROUTE_PREFIX = "/labs/tell-me-about-your-day/day/";
+
+/**
+ * GET /d/:publicCode — public receipt resolver.
+ *
+ * Printed receipts carry `https://cbassuarez.com/d/{publicCode}` (and an rMQR
+ * encoding the same URL). Scanning or typing that URL must always land on a
+ * record-proof page or a clean 404.
+ *
+ * Behavior:
+ *   - malformed code   → 404 (no body details, no internal IDs)
+ *   - unknown code     → 404
+ *   - known code       → 302 to the frontend day route
+ *                        (/labs/tell-me-about-your-day/day/{publicCode})
+ *
+ * We deliberately do NOT branch on submission.status: a record that has been
+ * accepted but is still queued/leased/printed/failed all resolve the same
+ * way, because the artwork is "the public code was accepted", not "it has
+ * already been printed". The frontend reel viewer handles per-state display.
+ *
+ * We deliberately do NOT expose the internal submission UUID, moderation
+ * version, or timestamps in any response body.
+ */
+export async function handlePublicCodeRedirect(
+  request: Request,
+  env: Env,
+  publicCode: string
+): Promise<Response> {
+  if (!isValidPublicCode(publicCode)) {
+    return notFound();
+  }
+
+  const row = await env.DB.prepare(
+    "SELECT public_code FROM submissions WHERE public_code = ?1"
+  )
+    .bind(publicCode)
+    .first<{ public_code: string }>();
+
+  if (!row) {
+    return notFound();
+  }
+
+  // Relative Location keeps the redirect on the same host (cbassuarez.com or
+  // www.cbassuarez.com — whichever the receipt was scanned against).
+  const location = `${DAY_ROUTE_PREFIX}${row.public_code}`;
+  return new Response(null, {
+    status: 302,
+    headers: {
+      location,
+      "cache-control": "public, max-age=60",
+      "x-tmayd-resolver": "1"
+    }
+  });
+}
+
+function notFound(): Response {
+  return new Response("Not found.\n", {
+    status: 404,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "public, max-age=30"
+    }
+  });
+}
 
 export async function handleStatus(request: Request, env: Env): Promise<Response> {
   const resolved = await resolveStatus(env);

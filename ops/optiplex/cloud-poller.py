@@ -45,8 +45,8 @@ DEFAULTS = {
     "TMAYD_HTTP_TIMEOUT": "8",
 }
 
-PUBLIC_CODE_RE = re.compile(r"^DAY-\d{8}-\d{4}$")
-PRINTED_RE = re.compile(r"^\d{8}T\d{6}Z-(DAY-\d{8}-\d{4})\.txt$")
+PUBLIC_CODE_RE = re.compile(r"^DAY-\d{8}-\d{4,}$")
+PRINTED_RE = re.compile(r"^\d{8}T\d{6}Z-(DAY-\d{8}-\d{4,})\.txt$")
 
 # Maximum bytes we will read into memory for a single job. Cloud API enforces
 # the 700-char ceiling; this is a hard local cap.

@@ -48,29 +48,33 @@ export default function TmaydPageShell({
 
   return (
     <div className="tmayd-root">
-      <article className="tmayd-receipt">
-        <header className="tmayd-header">
-          <div className="tmayd-header__eyebrow">{meta.eyebrow}</div>
-          <h1 className="tmayd-header__title">Tell me about your day</h1>
-          <div className="tmayd-header__code">{meta.code}</div>
-          {showNav ? (
-            <nav className="tmayd-nav" aria-label="TMAYD navigation">
-              <a href={BASE_ROUTE}>intake</a>
-              <a href={`${BASE_ROUTE}/live`}>live</a>
-              <a href={`${BASE_ROUTE}/reel`}>reel</a>
-              <a href="/">home</a>
-            </nav>
-          ) : null}
-        </header>
+      <div className="tmayd-receipt-shadow">
+        <article className="tmayd-receipt">
+          <div className="tmayd-scroll">
+            <header className="tmayd-header">
+              <div className="tmayd-header__eyebrow">{meta.eyebrow}</div>
+              <h1 className="tmayd-header__title">Tell me about your day</h1>
+              <div className="tmayd-header__code">{meta.code}</div>
+              {showNav ? (
+                <nav className="tmayd-nav" aria-label="TMAYD navigation">
+                  <a href={BASE_ROUTE}>intake</a>
+                  <a href={`${BASE_ROUTE}/live`}>live</a>
+                  <a href={`${BASE_ROUTE}/reel`}>reel</a>
+                  <a href="/">home</a>
+                </nav>
+              ) : null}
+            </header>
 
-        {children}
+            {children}
 
-        <footer className="tmayd-footer">
-          <div className="tmayd-footer__colophon">
-            cbassuarez · receipt {today}
+            <footer className="tmayd-footer">
+              <div className="tmayd-footer__colophon">
+                cbassuarez · receipt {today}
+              </div>
+            </footer>
           </div>
-        </footer>
-      </article>
+        </article>
+      </div>
     </div>
   );
 }

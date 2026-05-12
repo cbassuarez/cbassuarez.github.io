@@ -10,10 +10,13 @@
   },
 
   // Same-origin routing. cbassuarez.com is on Cloudflare DNS (proxied); these
-  // routes intercept /api/tmayd/* before the request reaches GH Pages.
+  // routes intercept /api/tmayd/* and /d/* before the request reaches GH Pages.
+  // /d/* is the public receipt resolver — printed rMQRs encode this URL.
   "routes": [
     { "pattern": "cbassuarez.com/api/tmayd/*", "zone_name": "cbassuarez.com" },
-    { "pattern": "www.cbassuarez.com/api/tmayd/*", "zone_name": "cbassuarez.com" }
+    { "pattern": "www.cbassuarez.com/api/tmayd/*", "zone_name": "cbassuarez.com" },
+    { "pattern": "cbassuarez.com/d/*", "zone_name": "cbassuarez.com" },
+    { "pattern": "www.cbassuarez.com/d/*", "zone_name": "cbassuarez.com" }
   ],
 
   "workers_dev": true,

@@ -2,6 +2,7 @@ import type { Env } from "./types";
 import { corsPreflight, json } from "./lib/json";
 import {
   handleLiveLatest,
+  handlePublicCodeRedirect,
   handleReelsForDate,
   handleReelsToday,
   handleStatus,
@@ -19,8 +20,12 @@ import {
 } from "./routes/admin";
 
 const REEL_DATE_RE = /^\/api\/tmayd\/reels\/(\d{4}-\d{2}-\d{2})$/;
-const PRINTED_RE = /^\/api\/tmayd\/bridge\/jobs\/(DAY-\d{8}-\d{4})\/printed$/;
-const FAILED_RE = /^\/api\/tmayd\/bridge\/jobs\/(DAY-\d{8}-\d{4})\/failed$/;
+const PRINTED_RE = /^\/api\/tmayd\/bridge\/jobs\/(DAY-\d{8}-\d{4,})\/printed$/;
+const FAILED_RE = /^\/api\/tmayd\/bridge\/jobs\/(DAY-\d{8}-\d{4,})\/failed$/;
+// Public receipt resolver: cbassuarez.com/d/{publicCode}. Matches loosely so
+// malformed codes still hit our handler and return 404 instead of leaking
+// through to GH Pages.
+const PUBLIC_CODE_PATH_RE = /^\/d\/([^/?#]+)\/?$/;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -37,6 +42,13 @@ export default {
     }
 
     try {
+      // Public receipt resolver: /d/{publicCode} — what printed rMQRs link to.
+      // Matched first so it short-circuits before the /api/tmayd/* table.
+      const publicCodeMatch = PUBLIC_CODE_PATH_RE.exec(path);
+      if (method === "GET" && publicCodeMatch) {
+        return await handlePublicCodeRedirect(request, env, publicCodeMatch[1]);
+      }
+
       // Public GETs
       if (method === "GET" && path === "/api/tmayd/status") {
         return await handleStatus(request, env);
