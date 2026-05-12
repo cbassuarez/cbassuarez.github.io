@@ -78,7 +78,13 @@ PRINT_ARROWS = cfg.get("TMAYD_PRINT_ARROWS", "1") == "1"
 # ── primitives ───────────────────────────────────────────────────────────
 
 def line(s=""):
-    return (s + "\n").encode("utf-8", errors="replace")
+    # Encode in cp1252 to match the WPC1252 code page selected at receipt
+    # init (ESC t 16 — see build_receipt). The printer's factory default
+    # is PC437, which renders our § ¶ • UTF-8 byte sequences as mojibake
+    # (`T°`, `┬¦`, `Γçó`). WPC1252 puts § ¶ • at single bytes 0xA7 0xB6
+    # 0x95 and also covers smart quotes, em-dashes, and ellipses; glyphs
+    # outside the code page fall back to '?' via errors="replace".
+    return (s + "\n").encode("cp1252", errors="replace")
 
 def blank():
     return line("")
@@ -401,6 +407,10 @@ def build_receipt(message, job_name):
 
     # Initialize printer + optional 180° rotation.
     a.emit(b"\x1b\x40")
+    # Select WPC1252 code page (ESC t 16) so § ¶ • smart-quotes and dashes
+    # render as single-byte cp1252 sequences rather than UTF-8 mojibake
+    # under the factory-default PC437 table. TM-T30III index 16 = WPC1252.
+    a.emit(b"\x1b\x74\x10")
     if ROTATE:
         a.emit(b"\x1b\x7b\x01")
 

@@ -145,23 +145,23 @@ class SubmissionSection(unittest.TestCase):
     def test_literary_marks_present(self):
         b = render()
         # § row above body, • row below body, ¶ open and ¶ close.
-        self.assertIn("§   §   §".encode("utf-8"), b)
-        self.assertIn("•   •   •".encode("utf-8"), b)
+        self.assertIn("§   §   §".encode("cp1252"), b)
+        self.assertIn("•   •   •".encode("cp1252"), b)
         # Two distinct pilcrows: one at left (opening), one at right (closing).
-        pilcrows = find_all(b, "¶".encode("utf-8"))
+        pilcrows = find_all(b, "¶".encode("cp1252"))
         self.assertEqual(len(pilcrows), 2, f"expected exactly 2 ¶ marks, got {len(pilcrows)}")
 
     def test_opening_pilcrow_is_before_closing(self):
         b = render()
-        pilcrows = find_all(b, "¶".encode("utf-8"))
+        pilcrows = find_all(b, "¶".encode("cp1252"))
         self.assertLess(pilcrows[0], pilcrows[1])
 
     def _render_no_arrows(self):
         """Render with arrows off so the byte stream is pure UTF-8 text.
 
         Arrow rasters interleave the body when PIL is installed and would
-        break decode("utf-8") — but they're irrelevant to body-layout
-        assertions, so we suppress them here.
+        break the cp1252 decode — irrelevant to body-layout assertions,
+        so we suppress them here.
         """
         old = pq.PRINT_ARROWS
         pq.PRINT_ARROWS = False
@@ -174,7 +174,7 @@ class SubmissionSection(unittest.TestCase):
         # Every non-blank body line begins with exactly 4 spaces.
         # The § and • marker rows are centered (padded with spaces), so we
         # match them with surrounding whitespace tolerance.
-        b = self._render_no_arrows().decode("utf-8")
+        b = self._render_no_arrows().decode("cp1252")
         m = re.search(r"§\s+§\s+§\s*\n(.+?)\n[^\S\n]*•\s+•\s+•", b, flags=re.S)
         self.assertIsNotNone(m, "could not locate ceremony section")
         chunk = m.group(1)
@@ -190,7 +190,7 @@ class SubmissionSection(unittest.TestCase):
             )
 
     def test_body_wrap_width_respected(self):
-        b = self._render_no_arrows().decode("utf-8")
+        b = self._render_no_arrows().decode("cp1252")
         m = re.search(r"§\s+§\s+§\s*\n(.+?)\n[^\S\n]*•\s+•\s+•", b, flags=re.S)
         self.assertIsNotNone(m, "could not locate ceremony section")
         chunk = m.group(1)
@@ -252,7 +252,7 @@ class SectionOrder(unittest.TestCase):
             "title": b.find(b"Tell me about your day"),
             "qr_url": b.find(f"{pq.PUBLIC_BASE}/{SAMPLE_JOB}".encode()),
             "form": b.find(b"FORM        " + pq.FORM_CODE.encode()),
-            "submission_open": b.find("§   §   §".encode("utf-8")),
+            "submission_open": b.find("§   §   §".encode("cp1252")),
             "footer": b.find(f"LOCAL PRINT RECORD / {record_no}".encode()),
             "frame_end": b.find(f"FRAME {record_no} END".encode()),
         }
