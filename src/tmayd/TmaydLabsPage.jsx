@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
+import TmaydCycleStatus from './TmaydCycleStatus';
 import TmaydLiveFrame from './TmaydLiveFrame';
 import TmaydOpsPlaybook from './TmaydOpsPlaybook';
+import TmaydPageShell from './TmaydPageShell';
+import TmaydPreflight from './TmaydPreflight';
 import TmaydReelViewer from './TmaydReelViewer';
 import TmaydStatusPanel from './TmaydStatusPanel';
 import TmaydSubmissionForm from './TmaydSubmissionForm';
@@ -13,7 +16,10 @@ function parseRoute(pathname) {
   const result = {
     initialDate: '',
     highlightPublicCode: '',
-    notice: ''
+    notice: '',
+    isLive: false,
+    isReel: false,
+    isOps: false
   };
 
   if (!pathname.startsWith(BASE_ROUTE)) {
@@ -24,9 +30,36 @@ function parseRoute(pathname) {
     return result;
   }
 
+  if (
+    pathname === `${BASE_ROUTE}/ops` ||
+    pathname === `${BASE_ROUTE}/ops/` ||
+    pathname === `${BASE_ROUTE}/preflight` ||
+    pathname === `${BASE_ROUTE}/preflight/`
+  ) {
+    result.isOps = true;
+    return result;
+  }
+
+  if (
+    pathname === `${BASE_ROUTE}/live` ||
+    pathname === `${BASE_ROUTE}/live/`
+  ) {
+    result.isLive = true;
+    return result;
+  }
+
+  if (
+    pathname === `${BASE_ROUTE}/reel` ||
+    pathname === `${BASE_ROUTE}/reel/`
+  ) {
+    result.isReel = true;
+    return result;
+  }
+
   const reelMatch = pathname.match(/^\/labs\/tell-me-about-your-day\/reel\/(\d{4}-\d{2}-\d{2})\/?$/);
   if (reelMatch) {
     const date = reelMatch[1];
+    result.isReel = true;
     if (isValidArchiveDate(date)) {
       result.initialDate = date;
     } else {
@@ -38,6 +71,7 @@ function parseRoute(pathname) {
   const dayMatch = pathname.match(/^\/labs\/tell-me-about-your-day\/day\/(DAY-\d{8}-\d{4})\/?$/);
   if (dayMatch) {
     const code = dayMatch[1];
+    result.isReel = true;
     result.highlightPublicCode = code;
     const m = code.match(/^DAY-(\d{4})(\d{2})(\d{2})-\d{4}$/);
     if (m) {
@@ -46,7 +80,7 @@ function parseRoute(pathname) {
     return result;
   }
 
-  result.notice = 'Requested TMAYD subroute is not available yet. Showing main route.';
+  result.notice = 'Requested TMAYD subroute is not available yet. Showing intake.';
   return result;
 }
 
@@ -91,59 +125,74 @@ export default function TmaydLabsPage({ pathname }) {
     };
   }, []);
 
+  if (routeState.isOps) {
+    return (
+      <TmaydPageShell variant="ops">
+        <TmaydStatusPanel status={status} isMock={statusIsMock} errorKind={statusError} />
+        <hr className="tmayd-rule" />
+        <TmaydPreflight />
+        <hr className="tmayd-rule" />
+        <TmaydOpsPlaybook />
+      </TmaydPageShell>
+    );
+  }
+
+  if (routeState.isLive) {
+    return (
+      <TmaydPageShell variant="live">
+        <TmaydStatusPanel status={status} isMock={statusIsMock} errorKind={statusError} />
+        <hr className="tmayd-rule" />
+        <TmaydLiveFrame />
+      </TmaydPageShell>
+    );
+  }
+
+  if (routeState.isReel) {
+    return (
+      <TmaydPageShell variant="reel">
+        <TmaydStatusPanel status={status} isMock={statusIsMock} errorKind={statusError} />
+        <hr className="tmayd-rule" />
+        <TmaydReelViewer
+          initialDate={routeState.initialDate}
+          highlightPublicCode={routeState.highlightPublicCode}
+        />
+      </TmaydPageShell>
+    );
+  }
+
   return (
-    <>
-      <center>
-        <h1>cbassuarez.com</h1>
+    <TmaydPageShell variant="landing">
+      <section className="tmayd-copy">
         <p>
-          <i>labs / tell me about your day</i>
+          Tell Me About Your Day is a public text intake and thermal-paper archive.
+          Messages submitted here may be screened, printed by a local thermal printer,
+          photographed as they pass through a small camera gate, and accumulated as a
+          physical strip inside the apparatus.
         </p>
-        <p>
-          [ <a href="/">home</a> ] [ <a href="/works">works</a> ] [ <a href="/labs/feed">feed</a> ] [ <a href="/labs/guestbook">guestbook</a> ] [ <a href="/about">about</a> ] [ <a href="/contact">contact</a> ]
-        </p>
-      </center>
 
-      <hr />
+        <div className="tmayd-notice">
+          <span className="tmayd-notice__label">§ Notice</span>
+          This is a public artwork, not a private diary. Do not submit emergencies,
+          threats, confessions, allegations, names, addresses, phone numbers, legal claims,
+          medical details, or private information. Accepted messages may be physically printed,
+          photographed, archived, displayed online, or exhibited.
+        </div>
 
-      <h2>Project description</h2>
-      <p>
-        Tell Me About Your Day is a public text intake and thermal-paper archive.
-        Messages submitted here may be screened, printed by a local thermal printer,
-        photographed as they pass through a small camera gate, and accumulated as a physical strip inside the apparatus.
-        The archive below is built from the machine&apos;s paper images, not only from database text.
-      </p>
+        {routeState.notice ? (
+          <p className="tmayd-section-label">{routeState.notice}</p>
+        ) : null}
+      </section>
 
-      <p>
-        <strong>Public warning:</strong> This is a public artwork, not a private diary.
-        Do not submit emergencies, threats, confessions, allegations, names, addresses, phone numbers,
-        legal claims, medical details, or private information.
-      </p>
-      <p>
-        Accepted messages may be physically printed, photographed, archived, displayed online,
-        livestreamed as still frames, or exhibited. Rejected raw submissions are not intended to be retained.
-      </p>
+      <hr className="tmayd-rule" />
 
-      {routeState.notice ? <p><small>{routeState.notice}</small></p> : null}
+      <TmaydCycleStatus status={status} isMock={statusIsMock} errorKind={statusError} />
 
-      <hr />
+      <hr className="tmayd-rule" />
 
-      <TmaydStatusPanel status={status} isMock={statusIsMock} errorKind={statusError} />
-
-      <hr />
-
-      <TmaydLiveFrame />
-
-      <hr />
-
-      <TmaydSubmissionForm intakeOpen={Boolean(status?.intakeOpen)} statusMessage={status?.message || ''} />
-
-      <hr />
-
-      <TmaydOpsPlaybook />
-
-      <hr />
-
-      <TmaydReelViewer initialDate={routeState.initialDate} highlightPublicCode={routeState.highlightPublicCode} />
-    </>
+      <TmaydSubmissionForm
+        intakeOpen={Boolean(status?.intakeOpen)}
+        statusMessage={status?.message || ''}
+      />
+    </TmaydPageShell>
   );
 }

@@ -9,7 +9,10 @@ console.info('[repl] LOADING voices/marimba.js', new Date().toISOString());
 (function (root) {
   'use strict';
 
-  const DEFAULT_MANIFEST_URL = './public/instruments/iowa-marimba/manifest.full.json';
+  const DEFAULT_MANIFEST_URL =
+    (typeof window !== 'undefined' && typeof window.replAudioUrl === 'function')
+      ? window.replAudioUrl('instrument-manifest', 'iowa-marimba')
+      : './public/instruments/iowa-marimba/manifest.full.json';
   const MALLETS = ['yarn', 'cord', 'rubber'];
   const DEFAULT_MAX_VOICES = 96;
 
@@ -233,10 +236,26 @@ console.info('[repl] LOADING voices/marimba.js', new Date().toISOString());
     return promise;
   }
 
-  function forceGain(force) {
-    const f = clamp(numericParamValue(force, 0.72), 0, 1.2);
-    return clamp(0.35 + f * 0.82, 0.18, 1.35);
-  }
+    function forceGain(force) {
+      const named = {
+        ppp: 0.22,
+        pp: 0.30,
+        p: 0.42,
+        mp: 0.55,
+        mf: 0.72,
+        f: 0.90,
+        ff: 1.00,
+        fff: 1.12,
+      };
+
+      if (typeof force === 'string') {
+        const lower = force.toLowerCase();
+        if (named[lower] != null) return named[lower];
+      }
+
+      const f = clamp(numericParamValue(force, 0.72), 0, 1.2);
+      return clamp(0.35 + f * 0.82, 0.18, 1.35);
+    }
 
   function humanize(opts) {
     const human = clamp01(numericParamValue(opts.human, 0));
@@ -260,15 +279,15 @@ console.info('[repl] LOADING voices/marimba.js', new Date().toISOString());
     const lowpass = audioCtx.createBiquadFilter();
     lowpass.type = 'lowpass';
 
-    const malletBase = mallet === 'rubber' ? 11500 : mallet === 'cord' ? 8900 : 6800;
-    lowpass.frequency.value = clamp(malletBase + force * 3200 - deadstroke * 1600, 2400, 16000);
+      const malletBase = mallet === 'rubber' ? 13500 : mallet === 'cord' ? 9600 : 6200;
+      lowpass.frequency.value = clamp(malletBase + force * 3000 - deadstroke * 2200, 1800, 16000);
     lowpass.Q.value = 0.28 + body * 0.55;
 
     const bodyPeak = audioCtx.createBiquadFilter();
     bodyPeak.type = 'peaking';
     bodyPeak.frequency.value = 260;
     bodyPeak.Q.value = 0.75;
-    bodyPeak.gain.value = body * 5.0 - deadstroke * 1.5;
+      bodyPeak.gain.value = body * (mallet === 'yarn' ? 6.5 : mallet === 'cord' ? 4.8 : 3.2) - deadstroke * 2.4;
 
     signal.connect(lowpass);
     lowpass.connect(bodyPeak);
@@ -290,8 +309,8 @@ console.info('[repl] LOADING voices/marimba.js', new Date().toISOString());
     const decay = Number.isFinite(Number(opts.decay)) ? Number(opts.decay) : 4.2;
 
     const attack = clamp(0.002 + (1 - clamp01(numericParamValue(opts.force, 0.72))) * 0.006, 0.0015, 0.012);
-    const sustain = clamp(decay * (0.18 + resonance * 0.55) * (1 - deadstroke * 0.82), 0.08, 7.0);
-    const tail = clamp(0.08 + release * 1.25 + resonance * 0.85, 0.05, 2.3);
+      const sustain = clamp(decay * (0.18 + resonance * 0.60) * (1 - deadstroke * 0.92), 0.035, 7.5);
+      const tail = clamp((0.08 + release * 1.25 + resonance * 0.85) * (1 - deadstroke * 0.72), 0.035, 2.3);
 
     const t0 = Math.max(0, Number(time) || 0);
     const t1 = t0 + attack;
@@ -634,8 +653,8 @@ console.info('[repl] LOADING voices/marimba.js', new Date().toISOString());
         ? Number(opts.eventDuration)
         : 0.75;
 
-    const density = 3 + roll * 13;
-    const interval = clamp(1 / density, 0.045, 0.25);
+      const density = 4 + roll * 18;
+      const interval = clamp(1 / density, 0.038, 0.22);
     const start = Number(opts.time) + interval * randomBetween(0.55, 0.9);
     const end = Number(opts.time) + gateDuration;
     const actives = [];
@@ -644,11 +663,11 @@ console.info('[repl] LOADING voices/marimba.js', new Date().toISOString());
       const active = scheduleStrike({
         ...opts,
         time: t,
-        force: Math.max(0.08, numericParamValue(opts.force, 0.72) * randomBetween(0.42, 0.72)),
-        pan: clamp(numericParamValue(opts.pan, 0) + randomBetween(-0.045, 0.045), -1, 1),
+          force: Math.max(0.06, numericParamValue(opts.force, 0.72) * randomBetween(0.30, 0.58)),
+          pan: clamp(numericParamValue(opts.pan, 0) + randomBetween(-0.06, 0.06), -1, 1),
       }, plan, {
         chordGainMul,
-        rollGainMul: clamp(0.22 + roll * 0.34, 0.18, 0.56),
+          rollGainMul: clamp(0.16 + roll * 0.26, 0.14, 0.44),
       });
 
       if (active) actives.push(active);
@@ -683,8 +702,31 @@ console.info('[repl] LOADING voices/marimba.js', new Date().toISOString());
     const masterBus = opts && opts.masterBus;
     if (!audioCtx || !masterBus) return false;
 
+    function scheduleResolvedPlan(plan, timeOverride) {
+      if (!plan || !plan.buffer) return false;
+      enforcePolyphony(audioCtx, opts.poly);
+      const scheduledOpts = Number.isFinite(Number(timeOverride))
+        ? { ...opts, time: Math.max(audioCtx.currentTime, Number(timeOverride)) }
+        : opts;
+      const baseActive = scheduleStrike(scheduledOpts, plan, { chordGainMul: 1, rollGainMul: 1 });
+      if (!baseActive) return false;
+      const actives = scheduleRoll(scheduledOpts, plan, baseActive, 1);
+      registerHeldGroup(scheduledOpts, 'note', actives.length ? actives : [baseActive]);
+      return true;
+    }
+
+    function resolveAndScheduleAfterLoad() {
+      const plan = resolvePlan(opts, opts);
+      if (!plan) return false;
+      return loadBuffer(audioCtx, plan.sample).then((buffer) => {
+        if (!buffer) return false;
+        plan.buffer = buffer;
+        return scheduleResolvedPlan(plan, audioCtx.currentTime + 0.035);
+      });
+    }
+
     if (!manifestReady()) {
-      loadManifest(_manifestUrl).then(() => prewarm(audioCtx));
+      loadManifest(_manifestUrl).then(resolveAndScheduleAfterLoad);
       return false;
     }
 
@@ -693,20 +735,16 @@ console.info('[repl] LOADING voices/marimba.js', new Date().toISOString());
 
     const key = bufferKey(plan.sample);
     if (!_buffers.has(key)) {
-      loadBuffer(audioCtx, plan.sample);
+      loadBuffer(audioCtx, plan.sample).then((buffer) => {
+        if (!buffer) return;
+        plan.buffer = buffer;
+        scheduleResolvedPlan(plan, audioCtx.currentTime + 0.035);
+      });
       return false;
     }
 
     plan.buffer = _buffers.get(key);
-    enforcePolyphony(audioCtx, opts.poly);
-
-    const baseActive = scheduleStrike(opts, plan, { chordGainMul: 1, rollGainMul: 1 });
-    if (!baseActive) return false;
-
-    const actives = scheduleRoll(opts, plan, baseActive, 1);
-    registerHeldGroup(opts, 'note', actives.length ? actives : [baseActive]);
-
-    return true;
+    return scheduleResolvedPlan(plan, null);
   }
 
   function playMarimbaChord(opts) {
@@ -714,13 +752,71 @@ console.info('[repl] LOADING voices/marimba.js', new Date().toISOString());
     const masterBus = opts && opts.masterBus;
     if (!audioCtx || !masterBus) return false;
 
+    const notes = Array.isArray(opts.notes) ? opts.notes : [];
+    if (notes.length < 2) return false;
+
+    function schedulePlans(plans, timeOverride) {
+      if (!Array.isArray(plans) || plans.length < 2) return false;
+      enforcePolyphony(audioCtx, opts.poly);
+
+      const scheduledOpts = Number.isFinite(Number(timeOverride))
+        ? { ...opts, time: Math.max(audioCtx.currentTime, Number(timeOverride)) }
+        : opts;
+      const sharedHuman = humanize(scheduledOpts);
+      const spread = clamp01(numericParamValue(scheduledOpts.spread, 0.012));
+      const maxSpread = spread * 0.18;
+      const chordGainMul = clamp(1 / Math.sqrt(plans.length) * 0.9, 0.34, 0.78);
+      const actives = [];
+
+      plans.forEach((plan, index) => {
+        const spreadSec = plans.length <= 1 ? 0 : (index / Math.max(1, plans.length - 1)) * maxSpread;
+        const baseActive = scheduleStrike({
+          ...scheduledOpts,
+          freq: plan.targetFreq,
+          midi: plan.targetMidi,
+          sharedHuman,
+          spreadSec,
+        }, plan, { chordGainMul, rollGainMul: 1 });
+
+        if (baseActive) {
+          actives.push(...scheduleRoll({
+            ...scheduledOpts,
+            freq: plan.targetFreq,
+            midi: plan.targetMidi,
+            sharedHuman,
+            spreadSec,
+          }, plan, baseActive, chordGainMul));
+        }
+      });
+
+      if (actives.length) registerHeldGroup(scheduledOpts, 'chord', actives);
+      return actives.length > 0;
+    }
+
+    function resolvePlans() {
+      return notes.map((note) => resolvePlan(opts, note)).filter(Boolean);
+    }
+
+    function loadPlansAndSchedule() {
+      const plans = resolvePlans();
+      if (plans.length < 2) return false;
+      return Promise.all(plans.map((plan) => loadBuffer(audioCtx, plan.sample))).then((buffers) => {
+        let ready = true;
+        plans.forEach((plan, index) => {
+          if (!buffers[index]) ready = false;
+          plan.buffer = buffers[index];
+        });
+        if (!ready) return false;
+        return schedulePlans(plans, audioCtx.currentTime + 0.035);
+      });
+    }
+
     if (!manifestReady()) {
-      loadManifest(_manifestUrl).then(() => prewarm(audioCtx));
+      loadManifest(_manifestUrl).then(loadPlansAndSchedule);
       return false;
     }
 
-    const notes = Array.isArray(opts.notes) ? opts.notes : [];
-    const plans = notes.map((note) => resolvePlan(opts, note)).filter(Boolean);
+    const plans = resolvePlans();
     if (plans.length < 2) return false;
 
     let allReady = true;
@@ -734,39 +830,19 @@ console.info('[repl] LOADING voices/marimba.js', new Date().toISOString());
       plan.buffer = _buffers.get(key);
     }
 
-    if (!allReady) return false;
+    if (!allReady) {
+      Promise.all(plans.map((plan) => loadBuffer(audioCtx, plan.sample))).then((buffers) => {
+        let ready = true;
+        plans.forEach((plan, index) => {
+          if (!buffers[index]) ready = false;
+          plan.buffer = buffers[index];
+        });
+        if (ready) schedulePlans(plans, audioCtx.currentTime + 0.035);
+      });
+      return false;
+    }
 
-    enforcePolyphony(audioCtx, opts.poly);
-
-    const sharedHuman = humanize(opts);
-    const spread = clamp01(numericParamValue(opts.spread, 0.012));
-    const maxSpread = spread * 0.18;
-    const chordGainMul = clamp(1 / Math.sqrt(plans.length) * 0.9, 0.34, 0.78);
-    const actives = [];
-
-    plans.forEach((plan, index) => {
-      const spreadSec = plans.length <= 1 ? 0 : (index / Math.max(1, plans.length - 1)) * maxSpread;
-      const baseActive = scheduleStrike({
-        ...opts,
-        freq: plan.targetFreq,
-        midi: plan.targetMidi,
-        sharedHuman,
-        spreadSec,
-      }, plan, { chordGainMul, rollGainMul: 1 });
-
-      if (baseActive) {
-        actives.push(...scheduleRoll({
-          ...opts,
-          freq: plan.targetFreq,
-          midi: plan.targetMidi,
-          sharedHuman,
-          spreadSec,
-        }, plan, baseActive, chordGainMul));
-      }
-    });
-
-    if (actives.length) registerHeldGroup(opts, 'chord', actives);
-    return actives.length > 0;
+    return schedulePlans(plans, null);
   }
 
   function stopAll(when) {

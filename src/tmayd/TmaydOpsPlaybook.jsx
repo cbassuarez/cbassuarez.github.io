@@ -1,7 +1,7 @@
 export default function TmaydOpsPlaybook() {
   return (
-    <section>
-      <h2>Public ops / playbook</h2>
+    <section className="tmayd-playbook" aria-label="Ops playbook">
+      <div className="tmayd-section-label">Ops · Playbook</div>
 
       <details>
         <summary>How the machine works</summary>

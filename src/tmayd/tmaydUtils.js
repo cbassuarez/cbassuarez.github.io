@@ -55,6 +55,38 @@ export function isValidArchiveDate(value) {
   return iso === value;
 }
 
+const HEARTBEAT_STALE_MS = 120000;
+
+export function isStaleHeartbeat(iso, now = Date.now()) {
+  if (typeof iso !== 'string' || !iso) {
+    return true;
+  }
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) {
+    return true;
+  }
+  return now - t > HEARTBEAT_STALE_MS;
+}
+
+export function relativeTime(iso, now = Date.now()) {
+  if (typeof iso !== 'string' || !iso) {
+    return '';
+  }
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) {
+    return '';
+  }
+  const diff = Math.max(0, now - t);
+  const s = Math.floor(diff / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return `${s} seconds ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} minute${m === 1 ? '' : 's'} ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
+  return 'a while ago';
+}
+
 export function formatTmaydDateTime(value) {
   const raw = safeString(value);
   if (!raw) {

@@ -68,28 +68,41 @@ export default function TmaydLiveFrame() {
   }, [frame]);
 
   return (
-    <section>
-      <h2>Slow live frame</h2>
-      <p>
-        live state: <strong>{safeStatusLabel(frame.status)}</strong>
-      </p>
-      {frame?.observedAt ? <p>observed: {formatTmaydDateTime(frame.observedAt)}</p> : null}
-      {isMock ? <p><small>mock/offline preview mode</small></p> : null}
-      {errorKind ? <p><small>live frame source error: {errorKind}</small></p> : null}
+    <section aria-label="Live camera-gate frame">
+      <div className="tmayd-section-label">Live · Camera gate</div>
+
+      <div className="tmayd-status">
+        <div className="tmayd-status__row">
+          <span className="tmayd-status__key">state</span>
+          <span className="tmayd-status__leader" aria-hidden="true" />
+          <span className="tmayd-status__value">
+            {safeStatusLabel(frame.status)}
+            {isMock ? <span className="tmayd-tag tmayd-tag--warn">mock</span> : null}
+            {errorKind ? <span className="tmayd-tag tmayd-tag--warn">offline</span> : null}
+          </span>
+        </div>
+        {frame?.observedAt ? (
+          <div className="tmayd-status__row">
+            <span className="tmayd-status__key">observed</span>
+            <span className="tmayd-status__leader" aria-hidden="true" />
+            <span className="tmayd-status__value">{formatTmaydDateTime(frame.observedAt)}</span>
+          </div>
+        ) : null}
+      </div>
 
       {shouldShowOffline ? (
-        <>
-          <p>The apparatus is not currently live.</p>
-          <p>The archive will begin when the machine is activated.</p>
-        </>
+        <p className="tmayd-copy" style={{ marginTop: 12 }}>
+          The apparatus is not currently live. The archive will begin when the machine is activated.
+        </p>
       ) : (
-        <figure>
+        <figure className="tmayd-figure">
           <img
             src={buildCacheBustedUrl(frame.imageUrl, cacheToken)}
             alt="Current camera-gate frame from the Tell Me About Your Day apparatus."
-            style={{ width: '100%', maxWidth: '920px', height: 'auto', border: '1px solid #888' }}
           />
-          <figcaption>{frame.caption || 'Public camera-gate frame.'}</figcaption>
+          <figcaption className="tmayd-figure__caption">
+            {frame.caption || 'Public camera-gate frame.'}
+          </figcaption>
         </figure>
       )}
     </section>

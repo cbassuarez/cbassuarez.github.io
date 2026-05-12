@@ -7,10 +7,15 @@ const URL_PATTERN = /(https?:\/\/|www\.)/i;
 
 const TURNSTILE_SCRIPT_SRC =
   'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+const TURNSTILE_SCRIPT_TIMEOUT_MS = 8000;
 
 let turnstileScriptPromise = null;
 
-function loadTurnstileScript() {
+export function resetTurnstileScriptCache() {
+  turnstileScriptPromise = null;
+}
+
+export function loadTurnstileScript() {
   if (typeof window === 'undefined') {
     return Promise.resolve(null);
   }
@@ -20,22 +25,42 @@ function loadTurnstileScript() {
   if (turnstileScriptPromise) {
     return turnstileScriptPromise;
   }
-  turnstileScriptPromise = new Promise((resolve, reject) => {
+  const promise = new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('turnstile_script_timeout'));
+    }, TURNSTILE_SCRIPT_TIMEOUT_MS);
+
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      fn(value);
+    };
+    const onSuccess = () => finish(resolve, window.turnstile || null);
+    const onFail = () => finish(reject, new Error('turnstile_script_failed'));
+
     const existing = document.querySelector(`script[src^="${TURNSTILE_SCRIPT_SRC.split('?')[0]}"]`);
     if (existing) {
-      existing.addEventListener('load', () => resolve(window.turnstile || null));
-      existing.addEventListener('error', () => reject(new Error('turnstile_script_failed')));
+      existing.addEventListener('load', onSuccess);
+      existing.addEventListener('error', onFail);
       return;
     }
     const script = document.createElement('script');
     script.src = TURNSTILE_SCRIPT_SRC;
     script.async = true;
     script.defer = true;
-    script.onload = () => resolve(window.turnstile || null);
-    script.onerror = () => reject(new Error('turnstile_script_failed'));
+    script.onload = onSuccess;
+    script.onerror = onFail;
     document.head.appendChild(script);
+  }).catch((err) => {
+    turnstileScriptPromise = null;
+    throw err;
   });
-  return turnstileScriptPromise;
+  turnstileScriptPromise = promise;
+  return promise;
 }
 
 export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage = '' }) {
@@ -45,12 +70,29 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
   const [result, setResult] = useState({ tone: 'neutral', message: '' });
   const [turnstileReady, setTurnstileReady] = useState(false);
   const [turnstileError, setTurnstileError] = useState('');
+  const [turnstileAttempt, setTurnstileAttempt] = useState(0);
   const containerRef = useRef(null);
   const widgetIdRef = useRef(null);
   const tokenRef = useRef('');
   const containerDomId = useId().replace(/[:]/g, '_') + '_turnstile';
 
   const siteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
+
+  function retryTurnstile() {
+    try {
+      if (widgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(widgetIdRef.current);
+      }
+    } catch {
+      // best effort
+    }
+    widgetIdRef.current = null;
+    tokenRef.current = '';
+    setTurnstileReady(false);
+    setTurnstileError('');
+    resetTurnstileScriptCache();
+    setTurnstileAttempt((n) => n + 1);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -61,23 +103,34 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
     loadTurnstileScript()
       .then((turnstile) => {
         if (cancelled || !turnstile || !containerRef.current) return;
-        widgetIdRef.current = turnstile.render(containerRef.current, {
-          sitekey: siteKey,
-          appearance: 'always',
-          callback: (token) => {
-            tokenRef.current = token || '';
-            setTurnstileReady(true);
-            setTurnstileError('');
-          },
-          'expired-callback': () => {
-            tokenRef.current = '';
-          },
-          'error-callback': () => {
-            setTurnstileError('Verification widget failed to load.');
-          }
-        });
+        try {
+          widgetIdRef.current = turnstile.render(containerRef.current, {
+            sitekey: siteKey,
+            appearance: 'always',
+            callback: (token) => {
+              tokenRef.current = token || '';
+              setTurnstileReady(true);
+              setTurnstileError('');
+            },
+            'expired-callback': () => {
+              tokenRef.current = '';
+              setTurnstileReady(false);
+            },
+            'error-callback': () => {
+              setTurnstileReady(false);
+              setTurnstileError('Verification widget failed to load.');
+            },
+            'timeout-callback': () => {
+              setTurnstileReady(false);
+              setTurnstileError('Verification timed out. Please retry.');
+            }
+          });
+        } catch {
+          setTurnstileError('Verification widget failed to load.');
+        }
       })
       .catch(() => {
+        if (cancelled) return;
         setTurnstileError('Verification widget failed to load.');
       });
     return () => {
@@ -90,7 +143,7 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
         // best effort
       }
     };
-  }, [siteKey]);
+  }, [siteKey, turnstileAttempt]);
 
   const charsUsed = text.length;
 
@@ -158,8 +211,11 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
       }
 
       if (response.status === 'accepted') {
-        const codeSuffix = response.publicCode ? ` (${response.publicCode})` : '';
-        setResult({ tone: 'success', message: `${response.message || 'Your message entered the print queue.'}${codeSuffix}` });
+        setResult({
+          tone: 'success',
+          message: response.message || 'Your message entered the print queue.',
+          code: response.publicCode || ''
+        });
         setText('');
         setConsent(false);
         return;
@@ -199,41 +255,57 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
 
   const formDisabled = pending || !intakeOpen;
 
+  const resultClass =
+    result.tone === 'success'
+      ? 'tmayd-result tmayd-result--accepted'
+      : result.tone === 'error'
+        ? 'tmayd-result tmayd-result--notice'
+        : 'tmayd-result';
+  const resultHeader =
+    result.tone === 'success'
+      ? 'status · accepted'
+      : result.tone === 'error'
+        ? 'status · notice'
+        : 'status';
+
   return (
-    <section>
-      <h2>Submission form</h2>
-      <p>
-        Write a small public trace of your day. Do not submit emergencies, threats, confessions, allegations,
-        names, addresses, phone numbers, legal claims, medical details, or private information. This is an artwork,
-        not a private diary or reporting channel.
-      </p>
+    <section className="tmayd-form" aria-label="Submission">
+      <div className="tmayd-section-label">Submission</div>
+
       {!intakeOpen ? (
-        <p>
-          <strong>Intake currently closed.</strong> {statusMessage || 'The machine is not currently accepting messages.'}
-        </p>
+        <div className="tmayd-notice">
+          <span className="tmayd-notice__label">§ Intake closed</span>
+          {statusMessage || 'The machine is not currently accepting messages.'}
+        </div>
       ) : null}
+
       <form onSubmit={handleSubmit}>
-        <p>
-          <label htmlFor="tmayd-message">Message</label>
-          <br />
+        <div className="tmayd-form__row">
+          <label className="tmayd-form__label" htmlFor="tmayd-message">
+            Message
+          </label>
           <textarea
             id="tmayd-message"
+            className="tmayd-form__textarea"
             name="message"
             rows="8"
-            cols="64"
             maxLength={MAX_CHARS}
             value={text}
             onChange={(event) => setText(event.target.value)}
             disabled={formDisabled}
+            placeholder="a small public trace of your day…"
             required
           />
-        </p>
-        <p>
-          <small>{charsUsed} / {MAX_CHARS}</small>
-        </p>
-        {validationError ? <p><small>{validationError}</small></p> : null}
-        <p>
-          <label htmlFor="tmayd-consent">
+          <span className="tmayd-form__counter">
+            {charsUsed} / {MAX_CHARS}
+          </span>
+          {validationError ? (
+            <p className="tmayd-form__validation">{validationError}</p>
+          ) : null}
+        </div>
+
+        <div className="tmayd-form__row">
+          <label className="tmayd-consent" htmlFor="tmayd-consent">
             <input
               id="tmayd-consent"
               type="checkbox"
@@ -241,30 +313,57 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
               onChange={(event) => setConsent(event.target.checked)}
               disabled={formDisabled}
               required
-            />{' '}
-            I consent to public archival display if accepted.
+            />
+            <span className="tmayd-consent__box" aria-hidden="true" />
+            <span className="tmayd-consent__label">
+              I consent to public archival display if accepted.
+            </span>
           </label>
-        </p>
+        </div>
+
         {siteKey ? (
-          <p>
-            <div id={containerDomId} ref={containerRef} aria-label="Verification widget" />
-            {turnstileError ? <small>{turnstileError}</small> : null}
-          </p>
+          <div className="tmayd-form__row tmayd-verify">
+            <span className="tmayd-verify__label">Verification</span>
+            <div
+              id={containerDomId}
+              ref={containerRef}
+              aria-label="Verification widget"
+            />
+            {turnstileError ? (
+              <div>
+                <span className="tmayd-verify__error">{turnstileError}</span>
+                <button
+                  type="button"
+                  className="tmayd-button tmayd-button--ghost"
+                  onClick={retryTurnstile}
+                  disabled={pending}
+                >
+                  retry verification
+                </button>
+              </div>
+            ) : null}
+          </div>
         ) : null}
-        <p>
-          <button
-            type="submit"
-            disabled={formDisabled || (siteKey ? !turnstileReady : false)}
-          >
-            {pending ? 'sending...' : 'send to the machine'}
-          </button>
-        </p>
+
+        <button
+          type="submit"
+          className="tmayd-button tmayd-button--full"
+          disabled={formDisabled || (siteKey ? !turnstileReady : false)}
+        >
+          {pending ? 'sending…' : 'send to the machine'}
+        </button>
       </form>
+
       {result.message ? (
-        <p role="status">
-          <strong>{result.tone === 'success' ? 'status: accepted' : result.tone === 'error' ? 'status: notice' : 'status:'}</strong>{' '}
-          {result.message}
-        </p>
+        <div className={resultClass} role="status">
+          <div className="tmayd-result__header">{resultHeader}</div>
+          <div className="tmayd-result__body">
+            {result.message}
+            {result.code ? (
+              <span className="tmayd-result__pill">{result.code}</span>
+            ) : null}
+          </div>
+        </div>
       ) : null}
     </section>
   );

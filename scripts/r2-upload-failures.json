@@ -1,0 +1,37 @@
+[
+  {
+    "item": {
+      "local": "/Users/seb/Documents/site/public/labs/repl/public/instruments/espeak-robotvoice/audio/word/body/en-gb/1p5s/espeak-en-gb-word-body-1p5s-B1.ogg",
+      "key": "repl/instruments/espeak-robotvoice/audio/word/body/en-gb/1p5s/espeak-en-gb-word-body-1p5s-B1.ogg"
+    },
+    "error": "  If you think this is a bug, please open an issue at: \u001b[4mhttps://github.com/cloudflare/workers-sdk/issues/new/choose\u001b[0m"
+  },
+  {
+    "item": {
+      "local": "/Users/seb/Documents/site/public/labs/repl/public/instruments/espeak-robotvoice/audio/word/start/en-gb/1p5s/espeak-en-gb-word-start-1p5s-B2.ogg",
+      "key": "repl/instruments/espeak-robotvoice/audio/word/start/en-gb/1p5s/espeak-en-gb-word-start-1p5s-B2.ogg"
+    },
+    "error": "  If you think this is a bug, please open an issue at: \u001b[4mhttps://github.com/cloudflare/workers-sdk/issues/new/choose\u001b[0m"
+  },
+  {
+    "item": {
+      "local": "/Users/seb/Documents/site/public/labs/repl/public/instruments/espeak-robotvoice/audio/syllable/la/en-gb/0p5s/espeak-en-gb-syllable-la-0p5s-C4.ogg",
+      "key": "repl/instruments/espeak-robotvoice/audio/syllable/la/en-gb/0p5s/espeak-en-gb-syllable-la-0p5s-C4.ogg"
+    },
+    "error": "  If you think this is a bug, please open an issue at: \u001b[4mhttps://github.com/cloudflare/workers-sdk/issues/new/choose\u001b[0m"
+  },
+  {
+    "item": {
+      "local": "/Users/seb/Documents/site/public/labs/repl/public/instruments/espeak-robotvoice/audio/word/memory/en-gb/0p5s/espeak-en-gb-word-memory-0p5s-C-4.ogg",
+      "key": "repl/instruments/espeak-robotvoice/audio/word/memory/en-gb/0p5s/espeak-en-gb-word-memory-0p5s-C-4.ogg"
+    },
+    "error": "  {\"success\":false,\"errors\":[{\"code\":10000,\"message\":\"Authentication error\"}],\"messages\":[],\"result\":null}"
+  },
+  {
+    "item": {
+      "local": "/Users/seb/Documents/site/public/labs/repl/public/instruments/espeak-robotvoice/audio/vowel/eh/en-gb/1p5s/espeak-en-gb-vowel-eh-1p5s-C-4.ogg",
+      "key": "repl/instruments/espeak-robotvoice/audio/vowel/eh/en-gb/1p5s/espeak-en-gb-vowel-eh-1p5s-C-4.ogg"
+    },
+    "error": "  {\"success\":false,\"errors\":[{\"code\":10000,\"message\":\"Authentication error\"}],\"messages\":[],\"result\":null}"
+  }
+]
