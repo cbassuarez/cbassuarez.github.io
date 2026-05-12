@@ -27,6 +27,8 @@ import argparse
 import json
 import os
 import signal
+import socket
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -45,7 +47,16 @@ DEFAULTS = {
     "TMAYD_LIGHT_STALE_SECONDS": "90",
     "TMAYD_LIGHT_EDGE_WINDOW_SECONDS": "3",
     "TMAYD_LIGHT_KEEPALIVE_SECONDS": "30",
+    "TMAYD_LIGHT_ERROR_WINDOW_SECONDS": "600",
     "TMAYD_LIGHT_DRY_RUN": "0",
+    # Bulb addressing. If MAC is set, discovery filters for it; if both MAC
+    # and IP are set, discovery is skipped entirely. The probe enumerates
+    # every host IPv4 interface and broadcasts to its directed-broadcast
+    # address, which is required on dual-homed hosts (e.g. optiplex with one
+    # NIC on the printer LAN and a USB Wi-Fi on the bulb's LAN).
+    "TMAYD_LIFX_MAC": "",
+    "TMAYD_LIFX_IP": "",
+    "TMAYD_LIFX_PROBE_TIMEOUT_S": "3.0",
     # HSBK quads (H, S, B, K). Saturation 65535 across the board — pure RGB,
     # K is unused at full sat. Indicator brightnesses, never lamp-bright.
     "TMAYD_LIGHT_HSBK_IDLE": "43690,65535,7000,3500",
@@ -114,51 +125,205 @@ def parse_hsbk(spec: str) -> tuple[int, int, int, int]:
 
 # ─── bulb proxy ──────────────────────────────────────────────────────────────
 
+def _normalize_mac(raw: str) -> str:
+    """Accept 'd073d5865bd9' or 'd0:73:d5:86:5b:d9' (any case/sep), return the
+    canonical colon-lowered form. Empty string passes through."""
+    cleaned = raw.strip().lower().replace("-", "").replace(":", "")
+    if not cleaned:
+        return ""
+    if len(cleaned) != 12 or any(c not in "0123456789abcdef" for c in cleaned):
+        return ""
+    return ":".join(cleaned[i : i + 2] for i in range(0, 12, 2))
+
+
+def _host_ipv4_interfaces() -> list[tuple[str, str]]:
+    """Return [(local_ip, directed_broadcast)] for every non-loopback IPv4
+    interface on the host. Uses `ip -j -4 addr` (iproute2). Falls back to a
+    text parse if -j isn't supported."""
+    try:
+        out = subprocess.run(
+            ["ip", "-j", "-4", "addr"], capture_output=True, text=True, timeout=2.0
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            data = json.loads(out.stdout)
+            results: list[tuple[str, str]] = []
+            for iface in data:
+                if iface.get("operstate") == "DOWN":
+                    continue
+                for addr in iface.get("addr_info", []) or []:
+                    if addr.get("family") != "inet":
+                        continue
+                    local = addr.get("local")
+                    bcast = addr.get("broadcast")
+                    if not local or local.startswith("127."):
+                        continue
+                    if not bcast:
+                        continue
+                    results.append((local, bcast))
+            return results
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+        log("warn", "iface_enum_failed", message=str(exc))
+    return []
+
+
+# LIFX GetService packet — 36 byte header, msg type 2, tagged, no payload.
+_LIFX_GET_SERVICE = bytes.fromhex(
+    "2400003400000000000000000000000000000000000000000000000000000200000000000000000000000000"
+)
+
+
+def _probe_lifx(want_mac: str, timeout_s: float) -> Optional[tuple[str, str]]:
+    """Send a LIFX GetService probe out every host interface's directed
+    broadcast. Returns the first (mac, ip) responder.
+
+    If `want_mac` is set, only that MAC is accepted — useful on networks where
+    multiple LIFX devices coexist or where an old responder might still be in
+    ARP caches.
+    """
+    ifaces = _host_ipv4_interfaces()
+    if not ifaces:
+        return None
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    # SO_REUSEADDR so we can re-bind on restart without TIME_WAIT pain.
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("", 0))
+    sock.settimeout(0.25)
+
+    for src_ip, bcast in ifaces:
+        try:
+            # Bind-by-sendto trick: setting IP_MULTICAST_IF doesn't apply to
+            # broadcast; instead we send from a fresh socket per source IP.
+            tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            tx.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            tx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            tx.bind((src_ip, 0))
+            tx.sendto(_LIFX_GET_SERVICE, (bcast, 56700))
+            tx.close()
+        except OSError as exc:
+            log("warn", "lifx_probe_send_failed", iface_ip=src_ip, message=str(exc))
+            continue
+
+    start = time.time()
+    found: dict[str, str] = {}  # mac -> ip
+    while time.time() - start < timeout_s:
+        try:
+            data, addr = sock.recvfrom(2048)
+        except socket.timeout:
+            continue
+        except OSError:
+            break
+        if len(data) < 14:
+            continue
+        mac = ":".join(f"{b:02x}" for b in data[8:14])
+        ip = addr[0]
+        if want_mac and mac != want_mac:
+            continue
+        if mac not in found:
+            found[mac] = ip
+            log("info", "lifx_probe_reply", mac=mac, ip=ip)
+            if want_mac:
+                break
+    sock.close()
+
+    if not found:
+        return None
+    if want_mac and want_mac in found:
+        return (want_mac, found[want_mac])
+    # No target requested — pick deterministically.
+    chosen_mac = sorted(found.keys())[0]
+    return (chosen_mac, found[chosen_mac])
+
+
 class BulbProxy:
     """Wraps lifxlan; never raises out. Exponential backoff on send failure.
 
-    Discovery is broadcast-based and assumes a single bulb on the LAN — if more
-    than one is found we pick the lowest MAC for determinism and log a
-    warning.
+    Discovery order:
+      1. If both TMAYD_LIFX_MAC and TMAYD_LIFX_IP are pinned, construct the
+         Light directly — no network probe.
+      2. Otherwise, send a LIFX GetService probe out every host interface's
+         directed broadcast and bind to the first (or MAC-matching) reply.
+         This bypasses lifxlan's 255.255.255.255 default which the kernel
+         routes via a single default-route NIC — wrong on dual-homed hosts.
+      3. As a last resort, fall back to lifxlan.LifxLAN().get_lights().
     """
 
     BACKOFF_SCHEDULE = (1.0, 2.0, 4.0, 8.0, 30.0)
 
-    def __init__(self, dry_run: bool = False) -> None:
+    def __init__(self, dry_run: bool = False, pinned_mac: str = "", pinned_ip: str = "",
+                 probe_timeout_s: float = 3.0) -> None:
         self.dry_run = dry_run
+        self.pinned_mac = _normalize_mac(pinned_mac)
+        self.pinned_ip = pinned_ip.strip()
+        self.probe_timeout_s = probe_timeout_s
         self._light: Any = None
         self._backoff_idx = 0
         self._next_retry_at = 0.0
         # exposed for tests / dry-run inspection
         self.commands: list[tuple[tuple[int, int, int, int], int]] = []
 
+    def _construct_light(self, mac: str, ip: str) -> Any:
+        import lifxlan  # type: ignore
+        return lifxlan.Light(mac, ip)
+
     def _try_discover(self) -> None:
         if self.dry_run:
             self._light = "<dry-run>"
             return
         try:
-            import lifxlan  # type: ignore
+            import lifxlan  # type: ignore  # noqa: F401
         except ImportError as exc:
             log("err", "lifxlan_missing", message=str(exc))
             self._light = None
             return
+
+        # 1) Fully pinned config — no probe required.
+        if self.pinned_mac and self.pinned_ip:
+            try:
+                self._light = self._construct_light(self.pinned_mac, self.pinned_ip)
+                log("info", "lifx_bound", source="pinned", mac=self.pinned_mac, ip=self.pinned_ip)
+                return
+            except Exception as exc:
+                log("warn", "lifx_pin_construct_failed", message=str(exc))
+                self._light = None
+                return
+
+        # 2) Multi-interface probe (works on dual-homed hosts).
         try:
-            lan = lifxlan.LifxLAN(None)
-            lights = lan.get_lights() or []
+            hit = _probe_lifx(self.pinned_mac, self.probe_timeout_s)
+        except Exception as exc:
+            log("warn", "lifx_probe_failed", message=str(exc))
+            hit = None
+        if hit is not None:
+            mac, ip = hit
+            try:
+                self._light = self._construct_light(mac, ip)
+                log("info", "lifx_bound", source="probe", mac=mac, ip=ip)
+                return
+            except Exception as exc:
+                log("warn", "lifx_probe_construct_failed", message=str(exc))
+
+        # 3) lifxlan's default broadcast — last resort, single-NIC hosts only.
+        try:
+            import lifxlan  # type: ignore
+            lights = lifxlan.LifxLAN(None).get_lights() or []
         except Exception as exc:
             log("warn", "lifx_discover_failed", message=str(exc))
             self._light = None
             return
+        if self.pinned_mac:
+            lights = [L for L in lights if (getattr(L, "mac_addr", "") or "").lower() == self.pinned_mac]
         if not lights:
             log("warn", "lifx_no_lights")
             self._light = None
             return
-        # Deterministic pick across restarts.
         lights.sort(key=lambda L: getattr(L, "mac_addr", "") or "")
         if len(lights) > 1:
             log("warn", "lifx_multiple_lights", count=len(lights))
         self._light = lights[0]
-        log("info", "lifx_bound", mac=getattr(self._light, "mac_addr", ""), ip=getattr(self._light, "ip_addr", ""))
+        log("info", "lifx_bound", source="lifxlan_discover",
+            mac=getattr(self._light, "mac_addr", ""), ip=getattr(self._light, "ip_addr", ""))
 
     def _ensure(self, now: float) -> bool:
         if self._light is not None:
@@ -216,6 +381,7 @@ class StateEvaluator:
         self.status_dir = Path(env["TMAYD_LOCAL_STATUS"])
         self.stale_seconds = int(env["TMAYD_LIGHT_STALE_SECONDS"])
         self.edge_window = float(env["TMAYD_LIGHT_EDGE_WINDOW_SECONDS"])
+        self.error_window_seconds = float(env["TMAYD_LIGHT_ERROR_WINDOW_SECONDS"])
         # Per-sentinel "last mtime we already emitted an edge for". An edge
         # fires once per distinct mtime; redundant ticks within the window
         # don't re-fire.
@@ -227,6 +393,24 @@ class StateEvaluator:
             return any(entry.is_file() for entry in p.iterdir())
         except FileNotFoundError:
             return False
+
+    @staticmethod
+    def _has_recent_file(p: Path, now: float, window_s: float) -> bool:
+        """True iff `p` has any file with mtime within the last `window_s`.
+        Used to time-bound ERROR so a stale orphan failed file from a past
+        run doesn't pin the light in ERROR forever."""
+        try:
+            for entry in p.iterdir():
+                if not entry.is_file():
+                    continue
+                try:
+                    if now - entry.stat().st_mtime <= window_s:
+                        return True
+                except FileNotFoundError:
+                    continue
+        except FileNotFoundError:
+            return False
+        return False
 
     def _mtime(self, name: str) -> Optional[float]:
         try:
@@ -280,7 +464,10 @@ class StateEvaluator:
         # Priority ladder.
         if hb_mtime is None or now - hb_mtime > self.stale_seconds:
             return Evaluation(state="NETWORK_LOST", edges=edges, pending_moderation=pending)
-        if self._has_files(self.failed) or not printer_online:
+        # ERROR fires for an unhealthy printer OR a *recent* failed file. Old
+        # orphan failed files (e.g. from manual testing) are ignored — the
+        # light reports current state, not historical incidents.
+        if not printer_online or self._has_recent_file(self.failed, now, self.error_window_seconds):
             return Evaluation(state="ERROR", edges=edges, pending_moderation=pending)
         if self._has_files(self.processing):
             return Evaluation(state="PRINTING", edges=edges, pending_moderation=pending)
@@ -451,10 +638,16 @@ def _install_signal_handlers() -> None:
 def run(env: dict[str, str], simulate: Optional[str] = None) -> int:
     tick_ms = int(env["TMAYD_LIGHT_TICK_MS"])
     dry_run = env["TMAYD_LIGHT_DRY_RUN"] not in ("0", "", "false", "False")
-    bulb = BulbProxy(dry_run=dry_run)
+    bulb = BulbProxy(
+        dry_run=dry_run,
+        pinned_mac=env.get("TMAYD_LIFX_MAC", ""),
+        pinned_ip=env.get("TMAYD_LIFX_IP", ""),
+        probe_timeout_s=float(env.get("TMAYD_LIFX_PROBE_TIMEOUT_S", "3.0")),
+    )
     renderer = Renderer(bulb, env)
     evaluator = StateEvaluator(env)
-    log("info", "starting", dry_run=dry_run, tick_ms=tick_ms, simulate=simulate or "")
+    log("info", "starting", dry_run=dry_run, tick_ms=tick_ms, simulate=simulate or "",
+        pinned_mac=bulb.pinned_mac or "", pinned_ip=bulb.pinned_ip or "")
 
     while _RUNNING:
         now = time.time()

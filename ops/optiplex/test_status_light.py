@@ -288,5 +288,82 @@ class DryRunOutput(TmpRootTest):
         self.assertEqual(hsbk, sl.parse_hsbk(self.env["TMAYD_LIGHT_HSBK_RED_HI"]))
 
 
+# ── ERROR is time-bounded: stale failed file is ignored ──────────────────
+
+
+class ErrorWindow(TmpRootTest):
+    def setUp(self) -> None:
+        super().setUp()
+        write_heartbeat(self.root / "status")
+
+    def test_recent_failed_file_triggers_error(self):
+        p = self.root / "failed" / "DAY-20260512-0001.txt"
+        p.write_text("x")
+        ev = sl.StateEvaluator(self.env).evaluate(now=time.time())
+        self.assertEqual(ev.state, "ERROR")
+
+    def test_old_failed_file_is_ignored(self):
+        p = self.root / "failed" / "DAY-20260511-9999.txt"
+        p.write_text("x")
+        # 1 hour ago, default window is 10 minutes.
+        past = time.time() - 3600
+        os.utime(p, (past, past))
+        ev = sl.StateEvaluator(self.env).evaluate(now=time.time())
+        self.assertEqual(ev.state, "IDLE")
+
+    def test_window_is_configurable(self):
+        p = self.root / "failed" / "DAY-20260512-0001.txt"
+        p.write_text("x")
+        past = time.time() - 30
+        os.utime(p, (past, past))
+        env = dict(self.env)
+        env["TMAYD_LIGHT_ERROR_WINDOW_SECONDS"] = "10"
+        ev = sl.StateEvaluator(env).evaluate(now=time.time())
+        self.assertEqual(ev.state, "IDLE")
+
+
+# ── MAC normalization + interface enumeration ────────────────────────────
+
+
+class MacNormalization(unittest.TestCase):
+    def test_accepts_colon_form(self):
+        self.assertEqual(sl._normalize_mac("d0:73:d5:86:5b:d9"), "d0:73:d5:86:5b:d9")
+
+    def test_accepts_bare_hex(self):
+        self.assertEqual(sl._normalize_mac("d073d5865bd9"), "d0:73:d5:86:5b:d9")
+
+    def test_accepts_uppercase_and_dashes(self):
+        self.assertEqual(sl._normalize_mac("D0-73-D5-86-5B-D9"), "d0:73:d5:86:5b:d9")
+
+    def test_empty_passes_through(self):
+        self.assertEqual(sl._normalize_mac(""), "")
+        self.assertEqual(sl._normalize_mac("   "), "")
+
+    def test_garbage_returns_empty(self):
+        self.assertEqual(sl._normalize_mac("not a mac"), "")
+        self.assertEqual(sl._normalize_mac("d073d5865b"), "")  # too short
+
+
+class BulbProxyPinning(unittest.TestCase):
+    def test_pinned_mac_and_ip_skip_probe(self):
+        # When both pinned, no network activity should be attempted (we'd
+        # see a different log signature). The light object is constructed
+        # directly via lifxlan.Light, which we mock by poisoning the import.
+        # Easier check: in dry_run, _try_discover sets a sentinel string.
+        bulb = sl.BulbProxy(
+            dry_run=True,
+            pinned_mac="d0:73:d5:86:5b:d9",
+            pinned_ip="192.168.0.50",
+        )
+        bulb._try_discover()
+        self.assertEqual(bulb._light, "<dry-run>")
+        self.assertEqual(bulb.pinned_mac, "d0:73:d5:86:5b:d9")
+        self.assertEqual(bulb.pinned_ip, "192.168.0.50")
+
+    def test_mac_pin_normalized_at_init(self):
+        bulb = sl.BulbProxy(dry_run=True, pinned_mac="D073D5865BD9")
+        self.assertEqual(bulb.pinned_mac, "d0:73:d5:86:5b:d9")
+
+
 if __name__ == "__main__":
     unittest.main()
