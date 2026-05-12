@@ -332,7 +332,7 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
             value={text}
             onChange={(event) => setText(event.target.value)}
             disabled={inputsDisabled}
-            placeholder="a small public trace of your day…"
+            placeholder="Tell me about your day. Tell me what you saw, and what came along with it. You don't have to mention it all, or even the bits that matter, but tell me something."
             required
           />
           <span className="tmayd-form__counter">

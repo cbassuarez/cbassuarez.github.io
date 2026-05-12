@@ -262,6 +262,11 @@
   margin: 0 0 8px;
 }
 
+.tmayd-form__textarea {
+    letter-spacing: -0.52em;
+    word-spacing: 0.52em;
+    margin: 0 0 8px;
+}
 .tmayd-copy h2 {
   font-size: 1.12rem;
   letter-spacing: -0.52em;
