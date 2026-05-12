@@ -541,6 +541,27 @@
   appearance: none;
 }
 
+/* Anchors styled as .tmayd-button — undo the global .tmayd-root a color
+   and underline so the button's own color rules win. */
+.tmayd-root a.tmayd-button,
+.tmayd-root a.tmayd-button:link,
+.tmayd-root a.tmayd-button:visited {
+  color: var(--tm-paper);
+  text-decoration: none;
+}
+.tmayd-root a.tmayd-button:hover {
+  color: var(--tm-paper);
+  text-decoration: none;
+}
+.tmayd-root a.tmayd-button--ghost,
+.tmayd-root a.tmayd-button--ghost:link,
+.tmayd-root a.tmayd-button--ghost:visited {
+  color: var(--tm-ink);
+}
+.tmayd-root a.tmayd-button--ghost:hover {
+  color: var(--tm-paper);
+}
+
 .tmayd-button:hover:not(:disabled) {
   background: #000;
 }
@@ -607,6 +628,29 @@
 
 .tmayd-jump {
   margin: 20px 0 0;
+}
+
+/* Day-record landing: stacked CTAs under the "not ready yet" notice.
+   Two equal-sized buttons, primary (solid) over secondary (outlined). */
+.tmayd-day-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 20px 0 0;
+}
+
+.tmayd-day-actions .tmayd-button {
+  text-align: center;
+  text-decoration: none;
+}
+
+/* Restore --full sizing for the outlined secondary CTA — the base
+   --ghost class shrinks font/padding for in-flow ghost buttons, but
+   here we want both CTAs visually paired at full size. */
+.tmayd-day-actions .tmayd-button--ghost.tmayd-button--full {
+  font-size: 0.92rem;
+  padding: 14px 22px;
+  letter-spacing: 0.08em;
 }
 
 #submit {

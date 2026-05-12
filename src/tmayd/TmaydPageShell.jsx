@@ -28,6 +28,11 @@ function variantMeta(variant, codeOverride) {
         eyebrow: 'OPERATOR · OPS',
         code: codeOverride || `OPS · ${today}`
       };
+    case 'day':
+      return {
+        eyebrow: 'RECORD · RECEIVED',
+        code: codeOverride || `DAY · ${today}`
+      };
     case 'landing':
     default:
       return {

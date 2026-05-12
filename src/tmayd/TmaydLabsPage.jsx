@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import TmaydCycleStatus from './TmaydCycleStatus';
+import TmaydDayLanding from './TmaydDayLanding';
 import TmaydLiveFrame from './TmaydLiveFrame';
 import TmaydOpsPlaybook from './TmaydOpsPlaybook';
 import TmaydPageShell from './TmaydPageShell';
@@ -19,7 +20,8 @@ function parseRoute(pathname) {
     notice: '',
     isLive: false,
     isReel: false,
-    isOps: false
+    isOps: false,
+    isDay: false
   };
 
   if (!pathname.startsWith(BASE_ROUTE)) {
@@ -71,7 +73,11 @@ function parseRoute(pathname) {
   const dayMatch = pathname.match(/^\/labs\/tell-me-about-your-day\/day\/(DAY-\d{8}-\d{4,})\/?$/);
   if (dayMatch) {
     const code = dayMatch[1];
-    result.isReel = true;
+    // Until the camera phase is wired, /day/{code} renders a simple
+    // "record received, not archived yet" landing rather than the full
+    // microfiche reel viewer. When archived frames exist, this branch
+    // will fall through to the reel viewer highlighted on the code.
+    result.isDay = true;
     result.highlightPublicCode = code;
     const m = code.match(/^DAY-(\d{4})(\d{2})(\d{2})-\d{4,}$/);
     if (m) {
@@ -168,6 +174,17 @@ export default function TmaydLabsPage({ pathname }) {
         <TmaydStatusPanel status={status} isMock={statusIsMock} errorKind={statusError} />
         <hr className="tmayd-rule" />
         <TmaydLiveFrame />
+      </TmaydPageShell>
+    );
+  }
+
+  if (routeState.isDay) {
+    return (
+      <TmaydPageShell variant="day" codeOverride={routeState.highlightPublicCode}>
+        <TmaydDayLanding
+          publicCode={routeState.highlightPublicCode}
+          dateLabel={routeState.initialDate}
+        />
       </TmaydPageShell>
     );
   }

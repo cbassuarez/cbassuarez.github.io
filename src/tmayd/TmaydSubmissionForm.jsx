@@ -284,7 +284,15 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
     }
   }
 
-  const formDisabled = pending || !intakeOpen;
+  // Composition stays editable whenever we're not mid-submit — closed
+  // intake or faulty verification surface as notices and a disabled
+  // submit button, but they never block typing or scrolling. The server
+  // is the final authority on acceptance.
+  const inputsDisabled = pending;
+  const submitDisabled =
+    pending ||
+    !intakeOpen ||
+    (siteKey && !turnstileReady && !turnstileError);
 
   const resultClass =
     result.tone === 'success'
@@ -323,7 +331,7 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
             maxLength={MAX_CHARS}
             value={text}
             onChange={(event) => setText(event.target.value)}
-            disabled={formDisabled}
+            disabled={inputsDisabled}
             placeholder="a small public trace of your day…"
             required
           />
@@ -342,7 +350,7 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
               type="checkbox"
               checked={consent}
               onChange={(event) => setConsent(event.target.checked)}
-              disabled={formDisabled}
+              disabled={inputsDisabled}
               required
             />
             <span className="tmayd-consent__box" aria-hidden="true" />
@@ -379,10 +387,7 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
         <button
           type="submit"
           className="tmayd-button tmayd-button--full"
-          disabled={
-            formDisabled ||
-            (siteKey && !turnstileReady && !turnstileError)
-          }
+          disabled={submitDisabled}
         >
           {pending ? 'sending…' : 'send to the machine'}
         </button>
