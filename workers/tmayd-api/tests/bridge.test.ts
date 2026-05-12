@@ -76,6 +76,37 @@ describe("bridge heartbeat", () => {
     expect((row as { status: string }).status).toBe("idle");
     expect((row as { printer_online: number }).printer_online).toBe(1);
   });
+
+  it("returns pending_moderation count for the status light", async () => {
+    const { env } = await import("cloudflare:test");
+    const db = env.DB as D1Database;
+    await db
+      .prepare(
+        "INSERT INTO submissions (id, public_code, accepted_text, display_name, status, moderation_version, created_at) " +
+          "VALUES (?1, ?2, ?3, NULL, 'accepted', 'v1', ?4)"
+      )
+      .bind("s-1", "DAY-20260512-0001", "x", new Date().toISOString())
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO submissions (id, public_code, accepted_text, display_name, status, moderation_version, created_at) " +
+          "VALUES (?1, ?2, ?3, NULL, 'accepted', 'v1', ?4)"
+      )
+      .bind("s-2", "DAY-20260512-0002", "y", new Date().toISOString())
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO submissions (id, public_code, accepted_text, display_name, status, moderation_version, created_at) " +
+          "VALUES (?1, ?2, ?3, NULL, 'printed', 'v1', ?4)"
+      )
+      .bind("s-3", "DAY-20260512-0003", "z", new Date().toISOString())
+      .run();
+
+    const res = await bridgePost("/api/tmayd/bridge/heartbeat", { bridge_id: "tmayd-bridge", status: "idle" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; pending_moderation: number };
+    expect(body.pending_moderation).toBe(2);
+  });
 });
 
 describe("bridge pull/ack", () => {

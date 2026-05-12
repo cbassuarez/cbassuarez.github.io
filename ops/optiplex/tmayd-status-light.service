@@ -1,0 +1,29 @@
+# /etc/systemd/system/tmayd-status-light.service
+[Unit]
+Description=TMAYD status light (LIFX over LAN)
+After=network-online.target tmayd-cloud-poller.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=seb
+Group=seb
+WorkingDirectory=/opt/tmayd
+ExecStart=/opt/tmayd/venv-light/bin/python /opt/tmayd/bin/status-light.py
+EnvironmentFile=/etc/tmayd/light.env
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening: no inbound, no writes to tmayd state. ReadOnlyPaths is a hard
+# structural guarantee that this unit cannot regress the print pipeline,
+# regardless of what the Python code does.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ReadOnlyPaths=/var/lib/tmayd
+
+[Install]
+WantedBy=multi-user.target

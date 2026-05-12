@@ -55,7 +55,20 @@ export async function handleHeartbeat(request: Request, env: Env): Promise<Respo
     .bind(bridgeId, status, printerOnline, cameraOnline, queueDepth, lastPrinted, lastError, nowIso())
     .run();
 
-  return json({ ok: true, observedAt: nowIso() }, { status: 200 }, request, env);
+  // Count submissions that are awaiting human moderation. The bridge surfaces
+  // this to the local status light so the operator can see "something is in
+  // the queue, just not approved yet" without needing the dashboard.
+  const pending = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM submissions WHERE status = 'accepted'"
+  ).first<{ n: number }>();
+  const pendingModeration = pending && typeof pending.n === "number" ? pending.n : 0;
+
+  return json(
+    { ok: true, observedAt: nowIso(), pending_moderation: pendingModeration },
+    { status: 200 },
+    request,
+    env
+  );
 }
 
 interface PullBody {

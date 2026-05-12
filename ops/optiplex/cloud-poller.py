@@ -38,6 +38,7 @@ DEFAULTS = {
     "TMAYD_LOCAL_PRINTED": "/var/lib/tmayd/printed",
     "TMAYD_LOCAL_FAILED": "/var/lib/tmayd/failed",
     "TMAYD_LOCAL_CLOUD_STATE": "/var/lib/tmayd/cloud",
+    "TMAYD_LOCAL_STATUS": "/var/lib/tmayd/status",
     "TMAYD_PRINTER_HOST": "192.168.50.2",
     "TMAYD_PRINTER_PORT": "9100",
     "TMAYD_HEARTBEAT_SECONDS": "30",
@@ -101,6 +102,7 @@ def load_env(path: Path) -> dict[str, str]:
         "TMAYD_LOCAL_PRINTED",
         "TMAYD_LOCAL_FAILED",
         "TMAYD_LOCAL_CLOUD_STATE",
+        "TMAYD_LOCAL_STATUS",
         "TMAYD_PRINTER_HOST",
         "TMAYD_PRINTER_PORT",
         "TMAYD_HEARTBEAT_SECONDS",
@@ -211,13 +213,14 @@ class Bridge:
         self.printed = Path(env["TMAYD_LOCAL_PRINTED"])
         self.failed = Path(env["TMAYD_LOCAL_FAILED"])
         self.cloud_state = Path(env["TMAYD_LOCAL_CLOUD_STATE"])
+        self.status_dir = Path(env["TMAYD_LOCAL_STATUS"])
         self.printer_host = env["TMAYD_PRINTER_HOST"]
         self.printer_port = int(env["TMAYD_PRINTER_PORT"])
         self.heartbeat_seconds = int(env["TMAYD_HEARTBEAT_SECONDS"])
         self.poll_seconds = int(env["TMAYD_POLL_SECONDS"])
         self.http_timeout = float(env["TMAYD_HTTP_TIMEOUT"])
 
-        for d in (self.queue, self.printed, self.failed, self.cloud_state):
+        for d in (self.queue, self.printed, self.failed, self.cloud_state, self.status_dir):
             d.mkdir(parents=True, exist_ok=True)
 
         if not self.token:
@@ -251,6 +254,13 @@ class Bridge:
     def post(self, path: str, body: dict[str, Any]) -> tuple[int, dict[str, Any] | None]:
         return http_json("POST", f"{self.api_base}{path}", self.token, body, self.http_timeout)
 
+    # ---------- status sentinels (consumed by tmayd-status-light) ----------
+    def _touch_sentinel(self, name: str) -> None:
+        try:
+            (self.status_dir / name).touch()
+        except OSError:
+            pass
+
     # ---------- core ops ---------------------------------------------------
     def heartbeat(self, last_error: Optional[str] = None) -> None:
         now = time.time()
@@ -273,7 +283,7 @@ class Bridge:
         except FileNotFoundError:
             pass
 
-        status, _ = self.post(
+        status, body = self.post(
             "/api/tmayd/bridge/heartbeat",
             {
                 "bridge_id": self.bridge_id,
@@ -285,6 +295,21 @@ class Bridge:
                 "last_error": last_error,
             },
         )
+        # Write the heartbeat-ok sentinel only on a confirmed 200 from the
+        # worker. Staleness of this file is the signal the status-light service
+        # uses to detect NETWORK_LOST, so a failed heartbeat must not refresh
+        # it. `pending_moderation` is forwarded for the MODERATION light state.
+        if status == 200 and isinstance(body, dict) and body.get("ok"):
+            pending = body.get("pending_moderation")
+            atomic_write(
+                self.status_dir / "heartbeat_ok",
+                json.dumps({
+                    "at": now_iso(),
+                    "pending_moderation": int(pending) if isinstance(pending, (int, float)) else 0,
+                    "printer_online": printer_online,
+                    "queue_depth": depth,
+                }).encode("utf-8"),
+            )
         log(
             "info",
             "heartbeat",
@@ -346,6 +371,7 @@ class Bridge:
                 "queued_at": now_iso(),
                 "bytes": len(body_bytes),
             })
+            self._touch_sentinel("last_enqueue")
             log("info", "queued", public_code=public_code, bytes=len(body_bytes))
             enqueued.append(public_code)
 
@@ -379,6 +405,7 @@ class Bridge:
         )
         if status == 200 and body and body.get("ok"):
             self.state_write(public_code, "printed_acked.json", {"acked_at": now_iso()})
+            self._touch_sentinel("last_printed")
             log("info", "ack_printed", public_code=public_code)
         else:
             log("warn", "ack_printed_failed", public_code=public_code, status=status)
@@ -390,6 +417,7 @@ class Bridge:
         )
         if status == 200 and body and body.get("ok"):
             self.state_write(public_code, "failed_acked.json", {"acked_at": now_iso(), "reason": reason})
+            self._touch_sentinel("last_failed")
             log("info", "ack_failed", public_code=public_code, reason=reason)
         else:
             log("warn", "ack_failed_failed", public_code=public_code, status=status, reason=reason)
