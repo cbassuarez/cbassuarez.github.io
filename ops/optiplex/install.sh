@@ -23,8 +23,13 @@ if [[ ! -f /etc/tmayd/cloud.env ]]; then
   exit 2
 fi
 
-echo "[1/4] copying cloud-poller.py to /opt/tmayd/bin/"
+echo "[1/4] copying cloud-poller.py + print-queue.py to /opt/tmayd/bin/"
 install -m 0755 -o seb -g seb "${STAGE_DIR}/cloud-poller.py" /opt/tmayd/bin/cloud-poller.py
+# print-queue.py is staged in the repo for source-of-truth tracking; install
+# only if it's present (older checkouts won't have it).
+if [[ -f "${STAGE_DIR}/print-queue.py" ]]; then
+  install -m 0755 -o seb -g seb "${STAGE_DIR}/print-queue.py" /opt/tmayd/bin/print-queue.py
+fi
 
 echo "[2/4] installing systemd unit"
 sudo install -m 0644 -o root -g root "${STAGE_DIR}/tmayd-cloud-poller.service" /etc/systemd/system/tmayd-cloud-poller.service
