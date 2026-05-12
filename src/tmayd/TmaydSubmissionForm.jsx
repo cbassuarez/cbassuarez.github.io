@@ -96,6 +96,17 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
 
   useEffect(() => {
     let cancelled = false;
+    let renderTimer = null;
+
+    const SOFT_ERROR = "Verification didn't load — you can still try sending.";
+
+    function clearRenderTimer() {
+      if (renderTimer !== null) {
+        window.clearTimeout(renderTimer);
+        renderTimer = null;
+      }
+    }
+
     if (!siteKey) {
       setTurnstileReady(true); // dev/mock mode — server may also bypass
       return () => {};
@@ -108,6 +119,7 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
             sitekey: siteKey,
             appearance: 'always',
             callback: (token) => {
+              clearRenderTimer();
               tokenRef.current = token || '';
               setTurnstileReady(true);
               setTurnstileError('');
@@ -116,25 +128,41 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
               tokenRef.current = '';
               setTurnstileReady(false);
             },
-            'error-callback': () => {
+            'error-callback': (code) => {
+              clearRenderTimer();
+              console.warn('[tmayd] turnstile error-callback', code);
               setTurnstileReady(false);
-              setTurnstileError('Verification widget failed to load.');
+              setTurnstileError(SOFT_ERROR);
             },
             'timeout-callback': () => {
+              clearRenderTimer();
               setTurnstileReady(false);
-              setTurnstileError('Verification timed out. Please retry.');
+              setTurnstileError(SOFT_ERROR);
             }
           });
-        } catch {
-          setTurnstileError('Verification widget failed to load.');
+          // Wallclock fallback: render() can succeed silently but never produce
+          // a token (browser extensions, blocked iframes, mis-provisioned key).
+          // Surface a recoverable error and let the server be the final gate.
+          renderTimer = window.setTimeout(() => {
+            if (cancelled) return;
+            if (!tokenRef.current) {
+              console.warn('[tmayd] turnstile render timeout: no token within 12s');
+              setTurnstileError(SOFT_ERROR);
+            }
+          }, 12000);
+        } catch (err) {
+          console.warn('[tmayd] turnstile render threw', err);
+          setTurnstileError(SOFT_ERROR);
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return;
-        setTurnstileError('Verification widget failed to load.');
+        console.warn('[tmayd] turnstile script load failed', err);
+        setTurnstileError(SOFT_ERROR);
       });
     return () => {
       cancelled = true;
+      clearRenderTimer();
       try {
         if (widgetIdRef.current && window.turnstile) {
           window.turnstile.remove(widgetIdRef.current);
@@ -185,10 +213,13 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
       return;
     }
 
-    if (siteKey && !tokenRef.current) {
-      setResult({ tone: 'error', message: 'Please complete the verification widget and try again.' });
+    if (siteKey && !tokenRef.current && !turnstileError) {
+      // No token yet, but no surfaced error either — widget is still loading.
+      setResult({ tone: 'error', message: 'Verification is still loading. Please wait a moment.' });
       return;
     }
+    // If turnstileError is set, fall through and let the server be the authority.
+    // It will return a clear "Verification failed" message if the token is missing.
 
     setPending(true);
     setResult({ tone: 'neutral', message: 'Sending...' });
@@ -348,7 +379,10 @@ export default function TmaydSubmissionForm({ intakeOpen = true, statusMessage =
         <button
           type="submit"
           className="tmayd-button tmayd-button--full"
-          disabled={formDisabled || (siteKey ? !turnstileReady : false)}
+          disabled={
+            formDisabled ||
+            (siteKey && !turnstileReady && !turnstileError)
+          }
         >
           {pending ? 'sending…' : 'send to the machine'}
         </button>
