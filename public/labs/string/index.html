@@ -5,22 +5,286 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>String</title>
   <style>
-    html,body{margin:0;overflow:hidden;background:#fafafa}
-    canvas{display:block;width:100vw;height:100vh;touch-action:none}
+    :root {
+      --bg: #ffffff;
+      --ink: #111111;
+      --ink-soft: rgba(17,17,17,0.62);
+      --ink-faint: rgba(17,17,17,0.32);
+      --rule: rgba(17,17,17,0.12);
+      --warm: #b8884a;
+      --warm-soft: rgba(184,136,74,0.55);
+      --font-serif: ui-serif, "Iowan Old Style", "Hoefler Text", "Apple Garamond", Garamond, "Times New Roman", serif;
+      --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", monospace;
+      --font-sans: -apple-system, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; overflow: hidden;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-serif);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    canvas#stage {
+      display: block;
+      width: 100vw; height: 100vh;
+      touch-action: none;
+      cursor: crosshair;
+    }
+
+    /* top corner: about */
+    .corner {
+      position: fixed; top: max(18px, env(safe-area-inset-top));
+      left: max(20px, env(safe-area-inset-left));
+      z-index: 10;
+      pointer-events: none;
+    }
+    .corner > * { pointer-events: auto; }
+    .about-link {
+      appearance: none;
+      background: transparent;
+      border: none;
+      padding: 4px 2px;
+      margin: 0;
+      color: var(--ink);
+      font-family: var(--font-serif);
+      font-style: italic;
+      font-size: 16px;
+      letter-spacing: 0;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 8px;
+      line-height: 1;
+      position: relative;
+    }
+    .about-link::before {
+      content: "";
+      width: 4px; height: 4px; border-radius: 50%;
+      background: var(--warm);
+      align-self: center;
+      transform: translateY(-1px);
+      transition: transform 240ms ease, background 240ms ease;
+    }
+    .about-link::after {
+      content: "";
+      position: absolute;
+      left: 14px; right: 2px; bottom: 3px;
+      height: 1px;
+      background: currentColor;
+      opacity: 0;
+      transform: translateY(2px);
+      transition: opacity 240ms ease, transform 240ms ease;
+    }
+    .about-link:hover::after { opacity: 0.45; transform: translateY(0); }
+    .about-link:hover::before { transform: translateY(-1px) scale(1.4); }
+    .about-link:active { color: var(--ink-soft); }
+
+    /* bottom corner: presence + sig */
+    .footer {
+      position: fixed;
+      bottom: max(18px, env(safe-area-inset-bottom));
+      left: 0; right: 0;
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 0 max(22px, env(safe-area-inset-left)) 0 max(22px, env(safe-area-inset-right));
+      pointer-events: none;
+      z-index: 10;
+      font-family: var(--font-serif);
+      font-style: italic;
+      font-size: 15px;
+      color: var(--ink-soft);
+      line-height: 1;
+    }
+    .presence {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 10px;
+      color: var(--ink);
+    }
+    .presence .dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--warm);
+      align-self: center;
+      transform: translateY(-1px);
+      animation: pulse 2.6s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 1; }
+    }
+    .presence-text { color: var(--ink); }
+    .footer .sig { color: var(--ink-faint); }
+
+    @media (max-width: 540px) {
+      .footer { font-size: 13.5px; }
+      .about-link { font-size: 14.5px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .presence .dot { animation: none; }
+    }
+
+    /* modal */
+    dialog#string-help-dialog {
+      border: none; padding: 0; background: transparent;
+      color: var(--ink);
+      max-width: min(540px, calc(100vw - 32px));
+      width: 100%;
+      outline: none;
+    }
+    dialog#string-help-dialog::backdrop {
+      background: radial-gradient(ellipse at center, rgba(255,255,255,0.30), rgba(255,255,255,0.70));
+      backdrop-filter: blur(14px) saturate(1.05);
+      -webkit-backdrop-filter: blur(14px) saturate(1.05);
+    }
+    .help-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.62), rgba(255,255,255,0.42));
+      border: 1px solid rgba(17,17,17,0.10);
+      padding: 40px 40px 32px;
+      position: relative;
+      overflow: hidden;
+      backdrop-filter: blur(22px) saturate(1.15);
+      -webkit-backdrop-filter: blur(22px) saturate(1.15);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.85),
+        inset 0 0 0 1px rgba(255,255,255,0.20),
+        0 30px 80px -24px rgba(17,17,17,0.18),
+        0 4px 14px -6px rgba(17,17,17,0.06);
+    }
+    .help-card::before {
+      content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--warm), transparent);
+      opacity: 0.85;
+    }
+    .help-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: var(--ink-faint);
+      margin: 0 0 22px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .help-eyebrow .rule { flex: 1; height: 1px; background: var(--rule); }
+    .help-eyebrow .warm { color: var(--warm); }
+    .help-title {
+      font-family: var(--font-serif);
+      font-weight: 400;
+      font-size: 32px;
+      line-height: 1.12;
+      letter-spacing: -0.012em;
+      margin: 0 0 22px;
+      text-wrap: balance;
+      color: var(--ink);
+    }
+    .help-title em {
+      font-style: italic; color: var(--warm);
+    }
+    .help-body {
+      font-family: var(--font-serif);
+      font-size: 16.5px;
+      line-height: 1.6;
+      color: var(--ink-soft);
+      margin: 0 0 14px;
+      text-wrap: pretty;
+    }
+    .help-body strong { color: var(--ink); font-weight: 500; }
+    .help-meta {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px 22px;
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      margin: 26px 0 28px;
+      padding: 16px 0;
+      border-top: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+    }
+    .help-meta dt { color: var(--ink-faint); }
+    .help-meta dd { margin: 0; color: var(--ink); }
+    .help-actions { display: flex; justify-content: flex-end; }
+    .help-enter {
+      appearance: none;
+      background: transparent;
+      color: var(--warm);
+      border: 1px solid var(--warm);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      padding: 12px 26px 11px;
+      cursor: pointer;
+      transition: background 200ms, color 200ms, transform 160ms, box-shadow 200ms;
+    }
+    .help-enter:hover {
+      background: var(--warm); color: var(--bg);
+      box-shadow: 0 8px 24px -8px var(--warm);
+    }
+    .help-enter:active { transform: translateY(1px); }
+    .help-enter::after { content: " \21B5"; opacity: 0.7; }
+
+    dialog#string-help-dialog[open] {
+      animation: dialogIn 700ms cubic-bezier(.2,.8,.2,1) both;
+    }
+    @keyframes dialogIn {
+      from { opacity: 0; transform: translateY(10px); filter: blur(8px); }
+      to { opacity: 1; transform: translateY(0); filter: blur(0); }
+    }
+
+    @media (max-width: 540px) {
+      .help-card { padding: 26px 22px 22px; }
+      .help-title { font-size: 24px; }
+      .help-body { font-size: 14.5px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      dialog#string-help-dialog[open] { animation: none; }
+    }
   </style>
 </head>
 <body>
-  <button id="string-help-open" type="button" style="position:fixed;top:8px;left:8px;z-index:10">about /labs/string</button>
+  <div class="corner">
+    <button id="string-help-open" class="about-link" type="button">about</button>
+  </div>
+
   <dialog id="string-help-dialog">
-    <form method="dialog">
-      <p><strong>/labs/string</strong> is an ongoing shared piece for cybernetic strings.</p>
-      <p>Each visitor plays one string. A single pluck can travel outward, move nearby strings, and return as sympathetic sound.</p>
-      <p>It is a reminder that everyday connection is real: known or unknown, small actions ripple across other lives.</p>
-      <p>Click or tap anywhere to pluck. If your device supports pressure, harder presses strike more strongly.</p>
-      <p><button type="submit" data-close-help>enter</button></p>
+    <form method="dialog" class="help-card">
+      <p class="help-eyebrow">
+        <span class="warm">/labs/string</span>
+        <span class="rule"></span>
+        <span>n&deg;01</span>
+      </p>
+      <h1 class="help-title">
+        A shared room of <em>cybernetic strings</em>, ringing for one another.
+      </h1>
+      <p class="help-body">
+        Each visitor plays one string. A single pluck travels outward, moves nearby strings, and returns as sympathetic sound &mdash; the room remembering you.
+      </p>
+      <p class="help-body">
+        It is a small reminder that everyday connection is real. Known or unknown, small actions ripple across other lives.
+      </p>
+      <dl class="help-meta">
+        <dt>tap</dt><dd>pluck the string</dd>
+        <dt>hold</dt><dd>harder press, fuller voice</dd>
+        <dt>listen</dt><dd>others answer</dd>
+      </dl>
+      <div class="help-actions">
+        <button type="submit" class="help-enter" data-close-help>enter the room</button>
+      </div>
     </form>
   </dialog>
+
   <canvas id="stage" aria-label="Shared string instrument. Click or tap to pluck."></canvas>
-  <script src="./script.js?v=20260501ws2" defer></script>
+
+  <div class="footer">
+    <div class="presence">
+      <span class="dot"></span>
+      <span class="presence-text" id="presence-text">&mdash; strings tonight</span>
+    </div>
+    <div class="sig">seb suarez, 2026</div>
+  </div>
+
+  <script src="./script.js?v=20260513refined" defer></script>
 </body>
 </html>

@@ -1,0 +1,20 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "https://cbassuarez.com",
+          "https://www.cbassuarez.com",
+          "https://cbassuarez.github.io",
+          "http://localhost:5173",
+          "http://localhost:5174",
+          "http://localhost:4173"
+        ],
+        "methods": ["GET", "HEAD"],
+        "headers": ["*"]
+      },
+      "exposeHeaders": ["Content-Length", "ETag", "Last-Modified"],
+      "maxAgeSeconds": 86400
+    }
+  ]
+}

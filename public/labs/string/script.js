@@ -26,7 +26,13 @@
   const VOICE_ATTACK_S = 0.030;
   const DECAY_FLOOR = 0.0005; // -66 dB target for both audio + visual
 
-  const BG = '#fafafa';
+  const BG = (() => {
+    try {
+      const v = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+      if (v) return v;
+    } catch (_) {}
+    return '#ffffff';
+  })();
   const STRING_AMP_FRAC = 0.12;       // per-string vertical amplitude (frac of viewH)
   const Y_LANE_RANGE = 0.20;          // total ±range of y-offsets (frac of viewH)
   const EDGE_PLUCK_FLOOR = 0.28;      // edge plucks never fully mute, but are weaker
@@ -38,7 +44,8 @@
   let dpr = 1, viewW = 0, viewH = 0;
   const helpDialog = document.getElementById('string-help-dialog');
   const helpOpenButton = document.getElementById('string-help-open');
-  const HELP_SEEN_KEY = 'prae:string:help:v1';
+  const presenceText = document.getElementById('presence-text');
+  const HELP_SEEN_KEY = 'prae:string:help:refined:v1';
 
   function resize() {
     dpr = Math.max(1, Math.min(2.5, window.devicePixelRatio || 1));
@@ -108,31 +115,25 @@
   // ---------- identity (deterministic per `who` hash) ----------
   // Curated palette of 24 colors that all read clearly on a warm-white field.
   // Saturated enough to identify; not so bright they vibrate.
+  // Strong chromatic spectrum on a white field — high saturation, value tuned
+  // for legibility. No muted earth tones (espresso/mauve/eggplant/slate/walnut),
+  // no magenta. Roughly: crimson → vermilion → orange → amber → yellow → lime
+  // → green → teal → cyan → blue → indigo → violet.
   const PALETTE = [
-    [168, 36, 56],   // deep crimson
-    [192, 57, 43],   // brick red
-    [211, 84, 0],    // burnt orange
-    [184, 110, 33],  // amber
-    [127, 96, 0],    // ochre
-    [85, 122, 58],   // forest green
-    [39, 174, 96],   // emerald
-    [22, 160, 133],  // teal
-    [26, 140, 130],  // viridian
-    [31, 78, 121],   // navy
-    [41, 128, 185],  // ocean
-    [58, 49, 133],   // indigo
-    [108, 52, 131],  // purple
-    [142, 68, 173],  // amethyst
-    [162, 62, 140],  // magenta
-    [196, 82, 139],  // hot pink
-    [146, 52, 95],   // deep rose
-    [80, 45, 73],    // mauve
-    [61, 44, 74],    // eggplant
-    [38, 70, 83],    // slate teal
-    [42, 64, 69],    // dark cyan
-    [73, 56, 38],    // walnut
-    [60, 40, 22],    // dark espresso
-    [44, 62, 80],    // midnight blue
+    [212,  30,  50],  // crimson
+    [232,  60,  35],  // red
+    [238, 100,  25],  // vermilion
+    [240, 138,  18],  // orange
+    [228, 175,  18],  // amber
+    [205, 188,  22],  // yellow
+    [150, 188,  35],  // lime
+    [55,  172,  68],  // green
+    [22,  160, 110],  // emerald
+    [18,  158, 168],  // teal
+    [30,  138, 205],  // cyan
+    [28,   92, 198],  // blue
+    [68,   60, 195],  // indigo
+    [120,  55, 200],  // violet
   ];
 
   // Each user's hash → a unique set of: color (palette idx), y-lane, thickness,
@@ -189,6 +190,7 @@
         prevPos: new Float32Array(N),
         pos: new Float32Array(N),
         lastActiveT: Date.now(),
+        activityEnergy: 0,
         cursorX: 0.5,
         cursorAt: Date.now(),
       };
@@ -213,6 +215,14 @@
       wR[i] *= damp;
       pos[i] = wL[i] + wR[i];
     }
+    // RMS-ish energy estimate for lane-cap brightness (decays each step).
+    let energy = 0;
+    for (let i = 40; i < N; i += 60) energy += pos[i] * pos[i];
+    sim.activityEnergy = clamp(
+      Math.max(sim.activityEnergy * 0.96, Math.sqrt(energy) * 0.6),
+      0,
+      1
+    );
   }
 
   function edgeExcitationGain(x01) {
@@ -247,6 +257,7 @@
       wR[i] = clamp(wR[i], -2.8, 2.8);
     }
     sim.lastActiveT = Date.now();
+    sim.activityEnergy = 1;
   }
 
   // ---------- sympathetic coupling (bridge-mediated cross-string exchange) ----------
@@ -682,6 +693,10 @@
   const SYMPATHETIC_VISUAL_DELAY_MIN = 20;
   const SYMPATHETIC_VISUAL_DELAY_JITTER = 130;
 
+  // Visible sympathy threads — short-lived dotted arcs drawn over the strings.
+  // Populated by triggerSympathetic, consumed by renderSympathyThread each frame.
+  const sympathyThreads = []; // { fromWho, toWho, x01, t0, life, weight }
+
   function injectBridgeImpulse(sim, impulse) {
     if (!sim || !Number.isFinite(impulse)) return;
     // Couple into the bridge taps (not the pluck point) so sympathetic motion
@@ -732,6 +747,16 @@
         if (!liveTarget) return;
         injectBridgeImpulse(liveTarget, visualImpulse);
       }, visualDelay);
+
+      // queue a visible sympathy thread, aligned with the impulse fire time
+      sympathyThreads.push({
+        fromWho: sourceWho,
+        toWho: w,
+        x01,
+        t0: performance.now() + visualDelay,
+        life: 900 + 400 * weight,
+        weight,
+      });
 
       const sympatheticPluck = createPluckModel(x01, y01, {
         force01: 0.12 + clamp01(pluck?.force01) * 0.22,
@@ -824,68 +849,152 @@
     pluckLocalTap(e);
   }, { passive: true });
 
-  // ---------- render ----------
-  const SELF_ALPHA = 1.0;
-  const OTHER_ALPHA = 0.56;
-  const SELF_WIDTH_BOOST = 1.55;
-  const SELF_OUTLINE_ALPHA = 0.28;
+  // ---------- render (refined: paper-instrument feel) ----------
+  // Strings render as real wires: amplitude-modulated thickness, hairline
+  // shadow, gentle inner highlight, gradient along length. Lane-end caps
+  // brighten with activity. Sympathy threads are thin dotted arcs.
 
-  function renderSim(sim, ampPx, interpAlpha) {
+  function renderSim(sim, ampPx, interpAlpha, fadeIn) {
     const { pos, prevPos, identity, who } = sim;
     const yMid = (0.5 + identity.yOffset) * viewH;
     const isSelf = who === myWho;
-    const alpha = isSelf ? SELF_ALPHA : OTHER_ALPHA;
     const [r, g, b] = identity.colorRGB;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
+    const energy = sim.activityEnergy || 0;
+    const baseAlpha = (isSelf ? 1.0 : 0.62) * fadeIn;
+
+    // peak amplitude this frame → thickness modulation
+    let peak = 0;
+    for (let i = 40; i < N - 40; i += 24) {
+      const v = Math.abs(lerp(prevPos[i], pos[i], interpAlpha));
+      if (v > peak) peak = v;
+    }
+    const breathe = Math.min(peak * 1.2, 1);
+    const thicknessNow = identity.thickness * (1 + breathe * 0.55) * (isSelf ? 1.45 : 1);
+
     const a = ampPx * identity.ampScale;
     const yAt = (i) => yMid + lerp(prevPos[i], pos[i], interpAlpha) * a;
-    ctx.moveTo(0, yAt(0));
-    for (let i = 1; i < N - 1; i++) {
-      const x = (i / (N - 1)) * viewW;
-      const y = yAt(i);
-      const nx = ((i + 1) / (N - 1)) * viewW;
-      const ny = yAt(i + 1);
-      ctx.quadraticCurveTo(x, y, 0.5 * (x + nx), 0.5 * (y + ny));
+
+    function buildPath() {
+      ctx.beginPath();
+      ctx.moveTo(0, yAt(0));
+      for (let i = 1; i < N - 1; i++) {
+        const x = (i / (N - 1)) * viewW;
+        const y = yAt(i);
+        const nx = ((i + 1) / (N - 1)) * viewW;
+        const ny = yAt(i + 1);
+        ctx.quadraticCurveTo(x, y, 0.5 * (x + nx), 0.5 * (y + ny));
+      }
+      ctx.lineTo(viewW, yAt(N - 1));
     }
-    ctx.lineTo(viewW, yAt(N - 1));
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // 1. hairline shadow underneath
+    ctx.save();
+    ctx.translate(0, 1.2);
+    buildPath();
+    ctx.lineWidth = thicknessNow * 0.92;
+    ctx.strokeStyle = `rgba(20,20,28,${0.09 * fadeIn})`;
+    ctx.stroke();
+    ctx.restore();
+
+    // 2. self outline (very subtle)
     if (isSelf) {
-      ctx.lineWidth = identity.thickness * SELF_WIDTH_BOOST + 2;
-      ctx.strokeStyle = `rgba(0,0,0,${SELF_OUTLINE_ALPHA})`;
+      buildPath();
+      ctx.lineWidth = thicknessNow + 1.6;
+      ctx.strokeStyle = `rgba(0,0,0,${0.18 * fadeIn})`;
       ctx.stroke();
     }
-    ctx.lineWidth = identity.thickness * (isSelf ? SELF_WIDTH_BOOST : 1);
-    ctx.strokeStyle = `rgba(${r},${g},${b},${alpha})`;
+
+    // 3. main stroke with gradient (pickup → bridge)
+    buildPath();
+    const grad = ctx.createLinearGradient(0, 0, viewW, 0);
+    const dim = `rgba(${r},${g},${b},${(baseAlpha * 0.78).toFixed(3)})`;
+    const full = `rgba(${r},${g},${b},${baseAlpha.toFixed(3)})`;
+    grad.addColorStop(0, dim);
+    grad.addColorStop(0.5, full);
+    grad.addColorStop(1, dim);
+    ctx.lineWidth = thicknessNow;
+    ctx.strokeStyle = grad;
     ctx.stroke();
-  }
 
-  function renderSelfMarker(sim) {
-    const yMid = (0.5 + sim.identity.yOffset) * viewH;
-    const [r, g, b] = sim.identity.colorRGB;
-    ctx.fillStyle = `rgba(${r},${g},${b},1)`;
+    // 4. inner highlight — thinner, lighter top-edge wire
+    if (thicknessNow > 2.2) {
+      ctx.save();
+      ctx.translate(0, -thicknessNow * 0.22);
+      buildPath();
+      ctx.lineWidth = Math.max(0.6, thicknessNow * 0.38);
+      ctx.strokeStyle = `rgba(255,255,255,${0.30 * fadeIn})`;
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 5. lane-end caps — brighten with activity
+    const capR = 3 + energy * 4;
+    const capAlpha = (0.45 + energy * 0.55) * fadeIn;
+    ctx.fillStyle = `rgba(${r},${g},${b},${capAlpha})`;
     ctx.beginPath();
-    ctx.arc(12, yMid, 4, 0, Math.PI * 2);
-    ctx.arc(viewW - 12, yMid, 4, 0, Math.PI * 2);
+    ctx.arc(8, yMid, capR, 0, Math.PI * 2);
+    ctx.arc(viewW - 8, yMid, capR, 0, Math.PI * 2);
     ctx.fill();
+    if (energy > 0.1) {
+      ctx.fillStyle = `rgba(${r},${g},${b},${0.18 * energy * fadeIn})`;
+      ctx.beginPath();
+      ctx.arc(8, yMid, capR + 6, 0, Math.PI * 2);
+      ctx.arc(viewW - 8, yMid, capR + 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
-  function renderCursor(sim) {
-    const cursorAge = Date.now() - sim.cursorAt;
-    if (sim.cursorAt === 0 || cursorAge > 5000) return;
-    if (sim.who === myWho) return;
-    const yMid = (0.5 + sim.identity.yOffset) * viewH;
-    const x = sim.cursorX * viewW;
-    const fade = Math.max(0, 1 - cursorAge / 5000);
-    const [r, g, b] = sim.identity.colorRGB;
-    ctx.fillStyle = `rgba(${r},${g},${b},${0.7 * fade})`;
+  function renderSympathyThread(thread, nowMs, fadeIn) {
+    const fromSim = sims.get(thread.fromWho);
+    const toSim = sims.get(thread.toWho);
+    if (!fromSim || !toSim) return;
+    const age = nowMs - thread.t0;
+    if (age < 0 || age > thread.life) return;
+    const t = age / thread.life;
+    const easeOut = 1 - Math.pow(1 - t, 2);
+    const fade = Math.sin(t * Math.PI); // peak in middle
+
+    const yA = (0.5 + fromSim.identity.yOffset) * viewH;
+    const yB = (0.5 + toSim.identity.yOffset) * viewH;
+    const x = thread.x01 * viewW;
+
+    const yNow = yA + (yB - yA) * easeOut;
+    const yCtrl = (yA + yB) * 0.5;
+    const dirSign = Math.sign(yB - yA) || 1;
+    const ctrlOffset = Math.min(80, Math.abs(yB - yA) * 0.35);
+
+    const [r1, g1, b1] = fromSim.identity.colorRGB;
+    const [r2, g2, b2] = toSim.identity.colorRGB;
+    const r = Math.round((r1 + r2) / 2);
+    const g = Math.round((g1 + g2) / 2);
+    const b = Math.round((b1 + b2) / 2);
+    const alpha = 0.55 * fade * fadeIn * (0.5 + 0.5 * thread.weight);
+
+    ctx.save();
+    ctx.setLineDash([2, 4]);
+    ctx.lineDashOffset = -age * 0.03;
+    ctx.lineWidth = 1.1;
+    ctx.strokeStyle = `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
     ctx.beginPath();
-    ctx.arc(x, yMid, 2.8, 0, Math.PI * 2);
+    ctx.moveTo(x, yA);
+    ctx.quadraticCurveTo(x + ctrlOffset * dirSign, yCtrl, x, yNow);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = `rgba(${r},${g},${b},${(alpha * 1.2).toFixed(3)})`;
+    ctx.beginPath();
+    ctx.arc(x, yNow, 1.8 + thread.weight * 1.2, 0, Math.PI * 2);
     ctx.fill();
   }
 
   let simAccumulatorMs = 0;
   let simLastFrameMs = performance.now();
+  let entranceStart = performance.now();
+  const ENTRANCE_MS = 1400;
 
   function render(nowMs) {
     let frameDelta = nowMs - simLastFrameMs;
@@ -913,16 +1022,46 @@
       82,
       300
     );
-    for (const sim of sims.values()) renderSim(sim, ampPx, interpAlpha);
-    const mySim = sims.get(myWho);
-    if (mySim) renderSelfMarker(mySim);
-    for (const sim of sims.values()) renderCursor(sim);
+    const entranceT = clamp01((nowMs - entranceStart) / ENTRANCE_MS);
+    const fadeIn = entranceT * entranceT * (3 - 2 * entranceT); // smoothstep
+
+    for (const sim of sims.values()) renderSim(sim, ampPx, interpAlpha, fadeIn);
+
+    // sympathy threads — draw + prune expired
+    if (sympathyThreads.length) {
+      let write = 0;
+      for (let i = 0; i < sympathyThreads.length; i++) {
+        const t = sympathyThreads[i];
+        const age = nowMs - t.t0;
+        if (age > t.life) continue;
+        renderSympathyThread(t, nowMs, fadeIn);
+        sympathyThreads[write++] = t;
+      }
+      sympathyThreads.length = write;
+    }
+
     requestAnimationFrame(render);
   }
   requestAnimationFrame((t) => {
     simLastFrameMs = Number.isFinite(t) ? t : performance.now();
+    entranceStart = performance.now();
     requestAnimationFrame(render);
   });
+
+  // ---------- presence ticker ----------
+  function updatePresenceText() {
+    if (!presenceText) return;
+    let count = 0;
+    const now = Date.now();
+    for (const sim of sims.values()) {
+      if (sim.who === myWho) { count++; continue; }
+      if (now - sim.cursorAt <= REMOTE_CURSOR_STALE_MS) count++;
+    }
+    if (count < 1) count = 1;
+    presenceText.textContent = `${count} string${count === 1 ? '' : 's'} tonight`;
+  }
+  setInterval(updatePresenceText, 700);
+  updatePresenceText();
 
   // ---------- bootstrap ----------
   connectSocket();
