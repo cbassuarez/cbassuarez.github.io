@@ -898,23 +898,24 @@ function selectNextToken(prevRole, eventIndex, seed, prevToken = null, model = n
 __name(selectNextToken, "selectNextToken");
 
 // src/body-for-visits/decide.js
-var COOLDOWN_MS_DEFAULT = 24 * 60 * 60 * 1e3;
+var SESSION_QUOTA_LIMIT_DEFAULT = 5;
+var SESSION_QUOTA_WINDOW_MS_DEFAULT = 60 * 60 * 1e3;
 function decideQualify({
   ua,
-  lastSessionTs,
+  sessionWindowCount = 0,
   prevRole,
   prevToken,
   humanEventIndex,
   seed,
   now = Date.now(),
-  cooldownMs = COOLDOWN_MS_DEFAULT,
+  sessionQuotaLimit = SESSION_QUOTA_LIMIT_DEFAULT,
   model = null
 }) {
   const bot = classifyUA(ua);
   if (bot.isBot) {
     return { action: "bot", bucket: bot.bucket };
   }
-  if (typeof lastSessionTs === "number" && now - lastSessionTs < cooldownMs) {
+  if (Number(sessionWindowCount || 0) >= sessionQuotaLimit) {
     return { action: "cooldown" };
   }
   const { token, role } = selectNextToken(
@@ -1020,6 +1021,16 @@ var jsonHeaders = /* @__PURE__ */ __name((origin) => ({
   link: DISCOVERY_LINK_HEADER
 }), "jsonHeaders");
 var clean = /* @__PURE__ */ __name((value) => String(value ?? "").replace(/\s+/g, " ").trim(), "clean");
+function constantTimeEqual(a, b) {
+  if (!a || !b) return false;
+  let diff = a.length ^ b.length;
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+__name(constantTimeEqual, "constantTimeEqual");
 var stripTags = /* @__PURE__ */ __name((value) => value.replace(/<[^>]+>/g, ""), "stripTags");
 var toNonNegativeInt = /* @__PURE__ */ __name((value) => {
   const parsed = Number(value);
@@ -2320,6 +2331,48 @@ var BodyForVisitsRoom = class {
       fringe: fringe.join(" ")
     };
   }
+  lastAdminResetEventId() {
+    const rows = this.state.storage.sql.exec(`SELECT MAX(id) AS id FROM events WHERE kind = 'admin_reset'`).toArray();
+    return Number(rows[0]?.id || 0);
+  }
+  humanJournalSinceReset() {
+    const resetId = this.lastAdminResetEventId();
+    return this.state.storage.sql.exec(
+      `SELECT token, role FROM events WHERE kind = 'human' AND id > ? ORDER BY id`,
+      resetId
+    ).toArray();
+  }
+  sessionQuota(sessionHash, now) {
+    const resetId = this.lastAdminResetEventId();
+    const windowStart = now - SESSION_QUOTA_WINDOW_MS_DEFAULT;
+    const rows = this.state.storage.sql.exec(
+      `SELECT COUNT(*) AS n, MIN(ts) AS oldest_ts
+           FROM events
+          WHERE kind = 'human'
+            AND session_hash = ?
+            AND id > ?
+            AND ts >= ?`,
+      sessionHash,
+      resetId,
+      windowStart
+    ).toArray();
+    const used = Number(rows[0]?.n || 0);
+    const oldest = rows[0]?.oldest_ts ?? null;
+    return {
+      limit: SESSION_QUOTA_LIMIT_DEFAULT,
+      remaining: Math.max(0, SESSION_QUOTA_LIMIT_DEFAULT - used),
+      window_ms: SESSION_QUOTA_WINDOW_MS_DEFAULT,
+      reset_at: oldest ? oldest + SESSION_QUOTA_WINDOW_MS_DEFAULT : null,
+      used
+    };
+  }
+  isAdminRequest(request) {
+    const expected = clean(this.env.BFV_ADMIN_TOKEN);
+    const raw = clean(request.headers.get("authorization") || "");
+    const match = raw.match(/^Bearer\s+(.+)$/i);
+    const token = clean(match?.[1] || "");
+    return constantTimeEqual(token, expected);
+  }
   // Presence = the number of open corpus pages (live WebSockets). Counted per
   // socket, so it stays simple, visible, and survives DO hibernation.
   presenceCount(exclude) {
@@ -2401,7 +2454,43 @@ var BodyForVisitsRoom = class {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }
       });
     }
+    if (request.method === "POST" && path === "/admin/reset") {
+      return this.adminReset(request);
+    }
     return this.responseJson({ error: "not_found" }, 404);
+  }
+  async adminReset(request) {
+    if (!this.isAdminRequest(request)) {
+      return this.responseJson({ error: "unauthorized" }, 401);
+    }
+    const now = Date.now();
+    const sql = this.state.storage.sql;
+    sql.exec(
+      `INSERT INTO events (ts, kind, ip_hash, session_hash, ua_class, token, role)
+       VALUES (?, 'admin_reset', 'admin', 'admin', 'admin', 'reset', 'reset')`,
+      now
+    );
+    const eventIdRow = sql.exec(`SELECT last_insert_rowid() AS id`).toArray();
+    const eventId = eventIdRow[0]?.id ?? null;
+    sql.exec(
+      `UPDATE body_state
+         SET body_json = '[]',
+             body_version = body_version + 1,
+             fold_count = 0,
+             fold_generations = 0,
+             corruption_count = 0,
+             fringe_json = '[]',
+             updated_at = ?
+       WHERE id = 1`,
+      now
+    );
+    const updated = this.readState();
+    this.broadcast(this.snapshotMessage(updated, null));
+    return this.responseJson({
+      ok: true,
+      reset_event_id: eventId,
+      ...this.buildResponseBody(updated, null)
+    });
   }
   async qualify(request) {
     let payload = {};
@@ -2421,11 +2510,7 @@ var BodyForVisitsRoom = class {
     const sessionHash = await bfvHashSession(sessionId);
     const now = Date.now();
     const sql = this.state.storage.sql;
-    const lastRows = sql.exec(
-      `SELECT MAX(ts) AS max_ts FROM events WHERE session_hash = ? AND kind = 'human'`,
-      sessionHash
-    ).toArray();
-    const lastSessionTs = lastRows[0]?.max_ts ?? null;
+    const quota = this.sessionQuota(sessionHash, now);
     const stateRow = this.readState();
     const body = this.parseBody(stateRow);
     const realBody = body[0]?.role === "fold_marker" ? body.slice(1) : body;
@@ -2433,13 +2518,11 @@ var BodyForVisitsRoom = class {
     const humanCountRows = sql.exec(`SELECT COUNT(*) AS n FROM events WHERE kind = 'human'`).toArray();
     const humanEventIndex = (humanCountRows[0]?.n || 0) + 1;
     const seed = parseInt(ipHash.slice(0, 8), 16) || 1;
-    const journal = sql.exec(
-      `SELECT token, role FROM events WHERE kind = 'human' ORDER BY id`
-    ).toArray();
+    const journal = this.humanJournalSinceReset();
     const model = inferModel(journal);
     const decision = decideQualify({
       ua,
-      lastSessionTs,
+      sessionWindowCount: quota.used,
       prevRole: prev?.role ?? null,
       prevToken: prev?.token ?? null,
       humanEventIndex,
@@ -2449,7 +2532,7 @@ var BodyForVisitsRoom = class {
     });
     if (decision.action === "cooldown") {
       const data2 = this.buildResponseBody(stateRow, null);
-      return this.responseJson({ ...data2, skipped: "cooldown" });
+      return this.responseJson({ ...data2, skipped: "cooldown", quota });
     }
     if (decision.action === "bot") {
       const glyphs = BUCKETS.corruption_glyphs;
@@ -2515,12 +2598,22 @@ var BodyForVisitsRoom = class {
     };
     this.broadcast(this.snapshotMessage(updated, newTokenIndex));
     const data = this.buildResponseBody(updated, newTokenIndex);
-    return this.responseJson({ ...data, skipped: null });
+    return this.responseJson({
+      ...data,
+      skipped: null,
+      quota: {
+        ...quota,
+        used: quota.used + 1,
+        remaining: Math.max(0, quota.remaining - 1),
+        reset_at: quota.reset_at ?? now + SESSION_QUOTA_WINDOW_MS_DEFAULT
+      }
+    });
   }
   export() {
     const rows = this.state.storage.sql.exec(`SELECT id, ts, kind, session_hash, ua_class, token, role FROM events ORDER BY id ASC`).toArray();
     const stateRow = this.readState();
-    const humanSeq = rows.filter((r) => r.kind === "human").map((r) => ({ token: r.token, role: r.role }));
+    const resetId = this.lastAdminResetEventId();
+    const humanSeq = rows.filter((r) => r.kind === "human" && r.id > resetId).map((r) => ({ token: r.token, role: r.role }));
     const body = {
       exported_at: (/* @__PURE__ */ new Date()).toISOString(),
       body_version: stateRow.body_version,
@@ -3684,6 +3777,22 @@ var src_default = {
           }
         });
       }
+      if (sub === "admin/reset" && request.method === "POST") {
+        const bodyText = await request.text();
+        const inner = new URL(request.url);
+        inner.pathname = "/admin/reset";
+        const forwarded = new Request(inner.toString(), {
+          method: "POST",
+          headers: {
+            "authorization": request.headers.get("authorization") || "",
+            "content-type": request.headers.get("content-type") || "application/json"
+          },
+          body: bodyText
+        });
+        const resp = await stub.fetch(forwarded);
+        const body = await resp.text();
+        return new Response(body, { status: resp.status, headers: jsonHeaders(allowOrigin) });
+      }
       return new Response(JSON.stringify({ error: "method_not_allowed" }), {
         status: 405,
         headers: jsonHeaders(allowOrigin)
@@ -3751,7 +3860,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-mgSNJb/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-EOnFHY/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -3783,7 +3892,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-mgSNJb/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-EOnFHY/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;
