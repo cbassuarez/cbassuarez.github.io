@@ -1872,8 +1872,8 @@ export class BodyForVisitsRoom {
     if (path.endsWith("/socket")) {
       return this.handleSocket(request);
     }
-    if (request.method === "GET" && path === "/state") {
-      return this.responseJson(this.buildResponseBody(this.readState(), null));
+    if ((request.method === "GET" || request.method === "POST") && path === "/state") {
+      return this.stateResponse(request);
     }
     if (request.method === "POST" && path === "/qualify") {
       return this.qualify(request);
@@ -1893,6 +1893,28 @@ export class BodyForVisitsRoom {
       return this.adminReset(request);
     }
     return this.responseJson({ error: "not_found" }, 404);
+  }
+
+  private async stateResponse(request: Request): Promise<Response> {
+    const data: any = {
+      ...this.buildResponseBody(this.readState(), null),
+    };
+
+    if (request.method === "POST") {
+      let payload: any = {};
+      try {
+        payload = await request.json();
+      } catch {
+        payload = {};
+      }
+      const sessionId = clean(payload?.session_id);
+      if (/^[0-9a-f-]{8,64}$/i.test(sessionId)) {
+        const sessionHash = await bfvHashSession(sessionId);
+        data.quota = this.sessionQuota(sessionHash, Date.now());
+      }
+    }
+
+    return this.responseJson(data);
   }
 
   private async adminReset(request: Request): Promise<Response> {
@@ -3359,10 +3381,15 @@ export default {
       const id = env.BFV_ROOM.idFromName(BFV_ROOM_NAME);
       const stub = env.BFV_ROOM.get(id);
 
-      if (sub === "state" && request.method === "GET") {
+      if (sub === "state" && (request.method === "GET" || request.method === "POST")) {
+        const bodyText = request.method === "POST" ? await request.text() : undefined;
         const inner = new URL(request.url);
         inner.pathname = "/state";
-        const resp = await stub.fetch(new Request(inner.toString(), { method: "GET" }));
+        const resp = await stub.fetch(new Request(inner.toString(), {
+          method: request.method,
+          headers: request.method === "POST" ? { "content-type": "application/json" } : undefined,
+          body: bodyText,
+        }));
         const body = await resp.text();
         return new Response(body, { status: resp.status, headers: jsonHeaders(allowOrigin) });
       }

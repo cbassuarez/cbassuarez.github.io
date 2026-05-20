@@ -20,6 +20,7 @@ function clamp01(value) {
 //   loading    -> fetching /api/corpus/state   -> indeterminate sweep
 //   accepting  -> the 2s visible dwell         -> determinate fill 0->1
 //   qualifying -> POST /api/corpus/qualify     -> fill held, marker pulse
+//   blocked    -> quota/rate/upstream withheld -> broken rule, no countdown
 //   settled    -> done                         -> fill dimmed, marker static
 // progress is a MotionValue: script.js pushes it every animation frame, so it
 // updates the DOM directly without a React re-render.
@@ -47,11 +48,12 @@ function VisitInstrument({ phase, progress }) {
   const idle = phase === 'idle';
   const loading = phase === 'loading';
   const qualifying = phase === 'qualifying';
+  const blocked = phase === 'blocked' || phase === 'failed' || phase === 'rate-limited';
   const settled = phase === 'settled';
 
   const showSweep = loading && !prefersReduced;
-  const showMarker = !idle && !loading;
-  const fillOpacity = idle || loading ? 0 : settled ? 0.4 : 0.72;
+  const showMarker = !idle && !loading && !blocked;
+  const fillOpacity = idle || loading || blocked ? 0 : settled ? 0.4 : 0.72;
   const markerOpacity = settled ? 0.4 : 0.92;
   const pulsing = qualifying && !prefersReduced;
 
@@ -65,6 +67,33 @@ function VisitInstrument({ phase, progress }) {
         transition={{ duration: 0.28, ease: 'easeOut' }}
       />
       {showSweep ? <div className="visit-sweep" /> : null}
+      {blocked ? (
+        <motion.div
+          className="visit-block"
+          initial={prefersReduced ? false : { opacity: 0 }}
+          animate={prefersReduced ? { opacity: 0.48 } : { opacity: [0, 0.82, 0.48] }}
+          transition={{ duration: 0.42, ease: 'easeOut' }}
+        >
+          <motion.span
+            className="visit-block-segment visit-block-segment-left"
+            initial={prefersReduced ? false : { scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ duration: 0.34, ease: 'easeOut' }}
+          />
+          <motion.span
+            className="visit-block-segment visit-block-segment-right"
+            initial={prefersReduced ? false : { scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ duration: 0.34, ease: 'easeOut' }}
+          />
+          <motion.span
+            className="visit-block-stop"
+            initial={prefersReduced ? false : { scaleY: 0 }}
+            animate={{ scaleY: 1 }}
+            transition={{ duration: 0.24, delay: prefersReduced ? 0 : 0.16, ease: 'easeOut' }}
+          />
+        </motion.div>
+      ) : null}
       {showMarker ? (
         <motion.div
           className="visit-marker"

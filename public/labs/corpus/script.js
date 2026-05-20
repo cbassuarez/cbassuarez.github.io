@@ -120,6 +120,12 @@
     setReadout('');
   }
 
+  function blockMotion(progress = 0) {
+    setMotionProgress(progress);
+    setMotionPhase('blocked');
+    setReadout('');
+  }
+
   // Punctuation glyphs that hug the preceding word — no space before them.
   const HUG_LEFT = new Set(['.', ',', ';']);
 
@@ -153,9 +159,20 @@
     fringeEl.textContent = typeof state.fringe === 'string' ? state.fringe : '';
   }
 
-  async function fetchState() {
+  function quotaExhausted(state) {
+    const remaining = Number(state?.quota?.remaining);
+    return Number.isFinite(remaining) && remaining <= 0;
+  }
+
+  async function fetchState(opts = {}) {
     try {
-      const resp = await fetch(`${API_BASE}/api/corpus/state`, { credentials: 'omit' });
+      const scoped = !!opts.sessionScoped;
+      const resp = await fetch(`${API_BASE}/api/corpus/state`, scoped ? {
+        method: 'POST',
+        credentials: 'omit',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId() }),
+      } : { credentials: 'omit' });
       if (!resp.ok) throw new Error(`state http ${resp.status}`);
       const json = await resp.json();
       applyState(json);
@@ -202,24 +219,24 @@
         body: JSON.stringify({ session_id: sid }),
       });
       if (resp.status === 429) {
-        settleMotion();
+        blockMotion();
         setStatus('rate-limited');
         return;
       }
       if (!resp.ok) {
-        settleMotion();
+        blockMotion();
         setStatus('upstream silent');
         return;
       }
       const json = await resp.json();
       if (json.skipped === 'cooldown') {
-        settleMotion();
+        blockMotion();
         setStatus(`visit withheld · hourly quota reached${quotaRetryText(json.quota)}`);
         applyState(json);
         return;
       }
       if (json.skipped === 'bot') {
-        settleMotion();
+        blockMotion();
         setStatus('machine mark withheld · deposited to fringe');
         applyState(json);
         return;
@@ -429,11 +446,17 @@
   setMotionPhase('loading');
   setStatus('loading body');
   connectSocket();
-  fetchState().then((state) => {
+  fetchState({ sessionScoped: true }).then((state) => {
     if (!state) return;
     if (attempted) {
       settleMotion();
       setStatus('visit already counted on this page load');
+      return;
+    }
+    if (quotaExhausted(state)) {
+      attempted = true;
+      blockMotion();
+      setStatus(`visit withheld · hourly quota reached${quotaRetryText(state.quota)}`);
       return;
     }
     startVisibleDwell();
