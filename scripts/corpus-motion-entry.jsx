@@ -1,14 +1,14 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   motion,
   motionValue,
-  useMotionValue,
   useTransform,
   useReducedMotion,
 } from 'framer-motion';
 
-const MARKER_SIZE = 6;
+const PIP_COUNT = 5;
+const PIPS = Array.from({ length: PIP_COUNT }, (_, index) => index);
 
 function clamp01(value) {
   const n = Number(value);
@@ -16,96 +16,101 @@ function clamp01(value) {
   return Math.max(0, Math.min(1, n));
 }
 
-// A single straight rule that tracks the real visit lifecycle:
-//   loading    -> fetching /api/corpus/state   -> indeterminate sweep
-//   accepting  -> the 2s visible dwell         -> determinate fill 0->1
-//   qualifying -> POST /api/corpus/qualify     -> fill held, marker pulse
-//   blocked    -> quota/rate/upstream withheld -> broken rule, no countdown
-//   settled    -> done                         -> fill dimmed, marker static
+// Five small pips track the real visit lifecycle:
+//   loading    -> fetching /api/corpus/state   -> one walking pip
+//   accepting  -> the 2s visible dwell         -> pips light by progress
+//   qualifying -> POST /api/corpus/qualify     -> all pips hold/pulse
+//   blocked    -> quota/rate/upstream withheld -> broken static pattern
+//   settled    -> done                         -> pips dimmed, static
 // progress is a MotionValue: script.js pushes it every animation frame, so it
 // updates the DOM directly without a React re-render.
-function VisitInstrument({ phase, progress }) {
-  const prefersReduced = useReducedMotion();
-  const wrapRef = useRef(null);
-  const width = useMotionValue(0);
-
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return undefined;
-    const measure = () => width.set(el.offsetWidth);
-    measure();
-    if (typeof ResizeObserver === 'undefined') return undefined;
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [width]);
-
-  const markerX = useTransform(
-    [progress, width],
-    ([p, w]) => p * w - MARKER_SIZE / 2,
+function VisitPip({ index, phase, progress, prefersReduced }) {
+  const threshold = (index + 1) / PIP_COUNT;
+  const progressOpacity = useTransform(
+    progress,
+    [Math.max(0, threshold - 0.18), threshold],
+    [0.2, 0.9],
+  );
+  const progressScale = useTransform(
+    progress,
+    [Math.max(0, threshold - 0.18), threshold],
+    [0.82, 1.12],
   );
 
   const idle = phase === 'idle';
   const loading = phase === 'loading';
+  const accepting = phase === 'accepting';
   const qualifying = phase === 'qualifying';
   const blocked = phase === 'blocked' || phase === 'failed' || phase === 'rate-limited';
   const settled = phase === 'settled';
 
-  const showSweep = loading && !prefersReduced;
-  const showMarker = !idle && !loading && !blocked;
-  const fillOpacity = idle || loading || blocked ? 0 : settled ? 0.4 : 0.72;
-  const markerOpacity = settled ? 0.4 : 0.92;
-  const pulsing = qualifying && !prefersReduced;
+  if (accepting) {
+    return (
+      <motion.span
+        className="visit-pip"
+        style={{ opacity: progressOpacity, scale: progressScale }}
+      />
+    );
+  }
+
+  if (loading && !prefersReduced) {
+    return (
+      <motion.span
+        className="visit-pip"
+        animate={{ opacity: [0.18, 0.85, 0.18], scale: [0.82, 1.2, 0.82] }}
+        transition={{
+          duration: 0.9,
+          repeat: Infinity,
+          ease: 'easeInOut',
+          delay: index * 0.12,
+          repeatDelay: 0.12,
+        }}
+      />
+    );
+  }
+
+  if (qualifying && !prefersReduced) {
+    return (
+      <motion.span
+        className="visit-pip"
+        animate={{ opacity: [0.82, 0.46, 0.82], scale: [1.08, 0.94, 1.08] }}
+        transition={{
+          duration: 0.72,
+          repeat: Infinity,
+          ease: 'easeInOut',
+          delay: index * 0.025,
+        }}
+      />
+    );
+  }
+
+  const broken = blocked && index % 2 === 1;
+  const opacity = idle ? 0 : blocked ? (broken ? 0.12 : 0.62) : settled ? 0.34 : 0.68;
+  const scale = blocked ? (broken ? 0.72 : 1) : settled ? 0.86 : 1;
 
   return (
-    <div ref={wrapRef} style={{ position: 'absolute', inset: 0 }}>
-      <div className="visit-track" />
-      <motion.div
-        className="visit-fill"
-        style={{ scaleX: progress }}
-        animate={{ opacity: fillOpacity }}
-        transition={{ duration: 0.28, ease: 'easeOut' }}
-      />
-      {showSweep ? <div className="visit-sweep" /> : null}
-      {blocked ? (
-        <motion.div
-          className="visit-block"
-          initial={prefersReduced ? false : { opacity: 0 }}
-          animate={prefersReduced ? { opacity: 0.48 } : { opacity: [0, 0.82, 0.48] }}
-          transition={{ duration: 0.42, ease: 'easeOut' }}
-        >
-          <motion.span
-            className="visit-block-segment visit-block-segment-left"
-            initial={prefersReduced ? false : { scaleX: 0 }}
-            animate={{ scaleX: 1 }}
-            transition={{ duration: 0.34, ease: 'easeOut' }}
-          />
-          <motion.span
-            className="visit-block-segment visit-block-segment-right"
-            initial={prefersReduced ? false : { scaleX: 0 }}
-            animate={{ scaleX: 1 }}
-            transition={{ duration: 0.34, ease: 'easeOut' }}
-          />
-          <motion.span
-            className="visit-block-stop"
-            initial={prefersReduced ? false : { scaleY: 0 }}
-            animate={{ scaleY: 1 }}
-            transition={{ duration: 0.24, delay: prefersReduced ? 0 : 0.16, ease: 'easeOut' }}
-          />
-        </motion.div>
-      ) : null}
-      {showMarker ? (
-        <motion.div
-          className="visit-marker"
-          style={{ x: markerX }}
-          animate={{ opacity: pulsing ? [0.9, 0.32, 0.9] : markerOpacity }}
-          transition={
-            pulsing
-              ? { duration: 1, repeat: Infinity, ease: 'easeInOut' }
-              : { duration: 0.28, ease: 'easeOut' }
-          }
+    <motion.span
+      className="visit-pip"
+      animate={{ opacity, scale }}
+      transition={{ duration: prefersReduced ? 0 : 0.24, ease: 'easeOut' }}
+    />
+  );
+}
+
+function VisitInstrument({ phase, progress }) {
+  const prefersReduced = useReducedMotion();
+
+  return (
+    <div className="visit-pips" role="presentation">
+      {PIPS.map((index) => (
+        <VisitPip
+          key={index}
+          index={index}
+          phase={phase}
+          progress={progress}
+          prefersReduced={prefersReduced}
         />
-      ) : null}
+      ))}
     </div>
   );
 }
