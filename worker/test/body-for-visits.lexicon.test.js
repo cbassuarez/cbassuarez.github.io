@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BUCKETS, ROLES } from "../src/body-for-visits/lexicon.js";
+import { BUCKETS, ROLES, TOKEN_PRIORS, WORD_PRIOR_SOURCE } from "../src/body-for-visits/lexicon.js";
 
 test("every linguistic role is present and non-empty", () => {
   for (const role of ROLES) {
@@ -25,6 +25,21 @@ test("no bucket has duplicates or empty entries", () => {
       assert.notEqual(tok.length, 0, `${name} contains empty string`);
       assert.ok(!seen.has(tok), `${name} duplicates "${tok}"`);
       seen.add(tok);
+    }
+  }
+});
+
+test("linguistic buckets are backed by generated neutral word priors", () => {
+  assert.ok(WORD_PRIOR_SOURCE.scowl.includes("en-wl/wordlist-diff"));
+  assert.ok(WORD_PRIOR_SOURCE.frequency.includes("reneklacan/symspell"));
+  assert.ok(BUCKETS.nouns.length >= 500);
+  assert.ok(BUCKETS.verbs.length >= 400);
+  assert.ok(BUCKETS.adjectives.length >= 400);
+
+  for (const role of ROLES) {
+    for (const token of BUCKETS[role]) {
+      assert.equal(typeof TOKEN_PRIORS[role][token], "number", `${role}/${token} has no prior`);
+      assert.ok(TOKEN_PRIORS[role][token] > 0, `${role}/${token} must have positive prior`);
     }
   }
 });

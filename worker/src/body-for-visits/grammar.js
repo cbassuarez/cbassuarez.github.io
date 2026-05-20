@@ -2,7 +2,7 @@
 // Deterministic per (eventIndex, seed, model) so events are replayable from the
 // journal, replayed in order.
 
-import { BUCKETS } from "./lexicon.js";
+import { BUCKETS, TOKEN_PRIORS } from "./lexicon.js";
 
 const NEXT_ROLES = {
   openings:     ["adjectives", "nouns"],
@@ -18,8 +18,9 @@ const NEXT_ROLES = {
 const MODEL_VERSION = 2;
 const RECENT_WINDOW = 18;
 
-// Smoothing weight. A learned count is added to this prior, so cold starts stay
-// deterministic and the journal only takes over as it accumulates evidence.
+// Smoothing weight. A learned count is added to the source word prior, so cold
+// starts stay deterministic and the journal takes over as it accumulates
+// evidence.
 const ROLE_ALPHA = 1;
 const WORD_ALPHA = 1;
 
@@ -185,7 +186,8 @@ function scoreToken(token, role, prevToken, model) {
   if (token === prevToken) return 0;
 
   const learned = prevToken != null ? m.words[prevToken] || {} : {};
-  let weight = WORD_ALPHA + (learned[token] || 0);
+  const prior = TOKEN_PRIORS[role]?.[token] || 1;
+  let weight = WORD_ALPHA * prior + (learned[token] || 0);
   const recentCount = countRecent(m.recentTokens, token);
   if (recentCount > 0) weight *= 1 / (1 + Math.pow(recentCount, 1.4));
 
@@ -211,7 +213,7 @@ function chooseToken(rng, role, prevToken, model) {
 // seed — integer; together with eventIndex makes selection deterministic.
 // prevToken — the last token string, used to avoid back-to-back duplicates.
 // model — optional learned model from inferModel(); when absent, selection is
-//         uniform (identical to the original behaviour).
+//         driven by source priors only.
 export function selectNextToken(prevRole, eventIndex, seed, prevToken = null, model = null) {
   const rng = mulberry32((seed ^ (eventIndex * 0x9e3779b1)) >>> 0);
 

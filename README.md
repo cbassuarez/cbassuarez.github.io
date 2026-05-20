@@ -105,6 +105,22 @@ The DO and rate-limit binding live on the existing `seb-feed` worker:
   No raw IPs, no full user-agents, are ever written.
 - Secret `BFV_ADMIN_TOKEN` — bearer token for the corpus admin reset endpoint.
 
+### Lexicon notes
+
+The grammar uses a generated neutral prior in
+`worker/src/body-for-visits/word-priors.generated.js` instead of a hand-written
+thematic lexicon. Regenerate it with `npm run build:corpus-lexicon`.
+
+Sources:
+
+- ESDB/SCOWL generated output from `en-wl/wordlist-diff` for POS buckets and
+  commonness sizes.
+- SymSpell's compact English frequency dictionary for local cold-start weights.
+
+The event journal remains the stronger model over time; these priors only keep
+early generation broad and common-English before the local body has enough
+history to shape itself.
+
 ### Manual test checklist
 
 1. Open `/labs/corpus/` in a fresh incognito window. After ~2s of
