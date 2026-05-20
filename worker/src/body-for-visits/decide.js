@@ -3,7 +3,6 @@
 // everything below is pure and testable.
 
 import { classifyUA } from "./bot.js";
-import { selectNextToken } from "./grammar.js";
 
 export const SESSION_QUOTA_LIMIT_DEFAULT = 5;
 export const SESSION_QUOTA_WINDOW_MS_DEFAULT = 60 * 60 * 1000; // 1h
@@ -18,12 +17,15 @@ export const SESSION_QUOTA_WINDOW_MS_DEFAULT = 60 * 60 * 1000; // 1h
 //   seed          — integer for deterministic selection (e.g. low 32 bits of ip_hash)
 //   now           — ms epoch (defaults to Date.now())
 //   sessionQuotaLimit — max accepted human events per session quota window
-//   model         — optional learned model from inferModel(); shapes selection
-//                   toward the corpus's own history. Absent → uniform selection.
+//   model         — rolling context from inferModel(); shapes selection
+//                   toward the corpus's own recent history.
+//   selector      — required generation function (the net-backed selector
+//                   built by the Durable Object).
 //
 // returns one of:
 //   { action: "cooldown" }
 //   { action: "bot", bucket }
+//   { action: "withhold", reason }
 //   { action: "append", token, role, ua_class: "browser" }
 export function decideQualify({
   ua,
@@ -35,7 +37,7 @@ export function decideQualify({
   now = Date.now(),
   sessionQuotaLimit = SESSION_QUOTA_LIMIT_DEFAULT,
   model = null,
-  selector = selectNextToken,
+  selector,
 }) {
   const bot = classifyUA(ua);
   if (bot.isBot) {
@@ -43,6 +45,9 @@ export function decideQualify({
   }
   if (Number(sessionWindowCount || 0) >= sessionQuotaLimit) {
     return { action: "cooldown" };
+  }
+  if (typeof selector !== "function") {
+    return { action: "withhold", reason: "no_selector" };
   }
   const next = selector(
     prevRole,

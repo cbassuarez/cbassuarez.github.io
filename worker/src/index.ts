@@ -4,9 +4,26 @@ import {
   SESSION_QUOTA_LIMIT_DEFAULT as BFV_SESSION_QUOTA_LIMIT,
   SESSION_QUOTA_WINDOW_MS_DEFAULT as BFV_SESSION_QUOTA_WINDOW_MS,
 } from "./body-for-visits/decide.js";
-import { inferModel as bfvInferModel } from "./body-for-visits/grammar.js";
+import {
+  inferModel as bfvInferModel,
+  tokenizeSpeech as bfvTokenize,
+  mulberry32 as bfvRng,
+} from "./body-for-visits/grammar.js";
 import { foldBody as bfvFold } from "./body-for-visits/fold.js";
 import { renderSnapshotHTML as bfvSnapshot } from "./body-for-visits/snapshot.js";
+import {
+  createNet as bfvCreateNet,
+  loadWeights as bfvLoadWeights,
+  serializeNet as bfvSerializeNet,
+  snapshotWeights as bfvSnapshotWeights,
+  hasNaN as bfvHasNaN,
+  blendToward as bfvBlendToward,
+  buildVocabContext as bfvBuildVocabContext,
+  createSelector as bfvCreateSelector,
+  trainStep as bfvTrainStep,
+  base64ToFloats as bfvBase64ToFloats,
+} from "./body-for-visits/net.js";
+import { NET_MODEL as BFV_NET_MODEL } from "./body-for-visits/net-weights.generated.js";
 
 type FeedItem = {
   source: string;
@@ -1593,6 +1610,18 @@ export class CoRoom {
 const BFV_ROOM_NAME = "body-for-visits:room-v1";
 const BFV_FRINGE_KEEP = 12;
 
+// Online neural model tuning. The model trains on a recency-weighted replay of
+// the body and checkpoints its weights to SQLite so learning survives restarts.
+const BFV_NET_CHECKPOINT_MS = 5 * 60 * 1000;
+const BFV_NET_CHECKPOINT_EVERY = 50;
+const BFV_NET_BATCH = 24;
+const BFV_NET_REPLAY = 96;
+const BFV_NET_LR = 0.02;
+const BFV_NET_L2 = 1e-4;
+const BFV_NET_DECAY_HALFLIFE = 64;
+const BFV_NET_MAX_DWELL_MS = 600000;
+const BFV_NET_COLLAPSE_RATIO = 0.34;
+
 type BfvToken = { token: string; role: string; event_id: number | null; ts: number };
 
 type BfvStateRow = {
@@ -1633,6 +1662,16 @@ export class BodyForVisitsRoom {
   private readonly state: DurableObjectState;
   private readonly env: Env;
   private ready = false;
+
+  // Online neural model — lazily loaded on first qualify, trained in place.
+  private net: any = null;
+  private vctx: any = null;
+  private netSelector: ((...args: any[]) => any) | null = null;
+  private netLoaded = false;
+  private netSteps = 0;
+  private netDirty = false;
+  private lastGoodWeights: Float32Array | null = null;
+  private pretrainedWeights: Float32Array | null = null;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -1685,6 +1724,26 @@ export class BodyForVisitsRoom {
         Date.now()
       );
     }
+
+    // Each accepted visit carries the visitor's dwell time; the neural model
+    // weights its training by that attention. SQLite has no ADD COLUMN IF NOT
+    // EXISTS, and ensureSchema re-runs on every DO wake — guard with PRAGMA.
+    const eventCols = sql.exec(`PRAGMA table_info(events)`).toArray();
+    if (!eventCols.some((col: any) => col.name === "dwell_ms")) {
+      sql.exec(`ALTER TABLE events ADD COLUMN dwell_ms INTEGER NOT NULL DEFAULT 0`);
+    }
+
+    // Persisted online-model weights — one row, overwritten on checkpoint.
+    sql.exec(
+      `CREATE TABLE IF NOT EXISTS net_state (
+         id INTEGER PRIMARY KEY CHECK (id = 1),
+         version INTEGER NOT NULL,
+         vocab_hash TEXT NOT NULL,
+         weights BLOB NOT NULL,
+         step_count INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL
+       )`
+    );
   }
 
   private readState(): BfvStateRow {
@@ -1754,14 +1813,187 @@ export class BodyForVisitsRoom {
     return Number(rows[0]?.id || 0);
   }
 
-  private humanJournalSinceReset(): Array<{ token: string; role: string }> {
+  private humanJournalSinceReset(): Array<{ token: string; role: string; dwell_ms: number }> {
     const resetId = this.lastAdminResetEventId();
     return this.state.storage.sql
-      .exec<{ token: string; role: string }>(
-        `SELECT token, role FROM events WHERE kind = 'human' AND id > ? ORDER BY id`,
+      .exec<{ token: string; role: string; dwell_ms: number }>(
+        `SELECT token, role, dwell_ms FROM events WHERE kind = 'human' AND id > ? ORDER BY id`,
         resetId
       )
       .toArray();
+  }
+
+  // Lazily build the online model: restore checkpointed weights from SQLite if
+  // the vocab still matches, otherwise fall back to the bundled warm-start.
+  private ensureNet(): void {
+    if (this.netLoaded) return;
+    const cfg = BFV_NET_MODEL.config;
+    const net = bfvCreateNet(cfg, 1);
+    this.pretrainedWeights = bfvBase64ToFloats(BFV_NET_MODEL.weightsB64);
+
+    let restored = false;
+    try {
+      const rows = this.state.storage.sql
+        .exec<{ vocab_hash: string; weights: ArrayBuffer; step_count: number }>(
+          `SELECT vocab_hash, weights, step_count FROM net_state WHERE id = 1`
+        )
+        .toArray();
+      const row = rows[0];
+      if (row && row.vocab_hash === BFV_NET_MODEL.vocabHash) {
+        bfvLoadWeights(net, row.weights);
+        if (!bfvHasNaN(net)) {
+          this.netSteps = Number(row.step_count) || 0;
+          restored = true;
+        }
+      }
+    } catch {
+      restored = false;
+    }
+    if (!restored) {
+      bfvLoadWeights(net, this.pretrainedWeights);
+      this.netSteps = 0;
+    }
+
+    this.net = net;
+    this.vctx = bfvBuildVocabContext(BFV_NET_MODEL.vocab);
+    this.netSelector = bfvCreateSelector(net, this.vctx);
+    this.lastGoodWeights = bfvSnapshotWeights(net);
+    this.netLoaded = true;
+    if (!restored) this.checkpointNet();
+  }
+
+  private checkpointNet(): void {
+    if (!this.netLoaded || !this.net) return;
+    try {
+      const bytes = bfvSerializeNet(this.net);
+      this.state.storage.sql.exec(
+        `INSERT OR REPLACE INTO net_state (id, version, vocab_hash, weights, step_count, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?)`,
+        BFV_NET_MODEL.version,
+        BFV_NET_MODEL.vocabHash,
+        bytes.buffer,
+        this.netSteps,
+        Date.now()
+      );
+      this.netDirty = false;
+    } catch {
+      // a failed checkpoint just leaves netDirty set — the alarm retries
+    }
+  }
+
+  private async ensureCheckpointAlarm(): Promise<void> {
+    try {
+      const existing = await this.state.storage.getAlarm();
+      if (existing == null) {
+        await this.state.storage.setAlarm(Date.now() + BFV_NET_CHECKPOINT_MS);
+      }
+    } catch {
+      // alarm scheduling is best-effort
+    }
+  }
+
+  // Fired ~5 min after activity — persists weights, then lapses when idle.
+  async alarm(): Promise<void> {
+    try {
+      if (this.netDirty && this.netLoaded) this.checkpointNet();
+    } catch {
+      // observability surfaces the failure
+    }
+    if (this.netDirty) {
+      try {
+        await this.state.storage.setAlarm(Date.now() + BFV_NET_CHECKPOINT_MS);
+      } catch {
+        // ignore alarm scheduling failure
+      }
+    }
+  }
+
+  // One reward-weighted SGD step over a recency-decayed replay of the body.
+  private trainFromJournal(
+    journal: Array<{ token: string; role: string; dwell_ms: number }>,
+    now: number
+  ): void {
+    if (!this.netLoaded || !this.net) return;
+    const batch = this.buildReplayBatch(journal, now);
+    if (batch.length === 0) return;
+    bfvTrainStep(this.net, batch, { lr: BFV_NET_LR, clip: 1.0, decay: BFV_NET_L2 });
+    if (bfvHasNaN(this.net)) {
+      if (this.lastGoodWeights) bfvLoadWeights(this.net, this.lastGoodWeights);
+      return;
+    }
+    this.lastGoodWeights = bfvSnapshotWeights(this.net);
+    this.netSteps += 1;
+    this.netDirty = true;
+    if (this.netSteps % BFV_NET_CHECKPOINT_EVERY === 0) {
+      this.runCollapseWatchdog(journal);
+      this.checkpointNet();
+    }
+  }
+
+  // Word-level (context -> next) pairs from the recent body, each weighted by
+  // attention (dwell) and decay (event age). When more pairs exist than fit a
+  // batch, a recency-biased weighted reservoir picks the subsample.
+  private buildReplayBatch(
+    journal: Array<{ token: string; role: string; dwell_ms: number }>,
+    now: number
+  ): any[] {
+    if (!this.net || !this.vctx) return [];
+    const K = this.net.config.K;
+    const vctx = this.vctx;
+    const flat: Array<{ id: number; eventIndex: number; dwell: number }> = [];
+    for (let e = 0; e < journal.length; e++) {
+      const ev = journal[e];
+      if (!ev || ev.role === "fold_marker" || ev.role === "corruption") continue;
+      for (const word of bfvTokenize(ev.token)) {
+        const id = vctx.word2id.get(word);
+        flat.push({
+          id: id == null ? vctx.UNK : id,
+          eventIndex: e,
+          dwell: Number(ev.dwell_ms) || 0,
+        });
+      }
+    }
+    const recent = flat.slice(-BFV_NET_REPLAY);
+    if (recent.length <= K) return [];
+    const latest = journal.length - 1;
+    const candidates: any[] = [];
+    for (let t = K; t < recent.length; t++) {
+      const target = recent[t].id;
+      if (target === vctx.UNK || target === vctx.BOS) continue;
+      const ctx: number[] = [];
+      for (let k = t - K; k < t; k++) ctx.push(recent[k].id);
+      const attention = Math.min(2.0, Math.max(0.25, recent[t].dwell / 2000));
+      const age = latest - recent[t].eventIndex;
+      const decay = Math.pow(0.5, age / BFV_NET_DECAY_HALFLIFE);
+      candidates.push({ ctx, target, weight: attention * decay });
+    }
+    if (candidates.length <= BFV_NET_BATCH) return candidates;
+    const rng = bfvRng((now ^ Math.imul(this.netSteps + 1, 0x9e3779b1)) >>> 0);
+    for (const c of candidates) {
+      c.key = Math.pow(rng() || 1e-9, 1 / Math.max(c.weight, 1e-6));
+    }
+    candidates.sort((a, b) => b.key - a.key);
+    return candidates.slice(0, BFV_NET_BATCH);
+  }
+
+  // If recent output diversity collapses, lean a little back on the bundled
+  // warm-start weights — a last-resort guard against a self-training loop.
+  private runCollapseWatchdog(
+    journal: Array<{ token: string; role: string }>
+  ): void {
+    if (!this.net || !this.pretrainedWeights) return;
+    const words: string[] = [];
+    for (let e = Math.max(0, journal.length - 40); e < journal.length; e++) {
+      const ev = journal[e];
+      if (!ev || ev.role !== "speech_unit") continue;
+      for (const word of bfvTokenize(ev.token)) words.push(word);
+    }
+    if (words.length < 60) return;
+    const distinct = new Set(words).size / words.length;
+    if (distinct < BFV_NET_COLLAPSE_RATIO) {
+      bfvBlendToward(this.net, this.pretrainedWeights, 0.1);
+      this.lastGoodWeights = bfvSnapshotWeights(this.net);
+    }
   }
 
   private sessionQuota(sessionHash: string, now: number): BfvQuota & { used: number } {
@@ -1977,6 +2209,11 @@ export class BodyForVisitsRoom {
     if (!/^[0-9a-f-]{8,64}$/i.test(sessionId)) {
       return this.responseJson({ error: "bad_session" }, 400);
     }
+    // Visitor dwell time — the attention signal that weights model training.
+    const visibleMs = Math.max(
+      0,
+      Math.min(BFV_NET_MAX_DWELL_MS, Math.round(Number(payload?.visible_ms) || 0))
+    );
     const ua = request.headers.get("user-agent") || "";
     const ip =
       request.headers.get("cf-connecting-ip") ||
@@ -2000,9 +2237,12 @@ export class BodyForVisitsRoom {
       .toArray();
     const humanEventIndex = (humanCountRows[0]?.n || 0) + 1;
     const seed = parseInt(ipHash.slice(0, 8), 16) || 1;
-    // The grammar learns from the journal: a Markov model over the roles and
-    // words of every human event so far shapes this visit's contribution.
+    // The model learns as it goes: before generating, it takes one online
+    // training step over a recency- and attention-weighted replay of the body.
     const journal = this.humanJournalSinceReset();
+    this.ensureNet();
+    this.trainFromJournal(journal, now);
+    await this.ensureCheckpointAlarm();
     const model = bfvInferModel(journal);
 
     const decision = bfvDecide({
@@ -2014,6 +2254,7 @@ export class BodyForVisitsRoom {
       seed,
       now,
       model,
+      selector: this.netSelector,
     });
 
     if (decision.action === "cooldown") {
@@ -2061,13 +2302,14 @@ export class BodyForVisitsRoom {
 
     // append
     sql.exec(
-      `INSERT INTO events (ts, kind, ip_hash, session_hash, ua_class, token, role)
-       VALUES (?, 'human', ?, ?, 'browser', ?, ?)`,
+      `INSERT INTO events (ts, kind, ip_hash, session_hash, ua_class, token, role, dwell_ms)
+       VALUES (?, 'human', ?, ?, 'browser', ?, ?, ?)`,
       now,
       ipHash,
       sessionHash,
       decision.token,
-      decision.role
+      decision.role,
+      visibleMs
     );
     const eventIdRow = sql.exec<{ id: number }>(`SELECT last_insert_rowid() AS id`).toArray();
     const eventId = eventIdRow[0]?.id ?? null;
@@ -2125,7 +2367,8 @@ export class BodyForVisitsRoom {
         ua_class: string;
         token: string;
         role: string;
-      }>(`SELECT id, ts, kind, session_hash, ua_class, token, role FROM events ORDER BY id ASC`)
+        dwell_ms: number;
+      }>(`SELECT id, ts, kind, session_hash, ua_class, token, role, dwell_ms FROM events ORDER BY id ASC`)
       .toArray();
     const stateRow = this.readState();
     // The model the corpus has inferred about its own syntax and word habits.

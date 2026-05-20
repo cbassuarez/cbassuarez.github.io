@@ -249,11 +249,13 @@
     setMotionPhase('qualifying');
     setReadout('');
     try {
+      // visible_ms is the attention signal the model weights its learning by.
+      const visibleMs = Math.max(0, Math.min(600000, Math.round(visibleElapsedMs())));
       const resp = await fetch(`${API_BASE}/api/corpus/qualify`, {
         method: 'POST',
         credentials: 'omit',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ session_id: sid }),
+        body: JSON.stringify({ session_id: sid, visible_ms: visibleMs }),
       });
       if (resp.status === 429) {
         blockMotion();

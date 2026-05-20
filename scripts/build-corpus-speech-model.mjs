@@ -416,7 +416,7 @@ const PROPER_STOPLIST = new Set([
   "You",
 ]);
 
-async function loadText(source) {
+export async function loadText(source) {
   const override = process.env[`CORPUS_SOURCE_${source.id.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`];
   const target = override || source.url;
   if (!/^https?:\/\//i.test(target)) {
@@ -497,7 +497,7 @@ function hasBlocked(tokens, blocked = BLOCKED) {
   return tokens.some((token) => blocked.has(token));
 }
 
-function collectProperTerms(texts) {
+export function collectProperTerms(texts) {
   const counts = new Map();
   for (const text of texts) {
     for (const match of String(text || "").matchAll(/\b[A-Z](?:[a-z]+|[a-z]*'[A-Za-z]+)\b/g)) {

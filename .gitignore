@@ -4,6 +4,7 @@ source/iowa/raw/
 dist
 .vite
 *.log
+scripts/.cache/
 .env.local
 .env.*.local
 worker/.dev.vars

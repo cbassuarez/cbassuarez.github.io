@@ -1,225 +1,73 @@
-// Offline speech-unit selector for (to)complete.
-// The runtime model is a committed n-gram table generated from pinned
-// public-domain texts. There are no live model calls in the Worker.
+// Linguistic utilities and the safety validator for (to)complete.
+// Text generation moved to the online neural model in net.js — this module
+// keeps only the tokenizer, the detokenizer, the speech-unit validator, and
+// the journal-to-context inference the Durable Object feeds the model.
 
-import { SPEECH_MODEL } from "./speech-model.generated.js";
-
-const MODEL_VERSION = 4;
-const SPEECH_ROLE = "speech_unit";
-const RECENT_TOKEN_WINDOW = 48;
+export const MODEL_VERSION = 5;
+export const SPEECH_ROLE = "speech_unit";
+export const RECENT_TOKEN_WINDOW = 48;
 const RECENT_UNIT_WINDOW = 12;
-const MIN_WORDS = 2;
-const MAX_WORDS = 12;
-const MAX_ATTEMPTS = 36;
-const MAX_STEPS = 24;
+export const MIN_WORDS = 2;
+export const MAX_WORDS = 12;
 
 const TOKEN_RE = /^[a-z]+(?:'[a-z]+)?$/;
-const PUNCTUATION = new Set([",", ";", "—"]);
+export const PUNCTUATION = new Set([",", ";", "—"]);
 const HARD_TERMINAL_RE = /[.!?]\s*$/;
-const CONNECTORS = new Set(["and", "but", "or", "yet", "so", "then"]);
-const BAD_STARTERS = new Set([
-  "a",
-  "about",
-  "above",
-  "after",
-  "against",
-  "along",
-  "among",
-  "around",
-  "before",
-  "behind",
-  "below",
-  "beneath",
-  "beside",
-  "between",
-  "beyond",
-  "by",
-  "for",
-  "from",
-  "in",
-  "inside",
-  "into",
-  "near",
-  "of",
-  "on",
-  "onto",
-  "over",
-  "the",
-  "to",
-  "toward",
-  "under",
-  "with",
-  "within",
-  "without",
+export const CONNECTORS = new Set(["and", "but", "or", "yet", "so", "then"]);
+export const BAD_STARTERS = new Set([
+  "a", "about", "above", "after", "against", "along", "among", "around",
+  "before", "behind", "below", "beneath", "beside", "between", "beyond",
+  "by", "for", "from", "in", "inside", "into", "near", "of", "on", "onto",
+  "over", "the", "to", "toward", "under", "with", "within", "without",
 ]);
-const GOOD_STARTERS = new Set([
-  "again",
-  "ah",
-  "all",
-  "almost",
-  "already",
-  "and",
-  "anyway",
-  "back",
-  "because",
-  "but",
-  "can",
-  "can't",
-  "come",
-  "did",
-  "do",
-  "does",
-  "don't",
-  "even",
-  "everything",
-  "go",
-  "he",
-  "here",
-  "how",
-  "i",
-  "if",
-  "isn't",
-  "it",
-  "it's",
-  "just",
-  "look",
-  "maybe",
-  "never",
-  "no",
-  "not",
-  "nothing",
-  "now",
-  "oh",
-  "once",
-  "one",
-  "only",
-  "perhaps",
-  "see",
-  "she",
-  "so",
-  "something",
-  "still",
-  "sure",
-  "that",
-  "that's",
-  "then",
-  "there",
-  "there's",
-  "these",
-  "they",
-  "this",
-  "though",
-  "wait",
-  "we",
-  "well",
-  "what",
-  "when",
-  "where",
-  "who",
-  "why",
-  "won't",
-  "yes",
-  "yet",
-  "you",
+export const GOOD_STARTERS = new Set([
+  "again", "ah", "all", "almost", "already", "and", "anyway", "back",
+  "because", "but", "can", "can't", "come", "did", "do", "does", "don't",
+  "even", "everything", "go", "he", "here", "how", "i", "if", "isn't",
+  "it", "it's", "just", "look", "maybe", "never", "no", "not", "nothing",
+  "now", "oh", "once", "one", "only", "perhaps", "see", "she", "so",
+  "something", "still", "sure", "that", "that's", "then", "there",
+  "there's", "these", "they", "this", "though", "wait", "we", "well",
+  "what", "when", "where", "who", "why", "won't", "yes", "yet", "you",
 ]);
-const BAD_ENDERS = new Set([
-  "a",
-  "again",
-  "already",
-  "am",
-  "an",
-  "about",
-  "and",
-  "any",
-  "as",
-  "at",
-  "be",
-  "been",
-  "being",
-  "because",
-  "but",
-  "by",
-  "can",
-  "come",
-  "could",
-  "did",
-  "do",
-  "don't",
-  "does",
-  "for",
-  "from",
-  "had",
-  "has",
-  "have",
-  "he",
-  "her",
-  "his",
-  "i",
-  "if",
-  "in",
-  "into",
-  "is",
-  "isn't",
-  "it",
-  "little",
-  "many",
-  "may",
-  "might",
-  "more",
-  "much",
-  "must",
-  "my",
-  "not",
-  "of",
-  "on",
-  "only",
-  "or",
-  "our",
-  "shall",
-  "should",
-  "so",
-  "some",
-  "that",
-  "the",
-  "they",
-  "then",
-  "this",
-  "to",
-  "very",
-  "was",
-  "we",
-  "were",
-  "what",
-  "will",
-  "with",
-  "would",
-  "you",
-  "your",
+export const BAD_ENDERS = new Set([
+  "a", "again", "already", "am", "an", "about", "and", "any", "as", "at",
+  "be", "been", "being", "because", "but", "by", "can", "come", "could",
+  "did", "do", "don't", "does", "for", "from", "had", "has", "have", "he",
+  "her", "his", "i", "if", "in", "into", "is", "isn't", "it", "little",
+  "many", "may", "might", "more", "much", "must", "my", "not", "of", "on",
+  "only", "or", "our", "shall", "should", "so", "some", "that", "the",
+  "they", "then", "this", "to", "very", "was", "we", "were", "what",
+  "will", "with", "would", "you", "your",
 ]);
-const NARRATION_WORDS = new Set(["answered", "asked", "cried", "murmured", "replied", "said", "says"]);
-const BLOCKED_TERMS = new Set(SPEECH_MODEL.blockedTerms || []);
-const BLOCKED_PHRASES = [
-  "project gutenberg",
-  "the end",
-  "chapter ",
-  "ebook",
-  "my uncle",
-  "please your",
-  "public domain",
-  "said my",
-  "white whale",
-];
-const tableCache = new Map();
+export const NARRATION_WORDS = new Set([
+  "answered", "asked", "cried", "murmured", "replied", "said", "says",
+]);
 
-function table(order) {
-  if (!tableCache.has(order)) {
-    tableCache.set(order, new Map(SPEECH_MODEL.grams[String(order)] || []));
-  }
-  return tableCache.get(order);
-}
+// Character and place names from the source novels. The neural model's vocab
+// excludes these so it cannot emit them; the validator is the second guard.
+export const BLOCKED_TERMS = new Set([
+  "ahab", "ambassadors", "antisthenes", "bloom", "bilham", "benben",
+  "bildad", "boylan", "buck", "carr", "chad", "cissy", "daggoo", "dedalus",
+  "dignam", "dilly", "dublin", "fedallah", "flask", "gerty", "gloriani",
+  "gorgias", "gostrey", "gutenberg", "haines", "hawaiian", "honour",
+  "ishmael", "joyce", "kelleher", "kernan", "lambert", "lenehan",
+  "leopold", "madame", "mamie", "melville", "milly", "moby", "molly",
+  "mulligan", "nantucket", "newsome", "obadiah", "paddy", "peleg",
+  "pequod", "pocock", "project", "quoth", "queequeg", "shandy", "slop",
+  "sperm", "starbuck", "stephen", "sterne", "stubb", "strether",
+  "susannah", "tashtego", "thee", "thou", "toby", "trim", "tristram",
+  "uncle", "ulysses", "vionnet", "walter", "waymarsh", "whale",
+  "woollett", "ye", "yorick", "au", "conseil", "livres", "monsieur",
+  "mr", "mrs", "miss", "o'connor", "reste", "seaman's",
+]);
+const BLOCKED_PHRASES = [
+  "project gutenberg", "the end", "chapter ", "ebook", "my uncle",
+  "please your", "public domain", "said my", "white whale",
+];
 
 // Small mulberry32 — deterministic, no Math.random.
-function mulberry32(seed) {
+export function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -230,20 +78,7 @@ function mulberry32(seed) {
   };
 }
 
-function pickWeighted(rng, pairs) {
-  if (!Array.isArray(pairs) || pairs.length === 0) return null;
-  let total = 0;
-  for (const pair of pairs) total += Number(pair[1]) || 0;
-  if (!(total > 0)) return pairs[Math.floor(rng() * pairs.length)]?.[0] ?? null;
-  let r = rng() * total;
-  for (const pair of pairs) {
-    r -= Number(pair[1]) || 0;
-    if (r < 0) return pair[0];
-  }
-  return pairs[pairs.length - 1]?.[0] ?? null;
-}
-
-function hashTokens(tokens) {
+export function hashTokens(tokens) {
   let h = 0x811c9dc5;
   for (const token of tokens) {
     for (let i = 0; i < token.length; i++) {
@@ -255,12 +90,20 @@ function hashTokens(tokens) {
   return h >>> 0;
 }
 
-function isWord(token) {
+export function isWord(token) {
   return TOKEN_RE.test(token || "");
 }
 
-function wordCount(tokens) {
+export function wordCount(tokens) {
   return tokens.filter(isWord).length;
+}
+
+// A rollout length target, mirroring the cadence the n-gram model used.
+export function targetWordCount(rng) {
+  const r = rng();
+  if (r < 0.18) return 2 + Math.floor(rng() * 2);
+  if (r < 0.72) return 4 + Math.floor(rng() * 4);
+  return 8 + Math.floor(rng() * 5);
 }
 
 export function tokenizeSpeech(text) {
@@ -289,7 +132,7 @@ export function tokenizeSpeech(text) {
   return tokens;
 }
 
-function detokenize(tokens) {
+export function detokenize(tokens) {
   let out = "";
   for (const token of tokens) {
     if (!token) continue;
@@ -382,17 +225,15 @@ export function allowedNext(_prevRole) {
   return [SPEECH_ROLE];
 }
 
+// Distils the human event journal into the rolling context the model reads:
+// recentTokens drives the model's K-token input window; recentUnits and count
+// are kept for the open journal export.
 export function inferModel(sequence) {
   const seq = Array.isArray(sequence) ? sequence : [];
   const flattened = flattenTokens(seq);
   return {
     version: MODEL_VERSION,
     role: SPEECH_ROLE,
-    speechModel: {
-      version: SPEECH_MODEL.version,
-      order: SPEECH_MODEL.order,
-      sources: SPEECH_MODEL.sources,
-    },
     recentTokens: flattened.slice(-RECENT_TOKEN_WINDOW),
     recentUnits: seq
       .filter((event) => event && event.role !== "fold_marker" && event.role !== "corruption")
@@ -402,148 +243,15 @@ export function inferModel(sequence) {
   };
 }
 
-function normalizeModel(model) {
-  return {
-    version: Number(model?.version) || MODEL_VERSION,
-    recentTokens: Array.isArray(model?.recentTokens) ? model.recentTokens.filter((t) => isWord(t) || PUNCTUATION.has(t)) : [],
-    recentUnits: Array.isArray(model?.recentUnits) ? model.recentUnits.map(String) : [],
-    count: typeof model?.count === "number" ? model.count : 0,
-  };
-}
-
-function chooseStart(rng) {
-  const picked = pickWeighted(rng, SPEECH_MODEL.starts);
-  return picked ? picked.split(" ").filter(isWord) : [];
-}
-
-function chooseFragment(rng, contextTokens) {
-  const fragments = SPEECH_MODEL.fragments || [];
-  if (!Array.isArray(fragments) || fragments.length === 0) return "";
-  const prevWords = contextTokens.filter(isWord);
-  const last = prevWords[prevWords.length - 1] || "";
-  const afterPunctuation = PUNCTUATION.has(contextTokens[contextTokens.length - 1]);
-  const scored = [];
-  for (const pair of fragments) {
-    const text = pair[0];
-    const weight = Number(pair[1]) || 1;
-    const tokens = tokenizeSpeech(text);
-    const first = tokens.find(isWord) || "";
-    if (!first || first === last) continue;
-    if (contextTokens.length === 0 && CONNECTORS.has(first)) continue;
-    let score = weight;
-    if (CONNECTORS.has(first)) score *= afterPunctuation ? 0.75 : 1.6;
-    if (last && tokens.includes(last)) score *= 1.18;
-    scored.push([text, score]);
-  }
-  return pickWeighted(rng, scored) || "";
-}
-
-function chooseNext(rng, context) {
-  for (let order = SPEECH_MODEL.order || 4; order >= 1; order--) {
-    const key = context.slice(-order).join(" ");
-    if (!key) continue;
-    const options = table(order).get(key);
-    if (options && options.length > 0) {
-      const picked = pickWeighted(rng, options);
-      if (picked && !BLOCKED_TERMS.has(picked)) return picked;
-    }
-  }
-  return null;
-}
-
-function targetWordCount(rng) {
-  const r = rng();
-  if (r < 0.18) return 2 + Math.floor(rng() * 2);
-  if (r < 0.72) return 4 + Math.floor(rng() * 4);
-  return 8 + Math.floor(rng() * 5);
-}
-
-function generateCandidate(rng, contextTokens) {
-  const fragment = chooseFragment(rng, contextTokens);
-  if (fragment) return fragment;
-  const target = targetWordCount(rng);
-  const context = contextTokens.slice(-RECENT_TOKEN_WINDOW);
-  const out = context.length > 0 ? [] : chooseStart(rng).slice(0, Math.max(2, Math.min(4, target)));
-
-  if (out.length > 0) {
-    context.push(...out);
-  }
-
-  let steps = 0;
-  while (wordCount(out) < MAX_WORDS && steps < MAX_STEPS) {
-    steps++;
-    const next = chooseNext(rng, context);
-    if (!next) {
-      if (wordCount(out) >= MIN_WORDS) break;
-      const restart = chooseStart(rng).slice(0, Math.max(2, Math.min(4, target - wordCount(out))));
-      if (restart.length === 0) break;
-      out.push(...restart);
-      context.push(...restart);
-      continue;
-    }
-    if (out.length === 0 && !isWord(next)) continue;
-    if (BLOCKED_TERMS.has(next)) continue;
-    const last = out[out.length - 1];
-    if (isWord(last) && last === next) continue;
-    if (PUNCTUATION.has(last) && PUNCTUATION.has(next)) continue;
-
-    out.push(next);
-    context.push(next);
-
-    const words = wordCount(out);
-    if (words >= MIN_WORDS && PUNCTUATION.has(next)) {
-      if (rng() < 0.86) break;
-    }
-    if (words >= target && isWord(next)) {
-      if (!CONNECTORS.has(next) && rng() < 0.48) {
-        const maybePunctuation = chooseNext(rng, context);
-        if (PUNCTUATION.has(maybePunctuation)) {
-          out.push(maybePunctuation);
-          context.push(maybePunctuation);
-          break;
-        }
-      }
-      if (CONNECTORS.has(next) || rng() < 0.74) break;
-    }
-  }
-
-  return detokenize(out);
-}
-
-// Returns { token, role } or null if the offline model cannot produce a safe
-// continuation after bounded retries.
-export function selectNextToken(prevRole, eventIndex, seed, prevToken = null, model = null) {
-  void prevRole;
-  const m = normalizeModel(model);
-  const context = m.recentTokens.length > 0 ? m.recentTokens : tokenizeSpeech(prevToken || "");
-  const contextHash = hashTokens(context.slice(-8));
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const attemptSeed = (
-      seed ^
-      contextHash ^
-      Math.imul(eventIndex, 0x9e3779b1) ^
-      Math.imul(attempt + 1, 0x85ebca6b)
-    ) >>> 0;
-    const rng = mulberry32(attemptSeed);
-    const candidate = generateCandidate(rng, context);
-    const validation = validateSpeechUnit(candidate, prevToken);
-    if (validation.ok) {
-      return { token: validation.token, role: SPEECH_ROLE };
-    }
-  }
-  return null;
-}
-
 export const _internals = {
   MODEL_VERSION,
   SPEECH_ROLE,
   MIN_WORDS,
   MAX_WORDS,
-  MAX_ATTEMPTS,
   RECENT_TOKEN_WINDOW,
-  normalizeModel,
   tokenizeSpeech,
+  detokenize,
   validateSpeechUnit,
-  generateCandidate,
   hashTokens,
+  targetWordCount,
 };

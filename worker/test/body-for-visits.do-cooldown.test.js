@@ -9,6 +9,11 @@ import {
 const browser =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15";
 
+// decide.js no longer owns generation — the Durable Object injects a selector.
+// These tests exercise the orchestration (bot / quota / selector), so a stub
+// selector standing in for the neural model is sufficient.
+const stubSelector = () => ({ token: "here we are,", role: "speech_unit" });
+
 test("first qualify from a fresh session appends", () => {
   const d = decideQualify({
     ua: browser,
@@ -18,6 +23,7 @@ test("first qualify from a fresh session appends", () => {
     humanEventIndex: 1,
     seed: 42,
     now: 1_700_000_000_000,
+    selector: stubSelector,
   });
   assert.equal(d.action, "append");
   assert.equal(d.ua_class, "browser");
@@ -35,8 +41,22 @@ test("same session can append below the rolling quota", () => {
     humanEventIndex: 2,
     seed: 42,
     now: t0 + 60_000, // 1 min later
+    selector: stubSelector,
   });
   assert.equal(d.action, "append");
+});
+
+test("a missing selector withholds", () => {
+  const d = decideQualify({
+    ua: browser,
+    sessionWindowCount: 0,
+    prevRole: null,
+    prevToken: null,
+    humanEventIndex: 1,
+    seed: 42,
+  });
+  assert.equal(d.action, "withhold");
+  assert.equal(d.reason, "no_selector");
 });
 
 test("same session at the rolling quota is cooldown", () => {
