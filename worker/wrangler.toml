@@ -23,6 +23,10 @@ class_name = "StringRoom"
 name = "CO_ROOM"
 class_name = "CoRoom"
 
+[[durable_objects.bindings]]
+name = "BFV_ROOM"
+class_name = "BodyForVisitsRoom"
+
 [[migrations]]
 tag = "v1-string-room"
 new_sqlite_classes = ["StringRoom"]
@@ -30,6 +34,10 @@ new_sqlite_classes = ["StringRoom"]
 [[migrations]]
 tag = "v2-co-room"
 new_sqlite_classes = ["CoRoom"]
+
+[[migrations]]
+tag = "v3-bfv-room"
+new_sqlite_classes = ["BodyForVisitsRoom"]
 
 [triggers]
 crons = ["*/5 * * * *"]
@@ -80,4 +88,12 @@ namespace_id = "1008"
 
   [ratelimits.simple]
   limit = 12
+  period = 60
+
+[[ratelimits]]
+name = "RATE_LIMIT_BFV_QUALIFY"
+namespace_id = "1009"
+
+  [ratelimits.simple]
+  limit = 6
   period = 60

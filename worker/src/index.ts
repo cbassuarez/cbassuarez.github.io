@@ -1,3 +1,8 @@
+import { BUCKETS as BFV_BUCKETS } from "./body-for-visits/lexicon.js";
+import { decideQualify as bfvDecide } from "./body-for-visits/decide.js";
+import { foldBody as bfvFold } from "./body-for-visits/fold.js";
+import { renderSnapshotHTML as bfvSnapshot } from "./body-for-visits/snapshot.js";
+
 type FeedItem = {
   source: string;
   text: string;
@@ -77,8 +82,11 @@ type Env = {
   RATE_LIMIT_CONTACT_POST?: RateLimitBinding;
   RATE_LIMIT_STRING_SOCKET?: RateLimitBinding;
   RATE_LIMIT_COROOM_SOCKET?: RateLimitBinding;
+  RATE_LIMIT_BFV_QUALIFY?: RateLimitBinding;
   STRING_ROOM: DurableObjectNamespace;
   CO_ROOM: DurableObjectNamespace;
+  BFV_ROOM: DurableObjectNamespace;
+  BFV_HASH_SALT?: string;
 };
 
 type FeedSnapshot = {
@@ -1562,6 +1570,323 @@ export class CoRoom {
   }
 }
 
+// ─── body-for-visits ──────────────────────────────────────────────────────────
+// A single shared linguistic body, mutated only by qualifying human visits.
+// The event journal is the work's substrate; this DO is the substrate's home.
+const BFV_ROOM_NAME = "body-for-visits:room-v1";
+const BFV_FRINGE_KEEP = 12;
+
+type BfvToken = { token: string; role: string; event_id: number | null; ts: number };
+
+type BfvStateRow = {
+  body_json: string;
+  body_version: number;
+  fold_count: number;
+  fold_generations: number;
+  corruption_count: number;
+  fringe_json: string;
+};
+
+async function bfvHashIp(ip: string, salt: string): Promise<string> {
+  const data = new TextEncoder().encode(`bfv-ip-v1:${salt}:${ip}`);
+  const buffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buffer))
+    .slice(0, 8)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function bfvHashSession(sessionId: string): Promise<string> {
+  const data = new TextEncoder().encode(`bfv-session-v1:${sessionId}`);
+  const buffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buffer))
+    .slice(0, 8)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export class BodyForVisitsRoom {
+  private readonly state: DurableObjectState;
+  private readonly env: Env;
+  private ready = false;
+
+  constructor(state: DurableObjectState, env: Env) {
+    this.state = state;
+    this.env = env;
+    void this.state.blockConcurrencyWhile(async () => {
+      this.ensureSchema();
+      this.ready = true;
+    });
+  }
+
+  private ensureSchema(): void {
+    const sql = this.state.storage.sql;
+    sql.exec(
+      `CREATE TABLE IF NOT EXISTS events (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         ts INTEGER NOT NULL,
+         kind TEXT NOT NULL,
+         ip_hash TEXT NOT NULL,
+         session_hash TEXT NOT NULL,
+         ua_class TEXT NOT NULL,
+         token TEXT NOT NULL,
+         role TEXT NOT NULL
+       )`
+    );
+    sql.exec(`CREATE INDEX IF NOT EXISTS events_session_ts ON events(session_hash, ts)`);
+    sql.exec(`CREATE INDEX IF NOT EXISTS events_ts ON events(ts)`);
+    sql.exec(
+      `CREATE TABLE IF NOT EXISTS body_state (
+         id INTEGER PRIMARY KEY CHECK (id = 1),
+         body_json TEXT NOT NULL,
+         body_version INTEGER NOT NULL,
+         fold_count INTEGER NOT NULL,
+         fold_generations INTEGER NOT NULL,
+         corruption_count INTEGER NOT NULL,
+         fringe_json TEXT NOT NULL,
+         updated_at INTEGER NOT NULL
+       )`
+    );
+    const existing = sql.exec(`SELECT id FROM body_state WHERE id = 1`).toArray();
+    if (existing.length === 0) {
+      sql.exec(
+        `INSERT INTO body_state (id, body_json, body_version, fold_count, fold_generations, corruption_count, fringe_json, updated_at)
+         VALUES (1, ?, 0, 0, 0, 0, ?, ?)`,
+        "[]",
+        "[]",
+        Date.now()
+      );
+    }
+  }
+
+  private readState(): BfvStateRow {
+    const rows = this.state.storage.sql
+      .exec<BfvStateRow>(`SELECT body_json, body_version, fold_count, fold_generations, corruption_count, fringe_json FROM body_state WHERE id = 1`)
+      .toArray();
+    return (
+      rows[0] || {
+        body_json: "[]",
+        body_version: 0,
+        fold_count: 0,
+        fold_generations: 0,
+        corruption_count: 0,
+        fringe_json: "[]",
+      }
+    );
+  }
+
+  private parseBody(row: BfvStateRow): BfvToken[] {
+    try {
+      const parsed = JSON.parse(row.body_json);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private parseFringe(row: BfvStateRow): string[] {
+    try {
+      const parsed = JSON.parse(row.fringe_json);
+      return Array.isArray(parsed) ? parsed.map(String).slice(-BFV_FRINGE_KEEP) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private buildResponseBody(row: BfvStateRow, newTokenIndex: number | null) {
+    const body = this.parseBody(row);
+    const fringe = this.parseFringe(row);
+    return {
+      body,
+      new_token_index: newTokenIndex,
+      body_version: row.body_version,
+      fold_count: row.fold_count,
+      fold_generations: row.fold_generations,
+      corruption_count: row.corruption_count,
+      fringe: fringe.join(" "),
+    };
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    if (request.method === "GET" && path === "/state") {
+      return this.responseJson(this.buildResponseBody(this.readState(), null));
+    }
+    if (request.method === "POST" && path === "/qualify") {
+      return this.qualify(request);
+    }
+    if (request.method === "GET" && path === "/export") {
+      return this.export();
+    }
+    if (request.method === "GET" && path === "/snapshot") {
+      const state = this.buildResponseBody(this.readState(), null);
+      const html = bfvSnapshot(state, new Date().toISOString());
+      return new Response(html, {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" },
+      });
+    }
+    return this.responseJson({ error: "not_found" }, 404);
+  }
+
+  private async qualify(request: Request): Promise<Response> {
+    let payload: any = {};
+    try {
+      payload = await request.json();
+    } catch {
+      return this.responseJson({ error: "bad_json" }, 400);
+    }
+    const sessionId = clean(payload?.session_id);
+    if (!/^[0-9a-f-]{8,64}$/i.test(sessionId)) {
+      return this.responseJson({ error: "bad_session" }, 400);
+    }
+    const ua = request.headers.get("user-agent") || "";
+    const ip =
+      request.headers.get("cf-connecting-ip") ||
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      "anon";
+    const salt = this.env.BFV_HASH_SALT || "bfv-default-salt";
+    const ipHash = await bfvHashIp(ip, salt);
+    const sessionHash = await bfvHashSession(sessionId);
+    const now = Date.now();
+
+    const sql = this.state.storage.sql;
+    const lastRows = sql
+      .exec<{ max_ts: number | null }>(
+        `SELECT MAX(ts) AS max_ts FROM events WHERE session_hash = ? AND kind = 'human'`,
+        sessionHash
+      )
+      .toArray();
+    const lastSessionTs = lastRows[0]?.max_ts ?? null;
+
+    const stateRow = this.readState();
+    const body = this.parseBody(stateRow);
+    // For grammar, ignore the fold marker if it's at index 0.
+    const realBody = body[0]?.role === "fold_marker" ? body.slice(1) : body;
+    const prev = realBody.length > 0 ? realBody[realBody.length - 1] : null;
+    const humanCountRows = sql
+      .exec<{ n: number }>(`SELECT COUNT(*) AS n FROM events WHERE kind = 'human'`)
+      .toArray();
+    const humanEventIndex = (humanCountRows[0]?.n || 0) + 1;
+    const seed = parseInt(ipHash.slice(0, 8), 16) || 1;
+
+    const decision = bfvDecide({
+      ua,
+      lastSessionTs,
+      prevRole: prev?.role ?? null,
+      prevToken: prev?.token ?? null,
+      humanEventIndex,
+      seed,
+      now,
+    });
+
+    if (decision.action === "cooldown") {
+      const data = this.buildResponseBody(stateRow, null);
+      return this.responseJson({ ...data, skipped: "cooldown" });
+    }
+
+    if (decision.action === "bot") {
+      const glyphs = BFV_BUCKETS.corruption_glyphs;
+      const glyph = glyphs[Math.abs(seed) % glyphs.length];
+      sql.exec(
+        `INSERT INTO events (ts, kind, ip_hash, session_hash, ua_class, token, role)
+         VALUES (?, 'bot', ?, ?, ?, ?, 'corruption')`,
+        now,
+        ipHash,
+        sessionHash,
+        `bot:${decision.bucket}`,
+        glyph
+      );
+      const fringe = this.parseFringe(stateRow);
+      fringe.push(glyph);
+      const fringeKept = fringe.slice(-BFV_FRINGE_KEEP);
+      const nextCorruption = stateRow.corruption_count + 1;
+      sql.exec(
+        `UPDATE body_state SET corruption_count = ?, fringe_json = ?, updated_at = ? WHERE id = 1`,
+        nextCorruption,
+        JSON.stringify(fringeKept),
+        now
+      );
+      const next = { ...stateRow, corruption_count: nextCorruption, fringe_json: JSON.stringify(fringeKept) };
+      const data = this.buildResponseBody(next, null);
+      return this.responseJson({ ...data, skipped: "bot" });
+    }
+
+    // append
+    sql.exec(
+      `INSERT INTO events (ts, kind, ip_hash, session_hash, ua_class, token, role)
+       VALUES (?, 'human', ?, ?, 'browser', ?, ?)`,
+      now,
+      ipHash,
+      sessionHash,
+      decision.token,
+      decision.role
+    );
+    const eventIdRow = sql.exec<{ id: number }>(`SELECT last_insert_rowid() AS id`).toArray();
+    const eventId = eventIdRow[0]?.id ?? null;
+
+    // The work never ends with a terminal period. If the new token is "." and
+    // would land at the body's tail, swap to a comma so the sentence stays open.
+    let nextToken = decision.token;
+    if (nextToken === "." ) nextToken = ",";
+
+    const nextBody: BfvToken[] = [...body, { token: nextToken, role: decision.role, event_id: eventId, ts: now }];
+    const folded = bfvFold(nextBody, stateRow.fold_count, stateRow.fold_generations, now);
+    const newTokenIndex = folded.body.length - 1;
+    const nextVersion = stateRow.body_version + 1;
+
+    sql.exec(
+      `UPDATE body_state
+         SET body_json = ?, body_version = ?, fold_count = ?, fold_generations = ?, updated_at = ?
+       WHERE id = 1`,
+      JSON.stringify(folded.body),
+      nextVersion,
+      folded.fold_count,
+      folded.fold_generations,
+      now
+    );
+
+    const updated: BfvStateRow = {
+      body_json: JSON.stringify(folded.body),
+      body_version: nextVersion,
+      fold_count: folded.fold_count,
+      fold_generations: folded.fold_generations,
+      corruption_count: stateRow.corruption_count,
+      fringe_json: stateRow.fringe_json,
+    };
+    const data = this.buildResponseBody(updated, newTokenIndex);
+    return this.responseJson({ ...data, skipped: null });
+  }
+
+  private export(): Response {
+    const rows = this.state.storage.sql
+      .exec(`SELECT id, ts, kind, session_hash, ua_class, token, role FROM events ORDER BY id ASC`)
+      .toArray();
+    const stateRow = this.readState();
+    const body = {
+      exported_at: new Date().toISOString(),
+      body_version: stateRow.body_version,
+      fold_count: stateRow.fold_count,
+      fold_generations: stateRow.fold_generations,
+      corruption_count: stateRow.corruption_count,
+      events: rows,
+    };
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    });
+  }
+
+  private responseJson(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    });
+  }
+}
+// ─── /body-for-visits ─────────────────────────────────────────────────────────
+
 type SiteDeployRecord = {
   sha: string;
   shortSha: string;
@@ -2771,6 +3096,77 @@ export default {
       const body = await response.text();
       return new Response(body, {
         status: response.status,
+        headers: jsonHeaders(allowOrigin),
+      });
+    }
+
+    if (url.pathname.startsWith("/api/body-for-visits/")) {
+      if (!env.BFV_ROOM) {
+        return new Response(JSON.stringify({ error: "bfv_unconfigured" }), {
+          status: 503,
+          headers: jsonHeaders(allowOrigin),
+        });
+      }
+      const sub = url.pathname.slice("/api/body-for-visits/".length);
+
+      const id = env.BFV_ROOM.idFromName(BFV_ROOM_NAME);
+      const stub = env.BFV_ROOM.get(id);
+
+      if (sub === "state" && request.method === "GET") {
+        const inner = new URL(request.url);
+        inner.pathname = "/state";
+        const resp = await stub.fetch(new Request(inner.toString(), { method: "GET" }));
+        const body = await resp.text();
+        return new Response(body, { status: resp.status, headers: jsonHeaders(allowOrigin) });
+      }
+
+      if (sub === "qualify" && request.method === "POST") {
+        if (!(await checkRateLimit(env.RATE_LIMIT_BFV_QUALIFY, clientKey(request)))) {
+          return tooManyRequests(allowOrigin);
+        }
+        const bodyText = await request.text();
+        const inner = new URL(request.url);
+        inner.pathname = "/qualify";
+        const forwarded = new Request(inner.toString(), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "user-agent": request.headers.get("user-agent") || "",
+            "cf-connecting-ip": clientKey(request),
+          },
+          body: bodyText,
+        });
+        const resp = await stub.fetch(forwarded);
+        const body = await resp.text();
+        return new Response(body, { status: resp.status, headers: jsonHeaders(allowOrigin) });
+      }
+
+      if (sub === "export.json" && request.method === "GET") {
+        const inner = new URL(request.url);
+        inner.pathname = "/export";
+        const resp = await stub.fetch(new Request(inner.toString(), { method: "GET" }));
+        const body = await resp.text();
+        return new Response(body, { status: resp.status, headers: jsonHeaders(allowOrigin) });
+      }
+
+      if (sub === "snapshot.html" && request.method === "GET") {
+        const inner = new URL(request.url);
+        inner.pathname = "/snapshot";
+        const resp = await stub.fetch(new Request(inner.toString(), { method: "GET" }));
+        const body = await resp.text();
+        return new Response(body, {
+          status: resp.status,
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "public, max-age=60",
+            "access-control-allow-origin": allowOrigin,
+            link: DISCOVERY_LINK_HEADER,
+          },
+        });
+      }
+
+      return new Response(JSON.stringify({ error: "method_not_allowed" }), {
+        status: 405,
         headers: jsonHeaders(allowOrigin),
       });
     }
