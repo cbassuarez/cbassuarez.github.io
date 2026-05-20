@@ -9,18 +9,17 @@ const NEXT_ROLES = {
   punctuation:  ["openings", "adjectives", "nouns"],
   sutures:      ["adjectives", "nouns", "verbs"],
   adjectives:   ["nouns", "conjunctions"],
-  nouns:        ["verbs", "conjunctions", "punctuation"],
-  verbs:        ["prepositions", "adjectives", "nouns", "punctuation"],
+  nouns:        ["verbs", "conjunctions", "punctuation", "sutures"],
+  verbs:        ["prepositions", "adjectives", "nouns", "punctuation", "sutures"],
   prepositions: ["adjectives", "nouns"],
-  conjunctions: ["adjectives", "nouns", "verbs"],
+  conjunctions: ["adjectives", "nouns", "verbs", "sutures"],
 };
 
-const SUTURE_EVERY = 7;
-const PUNCT_EVERY = 13;
+const MODEL_VERSION = 2;
+const RECENT_WINDOW = 18;
 
-// Smoothing weight. A learned count is added to this prior, so with no history
-// the weighted pick is uniform — identical to the original behaviour — and the
-// learned distribution only takes over as the journal grows.
+// Smoothing weight. A learned count is added to this prior, so cold starts stay
+// deterministic and the journal only takes over as it accumulates evidence.
 const ROLE_ALPHA = 1;
 const WORD_ALPHA = 1;
 
@@ -41,6 +40,7 @@ function mulberry32(seed) {
 function pickWeighted(rng, items, weights) {
   let total = 0;
   for (let i = 0; i < weights.length; i++) total += weights[i];
+  if (!(total > 0)) return items[Math.floor(rng() * items.length)];
   let r = rng() * total;
   for (let i = 0; i < items.length; i++) {
     r -= weights[i];
@@ -53,13 +53,61 @@ export function allowedNext(prevRole) {
   return NEXT_ROLES[prevRole] || NEXT_ROLES.punctuation;
 }
 
+function countRecent(items, value) {
+  if (!Array.isArray(items)) return 0;
+  let n = 0;
+  for (const item of items) if (item === value) n++;
+  return n;
+}
+
+function distanceSince(seq, role) {
+  for (let i = seq.length - 1, distance = 1; i >= 0; i--, distance++) {
+    if (seq[i]?.role === role) return distance;
+  }
+  return null;
+}
+
+function phraseLength(seq) {
+  let n = 0;
+  for (let i = seq.length - 1; i >= 0; i--) {
+    if (seq[i]?.role === "punctuation") break;
+    n++;
+  }
+  return n;
+}
+
+function tailRun(seq, field) {
+  const last = seq.length > 0 ? seq[seq.length - 1]?.[field] : null;
+  if (last == null) return { value: null, count: 0 };
+  let count = 0;
+  for (let i = seq.length - 1; i >= 0; i--) {
+    if (seq[i]?.[field] !== last) break;
+    count++;
+  }
+  return { value: last, count };
+}
+
+function normalizeModel(model) {
+  return {
+    version: Number(model?.version) || MODEL_VERSION,
+    roles: model?.roles || {},
+    words: model?.words || {},
+    recentRoles: Array.isArray(model?.recentRoles) ? model.recentRoles : [],
+    recentTokens: Array.isArray(model?.recentTokens) ? model.recentTokens : [],
+    distanceSincePunctuation:
+      typeof model?.distanceSincePunctuation === "number" ? model.distanceSincePunctuation : null,
+    distanceSinceSuture:
+      typeof model?.distanceSinceSuture === "number" ? model.distanceSinceSuture : null,
+    phraseLength: typeof model?.phraseLength === "number" ? model.phraseLength : 0,
+    roleRun: model?.roleRun || { value: null, count: 0 },
+    tokenRun: model?.tokenRun || { value: null, count: 0 },
+    count: typeof model?.count === "number" ? model.count : 0,
+  };
+}
+
 // Build the learned model from the journal — the ordered human events as
-// { role, token }. Returns { roles, words }, nested count tables:
-//   roles[from][to]   — role-transition counts. Only FREELY chosen transitions
-//                       are counted; destinations forced by the suture /
-//                       punctuation cadence are skipped, so the model learns
-//                       genuine choices rather than the fixed rhythm.
-//   words[prev][next] — word-bigram counts over every adjacent pair.
+// { role, token }. The model is intentionally small and replayable: counts plus
+// local health signals used by the adaptive scorer.
 export function inferModel(sequence) {
   const roles = {};
   const words = {};
@@ -74,35 +122,86 @@ export function inferModel(sequence) {
     const cur = seq[i];
     if (!prev || !cur) continue;
     bump(words, prev.token, cur.token);
-    // cur is the human event at 1-based index i + 1.
-    const destIndex = i + 1;
-    const forced = destIndex % SUTURE_EVERY === 0 || destIndex % PUNCT_EVERY === 0;
-    if (!forced) bump(roles, prev.role, cur.role);
+    bump(roles, prev.role, cur.role);
   }
-  return { roles, words };
+  return {
+    version: MODEL_VERSION,
+    roles,
+    words,
+    recentRoles: seq.slice(-RECENT_WINDOW).map((e) => e.role),
+    recentTokens: seq.slice(-RECENT_WINDOW).map((e) => e.token),
+    distanceSincePunctuation: distanceSince(seq, "punctuation"),
+    distanceSinceSuture: distanceSince(seq, "sutures"),
+    phraseLength: phraseLength(seq),
+    roleRun: tailRun(seq, "role"),
+    tokenRun: tailRun(seq, "token"),
+    count: seq.length,
+  };
 }
 
-// Weighted role pick within the grammatical guardrail. With no learned history
-// for prevRole, falls back to the original uniform pick.
+function scoreRole(role, prevRole, model) {
+  const m = normalizeModel(model);
+  const learned = m.roles[prevRole] || {};
+  let weight = ROLE_ALPHA + (learned[role] || 0);
+  const recentCount = countRecent(m.recentRoles, role);
+
+  if (recentCount > 0) {
+    weight *= 1 / (1 + recentCount * 0.18);
+  }
+  if (m.roleRun.value === role && m.roleRun.count > 1) {
+    weight *= Math.max(0.16, 1 / (m.roleRun.count * 0.8));
+  }
+
+  if (role === "punctuation") {
+    const phrase = m.phraseLength;
+    const dist = m.distanceSincePunctuation ?? (m.count + 1);
+    if (phrase <= 1) weight *= 0.08;
+    else if (phrase <= 3) weight *= 0.35;
+    else weight *= 0.65 + Math.min(3.2, Math.pow((phrase - 2) / 6, 1.3));
+    if (dist < 4) weight *= 0.25;
+  }
+
+  if (role === "sutures") {
+    const dist = m.distanceSinceSuture ?? Math.min(m.count + 1, 24);
+    if (dist < 8) weight *= 0.05;
+    else weight *= Math.min(3.2, 0.45 + Math.pow((dist - 4) / 14, 1.35));
+    if (m.phraseLength < 4) weight *= 0.35;
+    if (prevRole === "conjunctions") weight *= 0.55;
+  }
+
+  return Math.max(0, weight);
+}
+
+// Weighted role pick within the grammatical guardrail. Cadence emerges from
+// pressure in the text model instead of hardcoded modulo intervals.
 function chooseRole(rng, prevRole, model) {
   const choices = allowedNext(prevRole);
-  const learned = model && model.roles ? model.roles[prevRole] : null;
-  if (!learned) {
-    return choices[Math.floor(rng() * choices.length)];
-  }
-  const weights = choices.map((r) => (learned[r] || 0) + ROLE_ALPHA);
+  const weights = choices.map((r) => scoreRole(r, prevRole, model));
   return pickWeighted(rng, choices, weights);
 }
 
-// Weighted token pick within the chosen role's bucket. With no learned history
-// for prevToken, falls back to the original uniform pick.
-function chooseToken(rng, pool, prevToken, model) {
-  const learned =
-    model && model.words && prevToken != null ? model.words[prevToken] : null;
-  if (!learned) {
-    return pool[Math.floor(rng() * pool.length)];
+function scoreToken(token, role, prevToken, model) {
+  const m = normalizeModel(model);
+  if (token === prevToken) return 0;
+
+  const learned = prevToken != null ? m.words[prevToken] || {} : {};
+  let weight = WORD_ALPHA + (learned[token] || 0);
+  const recentCount = countRecent(m.recentTokens, token);
+  if (recentCount > 0) weight *= 1 / (1 + Math.pow(recentCount, 1.4));
+
+  if (role === "punctuation") {
+    if (token === ",") weight *= 1.45;
+    else if (token === ";") weight *= 1.2;
+    else if (token === ".") weight *= 0.28;
+    else if (token === "—") weight *= 0.22;
   }
-  const weights = pool.map((w) => (learned[w] || 0) + WORD_ALPHA);
+
+  return Math.max(0, weight);
+}
+
+function chooseToken(rng, role, prevToken, model) {
+  const pool = BUCKETS[role] || BUCKETS.nouns;
+  const weights = pool.map((token) => scoreToken(token, role, prevToken, model));
   return pickWeighted(rng, pool, weights);
 }
 
@@ -119,20 +218,21 @@ export function selectNextToken(prevRole, eventIndex, seed, prevToken = null, mo
   let role;
   if (!prevRole) {
     role = "openings";
-  } else if (eventIndex > 0 && eventIndex % PUNCT_EVERY === 0) {
-    role = "punctuation";
-  } else if (eventIndex > 0 && eventIndex % SUTURE_EVERY === 0) {
-    role = "sutures";
   } else {
     role = chooseRole(rng, prevRole, model);
   }
 
-  const pool = BUCKETS[role] || BUCKETS.nouns;
-  let token = chooseToken(rng, pool, prevToken, model);
-  for (let i = 0; i < 4 && token === prevToken && pool.length > 1; i++) {
-    token = chooseToken(rng, pool, prevToken, model);
-  }
+  const token = chooseToken(rng, role, prevToken, model);
   return { token, role };
 }
 
-export const _internals = { NEXT_ROLES, SUTURE_EVERY, PUNCT_EVERY, ROLE_ALPHA, WORD_ALPHA };
+export const _internals = {
+  NEXT_ROLES,
+  MODEL_VERSION,
+  RECENT_WINDOW,
+  ROLE_ALPHA,
+  WORD_ALPHA,
+  normalizeModel,
+  scoreRole,
+  scoreToken,
+};
