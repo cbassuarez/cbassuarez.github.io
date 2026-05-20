@@ -69,7 +69,7 @@ For the corpus pure modules (lexicon, grammar, fold, bot, decision):
 node --test worker/test/body-for-visits.*.test.js
 ```
 
-## /labs/corpus
+## /labs/corpus — (to)complete
 
 A single shared linguistic body, mutated only by qualifying human visits. Each
 visit that is *visible* (`document.visibilityState === "visible"`) for at least

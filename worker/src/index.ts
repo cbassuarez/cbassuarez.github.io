@@ -1,5 +1,6 @@
 import { BUCKETS as BFV_BUCKETS } from "./body-for-visits/lexicon.js";
 import { decideQualify as bfvDecide } from "./body-for-visits/decide.js";
+import { inferModel as bfvInferModel } from "./body-for-visits/grammar.js";
 import { foldBody as bfvFold } from "./body-for-visits/fold.js";
 import { renderSnapshotHTML as bfvSnapshot } from "./body-for-visits/snapshot.js";
 
@@ -1857,6 +1858,14 @@ export class BodyForVisitsRoom {
       .toArray();
     const humanEventIndex = (humanCountRows[0]?.n || 0) + 1;
     const seed = parseInt(ipHash.slice(0, 8), 16) || 1;
+    // The grammar learns from the journal: a Markov model over the roles and
+    // words of every human event so far shapes this visit's contribution.
+    const journal = sql
+      .exec<{ token: string; role: string }>(
+        `SELECT token, role FROM events WHERE kind = 'human' ORDER BY id`
+      )
+      .toArray();
+    const model = bfvInferModel(journal);
 
     const decision = bfvDecide({
       ua,
@@ -1866,6 +1875,7 @@ export class BodyForVisitsRoom {
       humanEventIndex,
       seed,
       now,
+      model,
     });
 
     if (decision.action === "cooldown") {
@@ -1950,15 +1960,28 @@ export class BodyForVisitsRoom {
 
   private export(): Response {
     const rows = this.state.storage.sql
-      .exec(`SELECT id, ts, kind, session_hash, ua_class, token, role FROM events ORDER BY id ASC`)
+      .exec<{
+        id: number;
+        ts: number;
+        kind: string;
+        session_hash: string;
+        ua_class: string;
+        token: string;
+        role: string;
+      }>(`SELECT id, ts, kind, session_hash, ua_class, token, role FROM events ORDER BY id ASC`)
       .toArray();
     const stateRow = this.readState();
+    // The model the corpus has inferred about its own syntax and word habits.
+    const humanSeq = rows
+      .filter((r) => r.kind === "human")
+      .map((r) => ({ token: r.token, role: r.role }));
     const body = {
       exported_at: new Date().toISOString(),
       body_version: stateRow.body_version,
       fold_count: stateRow.fold_count,
       fold_generations: stateRow.fold_generations,
       corruption_count: stateRow.corruption_count,
+      model: bfvInferModel(humanSeq),
       events: rows,
     };
     return new Response(JSON.stringify(body), {

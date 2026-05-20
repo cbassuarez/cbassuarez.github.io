@@ -13,7 +13,93 @@ var BUCKETS = {
     "since you arrived",
     "between requests",
     "in the margin",
-    "under the cache"
+    "under the cache",
+    "now",
+    "once more",
+    "afterward",
+    "already",
+    "soon",
+    "later",
+    "earlier",
+    "beforehand",
+    "in passing",
+    "in transit",
+    "in the open",
+    "in the record",
+    "in the log",
+    "in the queue",
+    "at the threshold",
+    "at the edge",
+    "at first",
+    "at last",
+    "at once",
+    "by now",
+    "by then",
+    "for now",
+    "for a while",
+    "from here",
+    "from there",
+    "just now",
+    "of late",
+    "on arrival",
+    "on return",
+    "on the surface",
+    "on the record",
+    "over and over",
+    "past that",
+    "since then",
+    "thereafter",
+    "until now",
+    "within reach",
+    "without warning",
+    "after the request",
+    "after the answer",
+    "before the answer",
+    "beneath the page",
+    "between the lines",
+    "between answers",
+    "in the interval",
+    "in the meantime",
+    "in the residue",
+    "in the corridor",
+    "in the anteroom",
+    "near the threshold",
+    "under observation",
+    "while you wait",
+    "while it loads",
+    "after the fold",
+    "before the fold",
+    "off the record",
+    "somewhere else",
+    "here again",
+    "still here",
+    "even now",
+    "ever since",
+    "far from here",
+    "close by",
+    "somewhere near",
+    "deep in the archive",
+    "at the far end",
+    "mid-request",
+    "between visits",
+    "after the pause",
+    "before the pause",
+    "once arrived",
+    "having waited",
+    "when you came",
+    "when it began",
+    "where it began",
+    "again and again",
+    "slowly now",
+    "quietly here",
+    "faintly",
+    "barely",
+    "almost",
+    "not yet",
+    "no longer",
+    "somewhere",
+    "afterward still",
+    "long after"
   ],
   nouns: [
     "visitor",
@@ -33,7 +119,149 @@ var BUCKETS = {
     "column",
     "breath",
     "address",
-    "hand"
+    "hand",
+    "page",
+    "record",
+    "log",
+    "trace",
+    "echo",
+    "mirror",
+    "window",
+    "door",
+    "hallway",
+    "corridor",
+    "anteroom",
+    "chamber",
+    "ledger",
+    "index",
+    "margin",
+    "footnote",
+    "document",
+    "packet",
+    "payload",
+    "header",
+    "cursor",
+    "pointer",
+    "handshake",
+    "session",
+    "token",
+    "fragment",
+    "remainder",
+    "interval",
+    "pause",
+    "silence",
+    "hum",
+    "current",
+    "pulse",
+    "thread",
+    "queue",
+    "buffer",
+    "gateway",
+    "port",
+    "channel",
+    "node",
+    "edge",
+    "lattice",
+    "grid",
+    "frame",
+    "pane",
+    "glass",
+    "wall",
+    "floor",
+    "ceiling",
+    "corner",
+    "seam",
+    "hinge",
+    "latch",
+    "key",
+    "lock",
+    "gate",
+    "fence",
+    "border",
+    "perimeter",
+    "boundary",
+    "limit",
+    "horizon",
+    "distance",
+    "proximity",
+    "presence",
+    "absence",
+    "name",
+    "shadow",
+    "reflection",
+    "imprint",
+    "fingerprint",
+    "stain",
+    "mark",
+    "watermark",
+    "seal",
+    "stamp",
+    "receipt",
+    "manifest",
+    "inventory",
+    "register",
+    "count",
+    "tally",
+    "attention",
+    "regard",
+    "notice",
+    "glance",
+    "gaze",
+    "observer",
+    "reader",
+    "recipient",
+    "sender",
+    "courier",
+    "messenger",
+    "host",
+    "guest",
+    "tenant",
+    "occupant",
+    "stranger",
+    "crowd",
+    "network",
+    "circuit",
+    "wire",
+    "cable",
+    "conduit",
+    "vessel",
+    "container",
+    "enclosure",
+    "vault",
+    "repository",
+    "stack",
+    "shelf",
+    "drawer",
+    "folder",
+    "file",
+    "transcript",
+    "account",
+    "statement",
+    "report",
+    "dispatch",
+    "annotation",
+    "gloss",
+    "aside",
+    "parenthesis",
+    "ellipsis",
+    "omission",
+    "gap",
+    "void",
+    "vacancy",
+    "weight",
+    "mass",
+    "density",
+    "texture",
+    "grain",
+    "dust",
+    "sediment",
+    "layer",
+    "stratum",
+    "membrane",
+    "skin",
+    "husk",
+    "shell",
+    "casing"
   ],
   verbs: [
     "arrives",
@@ -50,21 +278,123 @@ var BUCKETS = {
     "passes through",
     "marks",
     "keeps",
-    "releases"
-  ],
-  prepositions: [
-    "into",
-    "against",
-    "before",
-    "beneath",
-    "through",
-    "toward",
-    "inside",
-    "between",
-    "after",
-    "without",
-    "with",
-    "near"
+    "releases",
+    "waits",
+    "watches",
+    "listens",
+    "notices",
+    "records",
+    "logs",
+    "registers",
+    "counts",
+    "numbers",
+    "names",
+    "unnames",
+    "signs",
+    "witnesses",
+    "observes",
+    "regards",
+    "considers",
+    "dwells",
+    "remains",
+    "stays",
+    "persists",
+    "endures",
+    "fades",
+    "dims",
+    "dissolves",
+    "disappears",
+    "vanishes",
+    "recedes",
+    "withdraws",
+    "departs",
+    "leaves",
+    "exits",
+    "enters",
+    "approaches",
+    "crosses",
+    "passes",
+    "traverses",
+    "threads",
+    "drifts",
+    "wanders",
+    "circles",
+    "repeats",
+    "recurs",
+    "resumes",
+    "continues",
+    "proceeds",
+    "begins",
+    "opens",
+    "closes",
+    "seals",
+    "locks",
+    "unlocks",
+    "gathers",
+    "collects",
+    "accumulates",
+    "stores",
+    "archives",
+    "files",
+    "indexes",
+    "sorts",
+    "orders",
+    "arranges",
+    "assembles",
+    "unfolds",
+    "expands",
+    "contracts",
+    "narrows",
+    "widens",
+    "settles",
+    "rests",
+    "pauses",
+    "hesitates",
+    "falters",
+    "breathes",
+    "hums",
+    "echoes",
+    "reflects",
+    "mirrors",
+    "doubles",
+    "halves",
+    "divides",
+    "joins",
+    "binds",
+    "frees",
+    "admits",
+    "refuses",
+    "declines",
+    "consents",
+    "permits",
+    "allows",
+    "accepts",
+    "receives",
+    "gives",
+    "offers",
+    "extends",
+    "reaches",
+    "touches",
+    "grazes",
+    "traces",
+    "follows",
+    "leads",
+    "carries",
+    "bears",
+    "transmits",
+    "relays",
+    "forwards",
+    "delivers",
+    "repays",
+    "recalls",
+    "retains",
+    "discards",
+    "erases",
+    "overwrites",
+    "revises",
+    "completes",
+    "abandons",
+    "expires"
   ],
   adjectives: [
     "quiet",
@@ -80,9 +410,166 @@ var BUCKETS = {
     "seen",
     "archived",
     "nameless",
-    "returning"
+    "returning",
+    "silent",
+    "still",
+    "faint",
+    "dim",
+    "pale",
+    "thin",
+    "sparse",
+    "brief",
+    "fleeting",
+    "momentary",
+    "transient",
+    "provisional",
+    "tentative",
+    "uncertain",
+    "hesitant",
+    "patient",
+    "deliberate",
+    "slight",
+    "minor",
+    "small",
+    "modest",
+    "plain",
+    "bare",
+    "empty",
+    "hollow",
+    "vacant",
+    "absent",
+    "distant",
+    "remote",
+    "near",
+    "close",
+    "adjacent",
+    "parallel",
+    "recursive",
+    "repeated",
+    "doubled",
+    "folded",
+    "creased",
+    "worn",
+    "faded",
+    "weathered",
+    "residual",
+    "leftover",
+    "remaining",
+    "unanswered",
+    "unread",
+    "unmarked",
+    "unsigned",
+    "unnamed",
+    "anonymous",
+    "unwitnessed",
+    "unrecorded",
+    "recorded",
+    "logged",
+    "counted",
+    "numbered",
+    "indexed",
+    "filed",
+    "stored",
+    "kept",
+    "held",
+    "withheld",
+    "released",
+    "open",
+    "closed",
+    "sealed",
+    "locked",
+    "ajar",
+    "permeable",
+    "porous",
+    "transparent",
+    "translucent",
+    "opaque",
+    "visible",
+    "invisible",
+    "hidden",
+    "exposed",
+    "latent",
+    "dormant",
+    "idle",
+    "waiting",
+    "pending",
+    "queued",
+    "buffered",
+    "cached",
+    "compressed",
+    "expanded",
+    "delayed",
+    "belated",
+    "early",
+    "gradual",
+    "incremental",
+    "accumulated",
+    "layered",
+    "granular",
+    "textured",
+    "weightless",
+    "light",
+    "heavy",
+    "shared"
   ],
-  conjunctions: ["and", "or", "then", "yet", "because", "so that", "until", "while"],
+  prepositions: [
+    "into",
+    "against",
+    "before",
+    "beneath",
+    "through",
+    "toward",
+    "inside",
+    "between",
+    "after",
+    "without",
+    "with",
+    "near",
+    "under",
+    "over",
+    "above",
+    "below",
+    "beyond",
+    "within",
+    "among",
+    "across",
+    "along",
+    "past",
+    "behind",
+    "beside",
+    "around",
+    "despite",
+    "throughout",
+    "underneath",
+    "amid",
+    "alongside"
+  ],
+  conjunctions: [
+    "and",
+    "or",
+    "then",
+    "yet",
+    "because",
+    "so that",
+    "until",
+    "while",
+    "but",
+    "nor",
+    "so",
+    "as",
+    "if",
+    "though",
+    "although",
+    "whereas",
+    "since",
+    "unless",
+    "when",
+    "where",
+    "once",
+    "even so",
+    "and yet",
+    "or else"
+  ],
   sutures: [
     "\u2014 the room notes this \u2014",
     "\u2014 archive holds \u2014",
@@ -91,7 +578,61 @@ var BUCKETS = {
     "\u2014 without name \u2014",
     "\u2014 after latency \u2014",
     "\u2014 a small consent \u2014",
-    "\u2014 folded once \u2014"
+    "\u2014 folded once \u2014",
+    "\u2014 the log remembers \u2014",
+    "\u2014 address withheld \u2014",
+    "\u2014 no name given \u2014",
+    "\u2014 counted and kept \u2014",
+    "\u2014 seen, not stored \u2014",
+    "\u2014 a brief presence \u2014",
+    "\u2014 the cache forgets \u2014",
+    "\u2014 received in full \u2014",
+    "\u2014 the server attends \u2014",
+    "\u2014 marked in passing \u2014",
+    "\u2014 held a moment \u2014",
+    "\u2014 the page turns \u2014",
+    "\u2014 between two requests \u2014",
+    "\u2014 a quiet arrival \u2014",
+    "\u2014 nothing returned \u2014",
+    "\u2014 the threshold notes it \u2014",
+    "\u2014 logged without trace \u2014",
+    "\u2014 a partial answer \u2014",
+    "\u2014 consent, then silence \u2014",
+    "\u2014 the column holds \u2014",
+    "\u2014 after the pause \u2014",
+    "\u2014 witnessed once \u2014",
+    "\u2014 the record stands \u2014",
+    "\u2014 folded again \u2014",
+    "\u2014 a small latency \u2014",
+    "\u2014 the hand withdraws \u2014",
+    "\u2014 still counted \u2014",
+    "\u2014 the margin keeps it \u2014",
+    "\u2014 an address, hashed \u2014",
+    "\u2014 received, not read \u2014",
+    "\u2014 the room stays \u2014",
+    "\u2014 a visit, counted \u2014",
+    "\u2014 the signal fades \u2014",
+    "\u2014 kept for now \u2014",
+    "\u2014 the archive widens \u2014",
+    "\u2014 nothing withheld \u2014",
+    "\u2014 a breath of latency \u2014",
+    "\u2014 the door, ajar \u2014",
+    "\u2014 noted and released \u2014",
+    "\u2014 the witness departs \u2014",
+    "\u2014 a residue remains \u2014",
+    "\u2014 the surface answers \u2014",
+    "\u2014 in the interval \u2014",
+    "\u2014 a name, then none \u2014",
+    "\u2014 the buffer holds \u2014",
+    "\u2014 attention paid \u2014",
+    "\u2014 the visit ends \u2014",
+    "\u2014 so far, so kept \u2014",
+    "\u2014 another arrival \u2014",
+    "\u2014 the echo settles \u2014",
+    "\u2014 recorded in passing \u2014",
+    "\u2014 a slow consent \u2014",
+    "\u2014 the queue advances \u2014",
+    "\u2014 nothing forgotten yet \u2014"
   ],
   punctuation: [".", ",", ";", "\u2014"],
   corruption_glyphs: ["\u25AE", "\u2591", "\u2592", "\u2593", "\u25CC", "\u25CD", "\u25EF", "\u2301", "\u2307", "\u2393", "\u2394", "\u23DA"]
@@ -176,6 +717,8 @@ var NEXT_ROLES = {
 };
 var SUTURE_EVERY = 7;
 var PUNCT_EVERY = 13;
+var ROLE_ALPHA = 1;
+var WORD_ALPHA = 1;
 function mulberry32(seed) {
   let a = seed >>> 0;
   return function() {
@@ -187,11 +730,62 @@ function mulberry32(seed) {
   };
 }
 __name(mulberry32, "mulberry32");
+function pickWeighted(rng, items, weights) {
+  let total = 0;
+  for (let i = 0; i < weights.length; i++) total += weights[i];
+  let r = rng() * total;
+  for (let i = 0; i < items.length; i++) {
+    r -= weights[i];
+    if (r < 0) return items[i];
+  }
+  return items[items.length - 1];
+}
+__name(pickWeighted, "pickWeighted");
 function allowedNext(prevRole) {
   return NEXT_ROLES[prevRole] || NEXT_ROLES.punctuation;
 }
 __name(allowedNext, "allowedNext");
-function selectNextToken(prevRole, eventIndex, seed, prevToken = null) {
+function inferModel(sequence) {
+  const roles = {};
+  const words = {};
+  const bump = /* @__PURE__ */ __name((table, a, b) => {
+    if (a == null || b == null) return;
+    const row = table[a] || (table[a] = {});
+    row[b] = (row[b] || 0) + 1;
+  }, "bump");
+  const seq = Array.isArray(sequence) ? sequence : [];
+  for (let i = 1; i < seq.length; i++) {
+    const prev = seq[i - 1];
+    const cur = seq[i];
+    if (!prev || !cur) continue;
+    bump(words, prev.token, cur.token);
+    const destIndex = i + 1;
+    const forced = destIndex % SUTURE_EVERY === 0 || destIndex % PUNCT_EVERY === 0;
+    if (!forced) bump(roles, prev.role, cur.role);
+  }
+  return { roles, words };
+}
+__name(inferModel, "inferModel");
+function chooseRole(rng, prevRole, model) {
+  const choices = allowedNext(prevRole);
+  const learned = model && model.roles ? model.roles[prevRole] : null;
+  if (!learned) {
+    return choices[Math.floor(rng() * choices.length)];
+  }
+  const weights = choices.map((r) => (learned[r] || 0) + ROLE_ALPHA);
+  return pickWeighted(rng, choices, weights);
+}
+__name(chooseRole, "chooseRole");
+function chooseToken(rng, pool, prevToken, model) {
+  const learned = model && model.words && prevToken != null ? model.words[prevToken] : null;
+  if (!learned) {
+    return pool[Math.floor(rng() * pool.length)];
+  }
+  const weights = pool.map((w) => (learned[w] || 0) + WORD_ALPHA);
+  return pickWeighted(rng, pool, weights);
+}
+__name(chooseToken, "chooseToken");
+function selectNextToken(prevRole, eventIndex, seed, prevToken = null, model = null) {
   const rng = mulberry32((seed ^ eventIndex * 2654435761) >>> 0);
   let role;
   if (!prevRole) {
@@ -201,13 +795,12 @@ function selectNextToken(prevRole, eventIndex, seed, prevToken = null) {
   } else if (eventIndex > 0 && eventIndex % SUTURE_EVERY === 0) {
     role = "sutures";
   } else {
-    const choices = allowedNext(prevRole);
-    role = choices[Math.floor(rng() * choices.length)];
+    role = chooseRole(rng, prevRole, model);
   }
   const pool = BUCKETS[role] || BUCKETS.nouns;
-  let token = pool[Math.floor(rng() * pool.length)];
+  let token = chooseToken(rng, pool, prevToken, model);
   for (let i = 0; i < 4 && token === prevToken && pool.length > 1; i++) {
-    token = pool[Math.floor(rng() * pool.length)];
+    token = chooseToken(rng, pool, prevToken, model);
   }
   return { token, role };
 }
@@ -223,7 +816,8 @@ function decideQualify({
   humanEventIndex,
   seed,
   now = Date.now(),
-  cooldownMs = COOLDOWN_MS_DEFAULT
+  cooldownMs = COOLDOWN_MS_DEFAULT,
+  model = null
 }) {
   const bot = classifyUA(ua);
   if (bot.isBot) {
@@ -232,7 +826,13 @@ function decideQualify({
   if (typeof lastSessionTs === "number" && now - lastSessionTs < cooldownMs) {
     return { action: "cooldown" };
   }
-  const { token, role } = selectNextToken(prevRole, humanEventIndex, seed >>> 0, prevToken);
+  const { token, role } = selectNextToken(
+    prevRole,
+    humanEventIndex,
+    seed >>> 0,
+    prevToken,
+    model
+  );
   return { action: "append", token, role, ua_class: "browser" };
 }
 __name(decideQualify, "decideQualify");
@@ -277,14 +877,17 @@ function renderSnapshotHTML(state, takenAt = (/* @__PURE__ */ new Date()).toISOS
   const version = Number(state?.body_version || 0);
   const folded = Number(state?.fold_count || 0);
   const corrupt = Number(state?.corruption_count || 0);
-  const bodyHTML = body.map(
-    (t) => t.role === "fold_marker" ? `<span class="fold-marker">${esc(t.token)}</span>` : esc(t.token)
-  ).join(" ");
+  const HUG_LEFT = /* @__PURE__ */ new Set([".", ",", ";"]);
+  let bodyHTML = "";
+  body.forEach((t, i) => {
+    if (i > 0 && !HUG_LEFT.has(t.token)) bodyHTML += " ";
+    bodyHTML += t.role === "fold_marker" ? `<span class="fold-marker">${esc(t.token)}</span>` : esc(t.token);
+  });
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="robots" content="noindex">
-<title>corpus \u2014 snapshot</title>
+<title>(to)complete \u2014 snapshot</title>
 <style>
 :root { --bg:#fff; --ink:#111; --ink-soft:rgba(17,17,17,.55); --ink-faint:rgba(17,17,17,.28); }
 html,body { margin:0; background:var(--bg); color:var(--ink); }
@@ -1739,6 +2342,10 @@ var BodyForVisitsRoom = class {
     const humanCountRows = sql.exec(`SELECT COUNT(*) AS n FROM events WHERE kind = 'human'`).toArray();
     const humanEventIndex = (humanCountRows[0]?.n || 0) + 1;
     const seed = parseInt(ipHash.slice(0, 8), 16) || 1;
+    const journal = sql.exec(
+      `SELECT token, role FROM events WHERE kind = 'human' ORDER BY id`
+    ).toArray();
+    const model = inferModel(journal);
     const decision = decideQualify({
       ua,
       lastSessionTs,
@@ -1746,7 +2353,8 @@ var BodyForVisitsRoom = class {
       prevToken: prev?.token ?? null,
       humanEventIndex,
       seed,
-      now
+      now,
+      model
     });
     if (decision.action === "cooldown") {
       const data2 = this.buildResponseBody(stateRow, null);
@@ -1821,12 +2429,14 @@ var BodyForVisitsRoom = class {
   export() {
     const rows = this.state.storage.sql.exec(`SELECT id, ts, kind, session_hash, ua_class, token, role FROM events ORDER BY id ASC`).toArray();
     const stateRow = this.readState();
+    const humanSeq = rows.filter((r) => r.kind === "human").map((r) => ({ token: r.token, role: r.role }));
     const body = {
       exported_at: (/* @__PURE__ */ new Date()).toISOString(),
       body_version: stateRow.body_version,
       fold_count: stateRow.fold_count,
       fold_generations: stateRow.fold_generations,
       corruption_count: stateRow.corruption_count,
+      model: inferModel(humanSeq),
       events: rows
     };
     return new Response(JSON.stringify(body), {

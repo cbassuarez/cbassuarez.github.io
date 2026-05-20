@@ -17,6 +17,8 @@ export const COOLDOWN_MS_DEFAULT = 24 * 60 * 60 * 1000; // 24h
 //   seed          — integer for deterministic selection (e.g. low 32 bits of ip_hash)
 //   now           — ms epoch (defaults to Date.now())
 //   cooldownMs    — defaults to COOLDOWN_MS_DEFAULT
+//   model         — optional learned model from inferModel(); shapes selection
+//                   toward the corpus's own history. Absent → uniform selection.
 //
 // returns one of:
 //   { action: "cooldown" }
@@ -31,6 +33,7 @@ export function decideQualify({
   seed,
   now = Date.now(),
   cooldownMs = COOLDOWN_MS_DEFAULT,
+  model = null,
 }) {
   const bot = classifyUA(ua);
   if (bot.isBot) {
@@ -39,6 +42,12 @@ export function decideQualify({
   if (typeof lastSessionTs === "number" && now - lastSessionTs < cooldownMs) {
     return { action: "cooldown" };
   }
-  const { token, role } = selectNextToken(prevRole, humanEventIndex, seed >>> 0, prevToken);
+  const { token, role } = selectNextToken(
+    prevRole,
+    humanEventIndex,
+    seed >>> 0,
+    prevToken,
+    model
+  );
   return { action: "append", token, role, ua_class: "browser" };
 }
