@@ -1,9 +1,9 @@
 import { readFile, writeFile } from "node:fs/promises";
 
 const SCOWL_URL =
-  "https://raw.githubusercontent.com/en-wl/wordlist-diff/diff/scowl.txt";
+  "https://raw.githubusercontent.com/en-wl/wordlist-diff/1f8ccc65c6d97ca201522e5bbb9fa05c80139bdc/scowl.txt";
 const FREQUENCY_URL =
-  "https://raw.githubusercontent.com/reneklacan/symspell/main/data/frequency_dictionary_en_82_765.txt";
+  "https://raw.githubusercontent.com/reneklacan/symspell/2dbf3b2d766d5d530e1c961e7edc7dbae2d94f4c/data/frequency_dictionary_en_82_765.txt";
 const OUTPUT_PATH = new URL("../worker/src/body-for-visits/word-priors.generated.js", import.meta.url);
 
 const LIMITS = {
