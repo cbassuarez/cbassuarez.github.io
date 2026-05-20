@@ -15,6 +15,7 @@
   const fringeEl = document.getElementById('bfv-fringe');
   const statusEl = document.getElementById('bfv-status');
   const motionRoot = document.getElementById('bfv-motion-root');
+  const readoutEl = document.getElementById('bfv-readout');
 
   const colophonBtn = document.getElementById('bfv-colophon-open');
   const colophonDlg = document.getElementById('bfv-colophon');
@@ -59,9 +60,14 @@
     if (statusEl) statusEl.textContent = text;
   }
 
+  function setReadout(text) {
+    if (readoutEl) readoutEl.textContent = text;
+  }
+
   function settleMotion(progress = 1) {
     setMotionProgress(progress);
     setMotionPhase('settled');
+    setReadout('');
   }
 
   function render(state, opts = {}) {
@@ -101,6 +107,11 @@
       render(json);
       return json;
     } catch (err) {
+      bodyEl.innerHTML = '';
+      const span = document.createElement('span');
+      span.className = 'fold-marker';
+      span.textContent = '⟨body unavailable⟩';
+      bodyEl.appendChild(span);
       settleMotion(0);
       setStatus('upstream unreachable');
       return null;
@@ -124,6 +135,7 @@
     const sid = sessionId();
     setMotionProgress(1);
     setMotionPhase('qualifying');
+    setReadout('');
     try {
       const resp = await fetch(`${API_BASE}/api/corpus/qualify`, {
         method: 'POST',
@@ -209,6 +221,7 @@
     if (attempted) return;
     const visible = visibleElapsedMs();
     setMotionProgress(Math.min(visible / DWELL_MS, 1));
+    setReadout((Math.min(visible, DWELL_MS) / 1000).toFixed(1) + ' s');
     if (visible >= DWELL_MS && document.visibilityState === 'visible') {
       attempted = true;
       try { sessionStorage.setItem(ATTEMPTED_KEY, '1'); } catch (_) {}
@@ -233,6 +246,7 @@
     setMotionProgress(0);
     setMotionPhase('accepting');
     setStatus('accepting visible visit');
+    setReadout('0.0 s');
     document.addEventListener('visibilitychange', onVisibilityChange);
     // bound the dwell wait so we don't churn forever on a backgrounded tab
     dwellTimeout = setTimeout(() => {

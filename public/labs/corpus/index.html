@@ -40,6 +40,15 @@
     margin: 0;
   }
   .body-text .fold-marker { font-style: italic; color: var(--ink-soft); }
+  .body-skeleton {
+    display: block;
+    width: 78%;
+    max-width: 32ch;
+    height: 1.05em;
+    border-radius: 2px;
+    background: currentColor;
+    opacity: 0.12;
+  }
   .body-text .token-new {
     background: linear-gradient(transparent 60%, rgba(255, 103, 0, 0.30) 60%);
     animation: bfv-fade 6s ease-out forwards;
@@ -52,23 +61,76 @@
     margin: 48px 0 0 0;
     min-height: 1em;
   }
+  .visit { margin: 32px 0 0 0; }
+  .visit-line {
+    position: relative;
+    width: 100%;
+    height: 14px;
+    color: var(--ink);
+  }
+  .visit-track,
+  .visit-fill,
+  .visit-sweep {
+    position: absolute;
+    top: 50%;
+    height: 1.5px;
+    margin-top: -0.75px;
+  }
+  .visit-track {
+    left: 0;
+    right: 0;
+    background: currentColor;
+    opacity: 0.16;
+  }
+  .visit-fill {
+    left: 0;
+    right: 0;
+    background: currentColor;
+    transform-origin: left center;
+    transform: scaleX(0);
+    will-change: transform;
+  }
+  .visit-sweep {
+    left: 0;
+    width: 32%;
+    border-radius: 1px;
+    opacity: 0.7;
+    background: linear-gradient(90deg, transparent, currentColor 35%, currentColor 65%, transparent);
+    will-change: transform;
+    animation: visit-sweep 1.15s linear infinite;
+  }
+  .visit-marker {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 6px;
+    height: 6px;
+    margin-top: -3px;
+    border-radius: 50%;
+    background: currentColor;
+    will-change: transform;
+  }
+  @keyframes visit-sweep {
+    from { transform: translateX(-115%); }
+    to   { transform: translateX(340%); }
+  }
   .status {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     flex-wrap: wrap;
-    gap: 14px;
+    justify-content: space-between;
+    gap: 6px 14px;
     font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--ink-faint);
-    margin: 32px 0 0 0;
+    margin: 9px 0 0 0;
   }
-  .motion-root {
-    display: inline-block;
+  .visit-readout {
+    margin-left: auto;
     flex: 0 0 auto;
-    width: clamp(104px, 32vw, 168px);
-    height: 14px;
-    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.12em;
   }
   .status a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink-faint); }
   .status a:hover, .status a:focus-visible { color: var(--accent); border-bottom-color: var(--accent); }
@@ -163,6 +225,7 @@
   .colophon-dialog form { margin: 36px 0 0 0; text-align: right; }
   @media (prefers-reduced-motion: reduce) {
     .body-text .token-new { animation: none; background: transparent; }
+    .visit-sweep { animation: none; }
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -186,12 +249,15 @@
 <body>
 <main>
   <p class="preamble">corpus · one shared sentence · mutated by visitation</p>
-  <p class="body-text" id="bfv-body"><span class="fold-marker">⟨loading body⟩</span></p>
+  <p class="body-text" id="bfv-body"><span class="body-skeleton" aria-hidden="true"></span></p>
   <p class="fringe" id="bfv-fringe"></p>
-  <p class="status">
-    <span id="bfv-status">loading body</span>
-    <span class="motion-root" id="bfv-motion-root" aria-hidden="true"></span>
-  </p>
+  <div class="visit">
+    <div class="visit-line" id="bfv-motion-root" aria-hidden="true"></div>
+    <p class="status">
+      <span id="bfv-status" aria-live="polite">loading body</span>
+      <span class="visit-readout" id="bfv-readout" aria-hidden="true"></span>
+    </p>
+  </div>
   <p class="colophon">
     a visible visit adds to the body. no form, no input. the page records only a hashed session token
     and a hashed ip, both for the sole purpose of preventing accidental repeated contribution.
@@ -224,7 +290,7 @@
     </form>
   </article>
 </dialog>
-<script src="./corpus-motion.bundle.js?v=20260520-corpus-motion" defer></script>
-<script src="./script.js?v=20260520-corpus-motion" defer></script>
+<script src="./corpus-motion.bundle.js?v=20260521-line-rule" defer></script>
+<script src="./script.js?v=20260521-line-rule" defer></script>
 </body>
 </html>

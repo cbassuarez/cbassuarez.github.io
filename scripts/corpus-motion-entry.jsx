@@ -1,9 +1,14 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { motion, useReducedMotion } from 'framer-motion';
+import {
+  motion,
+  motionValue,
+  useMotionValue,
+  useTransform,
+  useReducedMotion,
+} from 'framer-motion';
 
-const VIEWBOX = '0 0 168 14';
-const LINE_PATH = 'M 2 7 L 166 7';
+const MARKER_SIZE = 6;
 
 function clamp01(value) {
   const n = Number(value);
@@ -11,102 +16,67 @@ function clamp01(value) {
   return Math.max(0, Math.min(1, n));
 }
 
-function StaticInstrument({ phase, progress }) {
-  const shown = phase === 'loading' ? 0.18 : progress;
-  const opacity = phase === 'idle' ? 0 : phase === 'settled' ? 0.42 : 0.72;
-  return (
-    <svg viewBox={VIEWBOX} role="presentation" focusable="false" style={{ display: 'block', width: '100%', height: '14px' }}>
-      <path d={LINE_PATH} fill="none" stroke="currentColor" strokeOpacity="0.16" strokeWidth="1.2" />
-      <path
-        d={LINE_PATH}
-        fill="none"
-        pathLength="1"
-        stroke="currentColor"
-        strokeDasharray="1"
-        strokeDashoffset={1 - shown}
-        strokeLinecap="round"
-        strokeOpacity={opacity}
-        strokeWidth="1.4"
-      />
-      <circle cx={2 + shown * 164} cy="7" r="1.7" fill="currentColor" opacity={opacity} />
-    </svg>
-  );
-}
+// A single straight rule that tracks the real visit lifecycle:
+//   loading    -> fetching /api/corpus/state   -> indeterminate sweep
+//   accepting  -> the 2s visible dwell         -> determinate fill 0->1
+//   qualifying -> POST /api/corpus/qualify     -> fill held, marker pulse
+//   settled    -> done                         -> fill dimmed, marker static
+// progress is a MotionValue: script.js pushes it every animation frame, so it
+// updates the DOM directly without a React re-render.
+function VisitInstrument({ phase, progress }) {
+  const prefersReduced = useReducedMotion();
+  const wrapRef = useRef(null);
+  const width = useMotionValue(0);
 
-function AnimatedInstrument({ phase, progress }) {
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return undefined;
+    const measure = () => width.set(el.offsetWidth);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [width]);
+
+  const markerX = useTransform(
+    [progress, width],
+    ([p, w]) => p * w - MARKER_SIZE / 2,
+  );
+
+  const idle = phase === 'idle';
   const loading = phase === 'loading';
-  const accepting = phase === 'accepting';
   const qualifying = phase === 'qualifying';
   const settled = phase === 'settled';
-  const activeProgress = loading ? 0.22 : accepting || qualifying || settled ? progress : 0;
-  const markerX = 2 + activeProgress * 164;
-  const opacity = phase === 'idle' ? 0 : settled ? 0.46 : 0.82;
+
+  const showSweep = loading && !prefersReduced;
+  const showMarker = !idle && !loading;
+  const fillOpacity = idle || loading ? 0 : settled ? 0.4 : 0.72;
+  const markerOpacity = settled ? 0.4 : 0.92;
+  const pulsing = qualifying && !prefersReduced;
 
   return (
-    <svg viewBox={VIEWBOX} role="presentation" focusable="false" style={{ display: 'block', width: '100%', height: '14px' }}>
-      <path d={LINE_PATH} fill="none" stroke="currentColor" strokeOpacity="0.16" strokeWidth="1.2" />
-      <motion.path
-        d={LINE_PATH}
-        fill="none"
-        pathLength="1"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeOpacity={opacity}
-        strokeWidth="1.4"
-        initial={false}
-        animate={{
-          pathLength: activeProgress,
-          opacity,
-        }}
-        transition={{ duration: accepting ? 0.04 : 0.2, ease: 'linear' }}
+    <div ref={wrapRef} style={{ position: 'absolute', inset: 0 }}>
+      <div className="visit-track" />
+      <motion.div
+        className="visit-fill"
+        style={{ scaleX: progress }}
+        animate={{ opacity: fillOpacity }}
+        transition={{ duration: 0.28, ease: 'easeOut' }}
       />
-      {loading ? (
-        <motion.g
-          initial={false}
-          animate={{ x: [0, 150, 0], opacity: [0.28, 0.9, 0.28] }}
-          transition={{ duration: 1.45, ease: 'easeInOut', repeat: Infinity }}
-        >
-          <path d="M 3 3 L 8 8" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" opacity="0.82" />
-          <circle cx="10" cy="8" r="1.4" fill="currentColor" opacity="0.7" />
-        </motion.g>
-      ) : (
-        <motion.g
-          initial={false}
-          animate={{
-            x: markerX,
-            y: 7,
-            opacity: settled ? 0.4 : 0.92,
-            rotate: qualifying ? [0, -2, 2, 0] : 0,
-          }}
-          transition={{
-            x: { duration: accepting ? 0.04 : 0.2, ease: 'linear' },
-            y: { duration: 0 },
-            opacity: { duration: 0.22 },
-            rotate: qualifying ? { duration: 0.7, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 },
-          }}
-        >
-          <path d="M -2 -5 L 3 0" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-          <circle cx="5" cy="0" r="1.45" fill="currentColor" opacity="0.72" />
-        </motion.g>
-      )}
-    </svg>
-  );
-}
-
-function AcceptanceMotion({ phase, progress }) {
-  const prefersReduced = useReducedMotion();
-  const normalized = clamp01(progress);
-  const commonStyle = {
-    color: 'var(--ink-faint)',
-    maxWidth: '168px',
-  };
-  return (
-    <div style={commonStyle}>
-      {prefersReduced ? (
-        <StaticInstrument phase={phase} progress={normalized} />
-      ) : (
-        <AnimatedInstrument phase={phase} progress={normalized} />
-      )}
+      {showSweep ? <div className="visit-sweep" /> : null}
+      {showMarker ? (
+        <motion.div
+          className="visit-marker"
+          style={{ x: markerX }}
+          animate={{ opacity: pulsing ? [0.9, 0.32, 0.9] : markerOpacity }}
+          transition={
+            pulsing
+              ? { duration: 1, repeat: Infinity, ease: 'easeInOut' }
+              : { duration: 0.28, ease: 'easeOut' }
+          }
+        />
+      ) : null}
     </div>
   );
 }
@@ -121,13 +91,11 @@ export function mount(container) {
   }
 
   const root = createRoot(container);
-  const state = {
-    phase: 'idle',
-    progress: 0,
-  };
+  const progress = motionValue(0);
+  const state = { phase: 'idle' };
 
   function render() {
-    root.render(<AcceptanceMotion phase={state.phase} progress={state.progress} />);
+    root.render(<VisitInstrument phase={state.phase} progress={progress} />);
   }
 
   render();
@@ -137,9 +105,9 @@ export function mount(container) {
       state.phase = String(phase || 'idle');
       render();
     },
-    setProgress(progress) {
-      state.progress = clamp01(progress);
-      render();
+    setProgress(value) {
+      // Direct MotionValue write — no React render, no per-frame reconciliation.
+      progress.set(clamp01(value));
     },
     destroy() {
       root.unmount();
