@@ -2,14 +2,13 @@
   'use strict';
 
   // The work mutates only when a visit is *visible* for at least DWELL_MS and
-  // the same browser session has not contributed within the server cooldown.
+  // the same browser session still has quota in the server-side rolling window.
   const PROD_API = 'https://seb-feed.cbassuarez.workers.dev';
   const params = new URLSearchParams(location.search);
   const API_BASE = (params.get('api') || PROD_API).replace(/\/+$/, '');
 
   const DWELL_MS = 2000;
   const SESSION_KEY = 'bfv:session-v1';
-  const ATTEMPTED_KEY = 'bfv:attempted-v1';
 
   const bodyEl = document.getElementById('bfv-body');
   const fringeEl = document.getElementById('bfv-fringe');
@@ -70,6 +69,23 @@
     const n = Math.max(0, Math.floor(Number(count) || 0));
     // A quiet signal — shown only when you are not alone in the body.
     presenceEl.textContent = n >= 2 ? `${n} here now` : '';
+  }
+
+  function quotaText(quota) {
+    if (!quota || typeof quota !== 'object') return '';
+    const remaining = Number(quota.remaining);
+    if (Number.isFinite(remaining)) {
+      return ` · ${Math.max(0, remaining)} left this hour`;
+    }
+    return '';
+  }
+
+  function quotaRetryText(quota) {
+    if (!quota || typeof quota !== 'object') return '';
+    const resetAt = Number(quota.reset_at);
+    if (!Number.isFinite(resetAt)) return '';
+    const minutes = Math.max(1, Math.ceil((resetAt - Date.now()) / 60000));
+    return ` · retry in ${minutes} min`;
   }
 
   // Every state source — initial fetch, qualify response, WebSocket push, and
@@ -198,7 +214,7 @@
       const json = await resp.json();
       if (json.skipped === 'cooldown') {
         settleMotion();
-        setStatus('visit withheld · session already recorded');
+        setStatus(`visit withheld · hourly quota reached${quotaRetryText(json.quota)}`);
         applyState(json);
         return;
       }
@@ -212,7 +228,7 @@
       const folded = Number(json.fold_count || 0);
       const suffix = folded > 0 ? ` · ${folded} folded` : '';
       settleMotion();
-      setStatus(`visible visit qualified${suffix}`);
+      setStatus(`visible visit qualified${suffix}${quotaText(json.quota)}`);
     } catch (err) {
       settleMotion();
       setStatus('upstream unreachable');
@@ -222,7 +238,6 @@
   // Track cumulative *visible* time. We only count time while the page is the
   // visible foreground document; tab-switching pauses the dwell clock.
   let attempted = false;
-  try { attempted = sessionStorage.getItem(ATTEMPTED_KEY) === '1'; } catch (_) {}
   let cumulativeVisibleMs = 0;
   let lastVisibleStart = null;
   let frame = null;
@@ -266,7 +281,6 @@
     setReadout((Math.min(visible, DWELL_MS) / 1000).toFixed(1) + ' s');
     if (visible >= DWELL_MS && document.visibilityState === 'visible') {
       attempted = true;
-      try { sessionStorage.setItem(ATTEMPTED_KEY, '1'); } catch (_) {}
       stopDwellTimer();
       qualify();
       return;
@@ -419,7 +433,7 @@
     if (!state) return;
     if (attempted) {
       settleMotion();
-      setStatus('visit withheld · session already recorded');
+      setStatus('visit already counted on this page load');
       return;
     }
     startVisibleDwell();

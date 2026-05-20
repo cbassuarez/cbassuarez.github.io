@@ -73,9 +73,10 @@ node --test worker/test/body-for-visits.*.test.js
 
 A single shared linguistic body, mutated only by qualifying human visits. Each
 visit that is *visible* (`document.visibilityState === "visible"`) for at least
-two seconds, and that has not already contributed within the server-side
-cooldown, appends one grammar-aware token to the body. There is no form, no
-input. The medium is the visited networked surface.
+two seconds, and whose session still has quota in the rolling server-side
+window, appends one grammar-aware token to the body. The current quota is five
+accepted tokens per session per hour. There is no form, no input. The medium is
+the visited networked surface.
 
 The artwork has three layers, only one of which is the work:
 
@@ -97,25 +98,29 @@ The DO and rate-limit binding live on the existing `seb-feed` worker:
 
 - Durable Object binding `BFV_ROOM` → class `BodyForVisitsRoom` (SQLite-backed)
 - Migration tag `v3-bfv-room` with `new_sqlite_classes = ["BodyForVisitsRoom"]`
-- Rate-limit binding `RATE_LIMIT_BFV_QUALIFY` (namespace_id 1009; 6/60s)
+- Rate-limit binding `RATE_LIMIT_BFV_QUALIFY` (namespace_id 1009; 60/60s)
+- Rate-limit binding `RATE_LIMIT_BFV_SOCKET` (namespace_id 1010; 120/60s)
 - Secret `BFV_HASH_SALT` — used to salt the (ephemeral) IP and session hashes
   before storage. Set once per environment: `wrangler secret put BFV_HASH_SALT`.
   No raw IPs, no full user-agents, are ever written.
+- Secret `BFV_ADMIN_TOKEN` — bearer token for the corpus admin reset endpoint.
 
 ### Manual test checklist
 
 1. Open `/labs/corpus/` in a fresh incognito window. After ~2s of
    foreground dwell, one new token fades in; status reads
    `visible visit qualified`.
-2. Reload. Status reads `visit withheld · session already recorded`;
-   body is unchanged.
-3. Visit from a second device or browser; new mutation appears.
-4. `curl -A 'GPTBot/1.0' -H 'content-type: application/json' \
+2. Reload up to four more times in the same browser session; each fresh page
+   load can qualify one additional token.
+3. After five accepted tokens within one hour, status reads
+   `visit withheld · hourly quota reached`.
+4. Visit from a second device or browser; new mutation appears.
+5. `curl -A 'GPTBot/1.0' -H 'content-type: application/json' \
      -d '{"session_id":"00000000-0000-0000-0000-000000000001"}' \
      https://seb-feed.cbassuarez.workers.dev/api/corpus/qualify`
    → body unchanged; `corruption_count` and `fringe` grow.
-5. `curl https://seb-feed.cbassuarez.workers.dev/api/corpus/snapshot.html`
+6. `curl https://seb-feed.cbassuarez.workers.dev/api/corpus/snapshot.html`
    returns a standalone HTML document with the current ISO timestamp in a
    `static snapshot taken at …` line.
-6. `curl https://seb-feed.cbassuarez.workers.dev/api/corpus/export.json | jq '.events | length'`
+7. `curl https://seb-feed.cbassuarez.workers.dev/api/corpus/export.json | jq '.events | length'`
    increases monotonically across visits.

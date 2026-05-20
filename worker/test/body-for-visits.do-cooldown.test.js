@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decideQualify, COOLDOWN_MS_DEFAULT } from "../src/body-for-visits/decide.js";
+import {
+  decideQualify,
+  SESSION_QUOTA_LIMIT_DEFAULT,
+  SESSION_QUOTA_WINDOW_MS_DEFAULT,
+} from "../src/body-for-visits/decide.js";
 
 const browser =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15";
@@ -8,7 +12,7 @@ const browser =
 test("first qualify from a fresh session appends", () => {
   const d = decideQualify({
     ua: browser,
-    lastSessionTs: null,
+    sessionWindowCount: 0,
     prevRole: null,
     prevToken: null,
     humanEventIndex: 1,
@@ -21,32 +25,32 @@ test("first qualify from a fresh session appends", () => {
   assert.equal(d.role, "openings");
 });
 
-test("second qualify from same session within 24h is cooldown", () => {
+test("same session can append below the rolling quota", () => {
   const t0 = 1_700_000_000_000;
   const d = decideQualify({
     ua: browser,
-    lastSessionTs: t0,
+    sessionWindowCount: SESSION_QUOTA_LIMIT_DEFAULT - 1,
     prevRole: "openings",
     prevToken: "here",
     humanEventIndex: 2,
     seed: 42,
     now: t0 + 60_000, // 1 min later
   });
-  assert.equal(d.action, "cooldown");
+  assert.equal(d.action, "append");
 });
 
-test("same session after cooldown is allowed to append", () => {
+test("same session at the rolling quota is cooldown", () => {
   const t0 = 1_700_000_000_000;
   const d = decideQualify({
     ua: browser,
-    lastSessionTs: t0,
+    sessionWindowCount: SESSION_QUOTA_LIMIT_DEFAULT,
     prevRole: "openings",
     prevToken: "here",
     humanEventIndex: 2,
     seed: 42,
-    now: t0 + COOLDOWN_MS_DEFAULT + 1,
+    now: t0 + SESSION_QUOTA_WINDOW_MS_DEFAULT - 1,
   });
-  assert.equal(d.action, "append");
+  assert.equal(d.action, "cooldown");
 });
 
 test("bot UA never appends, regardless of session state", () => {

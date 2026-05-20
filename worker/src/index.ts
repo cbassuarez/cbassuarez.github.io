@@ -1,5 +1,9 @@
 import { BUCKETS as BFV_BUCKETS } from "./body-for-visits/lexicon.js";
-import { decideQualify as bfvDecide } from "./body-for-visits/decide.js";
+import {
+  decideQualify as bfvDecide,
+  SESSION_QUOTA_LIMIT_DEFAULT as BFV_SESSION_QUOTA_LIMIT,
+  SESSION_QUOTA_WINDOW_MS_DEFAULT as BFV_SESSION_QUOTA_WINDOW_MS,
+} from "./body-for-visits/decide.js";
 import { inferModel as bfvInferModel } from "./body-for-visits/grammar.js";
 import { foldBody as bfvFold } from "./body-for-visits/fold.js";
 import { renderSnapshotHTML as bfvSnapshot } from "./body-for-visits/snapshot.js";
@@ -89,6 +93,7 @@ type Env = {
   CO_ROOM: DurableObjectNamespace;
   BFV_ROOM: DurableObjectNamespace;
   BFV_HASH_SALT?: string;
+  BFV_ADMIN_TOKEN?: string;
 };
 
 type FeedSnapshot = {
@@ -124,6 +129,16 @@ const clean = (value: unknown) =>
   String(value ?? "")
     .replace(/\s+/g, " ")
     .trim();
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  let diff = a.length ^ b.length;
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
 
 const stripTags = (value: string) => value.replace(/<[^>]+>/g, "");
 const toNonNegativeInt = (value: unknown) => {
@@ -1589,6 +1604,13 @@ type BfvStateRow = {
   fringe_json: string;
 };
 
+type BfvQuota = {
+  limit: number;
+  remaining: number;
+  window_ms: number;
+  reset_at: number | null;
+};
+
 async function bfvHashIp(ip: string, salt: string): Promise<string> {
   const data = new TextEncoder().encode(`bfv-ip-v1:${salt}:${ip}`);
   const buffer = await crypto.subtle.digest("SHA-256", data);
@@ -1713,6 +1735,58 @@ export class BodyForVisitsRoom {
     };
   }
 
+  private lastAdminResetEventId(): number {
+    const rows = this.state.storage.sql
+      .exec<{ id: number | null }>(`SELECT MAX(id) AS id FROM events WHERE kind = 'admin_reset'`)
+      .toArray();
+    return Number(rows[0]?.id || 0);
+  }
+
+  private humanJournalSinceReset(): Array<{ token: string; role: string }> {
+    const resetId = this.lastAdminResetEventId();
+    return this.state.storage.sql
+      .exec<{ token: string; role: string }>(
+        `SELECT token, role FROM events WHERE kind = 'human' AND id > ? ORDER BY id`,
+        resetId
+      )
+      .toArray();
+  }
+
+  private sessionQuota(sessionHash: string, now: number): BfvQuota & { used: number } {
+    const resetId = this.lastAdminResetEventId();
+    const windowStart = now - BFV_SESSION_QUOTA_WINDOW_MS;
+    const rows = this.state.storage.sql
+      .exec<{ n: number; oldest_ts: number | null }>(
+        `SELECT COUNT(*) AS n, MIN(ts) AS oldest_ts
+           FROM events
+          WHERE kind = 'human'
+            AND session_hash = ?
+            AND id > ?
+            AND ts >= ?`,
+        sessionHash,
+        resetId,
+        windowStart
+      )
+      .toArray();
+    const used = Number(rows[0]?.n || 0);
+    const oldest = rows[0]?.oldest_ts ?? null;
+    return {
+      limit: BFV_SESSION_QUOTA_LIMIT,
+      remaining: Math.max(0, BFV_SESSION_QUOTA_LIMIT - used),
+      window_ms: BFV_SESSION_QUOTA_WINDOW_MS,
+      reset_at: oldest ? oldest + BFV_SESSION_QUOTA_WINDOW_MS : null,
+      used,
+    };
+  }
+
+  private isAdminRequest(request: Request): boolean {
+    const expected = clean(this.env.BFV_ADMIN_TOKEN);
+    const raw = clean(request.headers.get("authorization") || "");
+    const match = raw.match(/^Bearer\s+(.+)$/i);
+    const token = clean(match?.[1] || "");
+    return constantTimeEqual(token, expected);
+  }
+
   // Presence = the number of open corpus pages (live WebSockets). Counted per
   // socket, so it stays simple, visible, and survives DO hibernation.
   private presenceCount(exclude?: WebSocket): number {
@@ -1815,7 +1889,47 @@ export class BodyForVisitsRoom {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" },
       });
     }
+    if (request.method === "POST" && path === "/admin/reset") {
+      return this.adminReset(request);
+    }
     return this.responseJson({ error: "not_found" }, 404);
+  }
+
+  private async adminReset(request: Request): Promise<Response> {
+    if (!this.isAdminRequest(request)) {
+      return this.responseJson({ error: "unauthorized" }, 401);
+    }
+
+    const now = Date.now();
+    const sql = this.state.storage.sql;
+    sql.exec(
+      `INSERT INTO events (ts, kind, ip_hash, session_hash, ua_class, token, role)
+       VALUES (?, 'admin_reset', 'admin', 'admin', 'admin', 'reset', 'reset')`,
+      now
+    );
+    const eventIdRow = sql.exec<{ id: number }>(`SELECT last_insert_rowid() AS id`).toArray();
+    const eventId = eventIdRow[0]?.id ?? null;
+
+    sql.exec(
+      `UPDATE body_state
+         SET body_json = '[]',
+             body_version = body_version + 1,
+             fold_count = 0,
+             fold_generations = 0,
+             corruption_count = 0,
+             fringe_json = '[]',
+             updated_at = ?
+       WHERE id = 1`,
+      now
+    );
+
+    const updated = this.readState();
+    this.broadcast(this.snapshotMessage(updated, null));
+    return this.responseJson({
+      ok: true,
+      reset_event_id: eventId,
+      ...this.buildResponseBody(updated, null),
+    });
   }
 
   private async qualify(request: Request): Promise<Response> {
@@ -1840,13 +1954,7 @@ export class BodyForVisitsRoom {
     const now = Date.now();
 
     const sql = this.state.storage.sql;
-    const lastRows = sql
-      .exec<{ max_ts: number | null }>(
-        `SELECT MAX(ts) AS max_ts FROM events WHERE session_hash = ? AND kind = 'human'`,
-        sessionHash
-      )
-      .toArray();
-    const lastSessionTs = lastRows[0]?.max_ts ?? null;
+    const quota = this.sessionQuota(sessionHash, now);
 
     const stateRow = this.readState();
     const body = this.parseBody(stateRow);
@@ -1860,16 +1968,12 @@ export class BodyForVisitsRoom {
     const seed = parseInt(ipHash.slice(0, 8), 16) || 1;
     // The grammar learns from the journal: a Markov model over the roles and
     // words of every human event so far shapes this visit's contribution.
-    const journal = sql
-      .exec<{ token: string; role: string }>(
-        `SELECT token, role FROM events WHERE kind = 'human' ORDER BY id`
-      )
-      .toArray();
+    const journal = this.humanJournalSinceReset();
     const model = bfvInferModel(journal);
 
     const decision = bfvDecide({
       ua,
-      lastSessionTs,
+      sessionWindowCount: quota.used,
       prevRole: prev?.role ?? null,
       prevToken: prev?.token ?? null,
       humanEventIndex,
@@ -1880,7 +1984,7 @@ export class BodyForVisitsRoom {
 
     if (decision.action === "cooldown") {
       const data = this.buildResponseBody(stateRow, null);
-      return this.responseJson({ ...data, skipped: "cooldown" });
+      return this.responseJson({ ...data, skipped: "cooldown", quota });
     }
 
     if (decision.action === "bot") {
@@ -1955,7 +2059,16 @@ export class BodyForVisitsRoom {
     };
     this.broadcast(this.snapshotMessage(updated, newTokenIndex));
     const data = this.buildResponseBody(updated, newTokenIndex);
-    return this.responseJson({ ...data, skipped: null });
+    return this.responseJson({
+      ...data,
+      skipped: null,
+      quota: {
+        ...quota,
+        used: quota.used + 1,
+        remaining: Math.max(0, quota.remaining - 1),
+        reset_at: quota.reset_at ?? now + BFV_SESSION_QUOTA_WINDOW_MS,
+      },
+    });
   }
 
   private export(): Response {
@@ -1972,8 +2085,9 @@ export class BodyForVisitsRoom {
       .toArray();
     const stateRow = this.readState();
     // The model the corpus has inferred about its own syntax and word habits.
+    const resetId = this.lastAdminResetEventId();
     const humanSeq = rows
-      .filter((r) => r.kind === "human")
+      .filter((r) => r.kind === "human" && r.id > resetId)
       .map((r) => ({ token: r.token, role: r.role }));
     const body = {
       exported_at: new Date().toISOString(),
@@ -3296,6 +3410,23 @@ export default {
             link: DISCOVERY_LINK_HEADER,
           },
         });
+      }
+
+      if (sub === "admin/reset" && request.method === "POST") {
+        const bodyText = await request.text();
+        const inner = new URL(request.url);
+        inner.pathname = "/admin/reset";
+        const forwarded = new Request(inner.toString(), {
+          method: "POST",
+          headers: {
+            "authorization": request.headers.get("authorization") || "",
+            "content-type": request.headers.get("content-type") || "application/json",
+          },
+          body: bodyText,
+        });
+        const resp = await stub.fetch(forwarded);
+        const body = await resp.text();
+        return new Response(body, { status: resp.status, headers: jsonHeaders(allowOrigin) });
       }
 
       return new Response(JSON.stringify({ error: "method_not_allowed" }), {
