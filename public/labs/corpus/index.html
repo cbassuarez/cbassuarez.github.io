@@ -3,15 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>body for visits — cbassuarez</title>
+<title>corpus — cbassuarez</title>
 <meta name="description" content="A single shared body, produced by visitation.">
-<link rel="canonical" href="https://cbassuarez.com/labs/body-for-visits/">
+<link rel="canonical" href="https://cbassuarez.com/labs/corpus/">
 <style>
   :root {
     --bg: #ffffff;
     --ink: #111111;
     --ink-soft: rgba(17, 17, 17, 0.55);
     --ink-faint: rgba(17, 17, 17, 0.28);
+    --accent: #ff6700;
   }
   html, body { margin: 0; background: var(--bg); color: var(--ink); }
   body {
@@ -40,7 +41,7 @@
   }
   .body-text .fold-marker { font-style: italic; color: var(--ink-soft); }
   .body-text .token-new {
-    background: linear-gradient(transparent 60%, rgba(17, 17, 17, 0.10) 60%);
+    background: linear-gradient(transparent 60%, rgba(255, 103, 0, 0.30) 60%);
     animation: bfv-fade 6s ease-out forwards;
   }
   @keyframes bfv-fade { to { background: transparent; } }
@@ -59,7 +60,7 @@
     margin: 32px 0 0 0;
   }
   .status a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink-faint); }
-  .status a:hover { color: var(--ink-soft); border-bottom-color: var(--ink-soft); }
+  .status a:hover, .status a:focus-visible { color: var(--accent); border-bottom-color: var(--accent); }
   .colophon {
     font: 11px/1.55 ui-monospace, "SF Mono", Menlo, monospace;
     color: var(--ink-faint);
@@ -67,7 +68,7 @@
     max-width: 56ch;
   }
   .colophon a { color: inherit; border-bottom: 1px solid var(--ink-faint); text-decoration: none; }
-  .colophon a:hover { color: var(--ink-soft); border-bottom-color: var(--ink-soft); }
+  .colophon a:hover, .colophon a:focus-visible { color: var(--accent); border-bottom-color: var(--accent); }
   .affordances {
     font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
     color: var(--ink-faint);
@@ -91,25 +92,30 @@
   }
   .affordance-link:hover,
   .affordance-link:focus-visible {
-    color: var(--ink-soft);
-    border-bottom-color: var(--ink-soft);
+    color: var(--accent);
+    border-bottom-color: var(--accent);
     outline: none;
   }
   .affordances .sep { opacity: 0.6; }
   dialog.colophon-dialog {
+    /* inverted palette — the colophon is the tonal negative of the work */
+    --bg: #111111;
+    --ink: #ffffff;
+    --ink-soft: rgba(255, 255, 255, 0.62);
+    --ink-faint: rgba(255, 255, 255, 0.34);
     border: none;
     padding: 0;
-    background: transparent;
+    background: var(--bg);
     color: var(--ink);
     max-width: min(560px, calc(100vw - 32px));
     width: 100%;
     outline: none;
   }
   dialog.colophon-dialog::backdrop {
-    background: rgba(255, 255, 255, 0.92);
+    background: rgba(17, 17, 17, 0.55);
   }
   .colophon-dialog article {
-    padding: 56px 4px 8px;
+    padding: 48px 40px 40px;
     font: 16.5px/1.62 ui-serif, "Iowan Old Style", "Hoefler Text", Garamond, "Times New Roman", serif;
     text-wrap: pretty;
     color: var(--ink);
@@ -132,7 +138,8 @@
     border-bottom: 1px solid var(--ink-faint);
     text-decoration: none;
   }
-  .colophon-dialog article p a:hover { border-bottom-color: var(--ink); }
+  .colophon-dialog article p a:hover,
+  .colophon-dialog article p a:focus-visible { color: var(--accent); border-bottom-color: var(--accent); }
   .colophon-dialog form { margin: 36px 0 0 0; text-align: right; }
   @media (prefers-reduced-motion: reduce) {
     .body-text .token-new { animation: none; background: transparent; }
@@ -144,18 +151,21 @@
       --ink-soft: rgba(239, 239, 239, 0.55);
       --ink-faint: rgba(239, 239, 239, 0.32);
     }
-    .body-text .token-new {
-      background: linear-gradient(transparent 60%, rgba(239, 239, 239, 0.14) 60%);
+    dialog.colophon-dialog {
+      --bg: #efefef;
+      --ink: #0a0a0a;
+      --ink-soft: rgba(10, 10, 10, 0.62);
+      --ink-faint: rgba(10, 10, 10, 0.36);
     }
     dialog.colophon-dialog::backdrop {
-      background: rgba(10, 10, 10, 0.92);
+      background: rgba(239, 239, 239, 0.55);
     }
   }
 </style>
 </head>
 <body>
 <main>
-  <p class="preamble">body for visits · one shared sentence · mutated by visitation</p>
+  <p class="preamble">corpus · one shared sentence · mutated by visitation</p>
   <p class="body-text" id="bfv-body"><span class="fold-marker">⟨awaiting first visit⟩</span></p>
   <p class="fringe" id="bfv-fringe"></p>
   <p class="status" id="bfv-status">awaiting qualifying visit</p>
@@ -163,8 +173,8 @@
     a visible visit adds to the body. no form, no input. the page records only a hashed session token
     and a hashed ip, both for the sole purpose of preventing accidental repeated contribution.
     <br><br>
-    the event journal is open: <a href="https://seb-feed.cbassuarez.workers.dev/api/body-for-visits/export.json">export.json</a> ·
-    the static snapshot: <a href="https://seb-feed.cbassuarez.workers.dev/api/body-for-visits/snapshot.html">snapshot.html</a> ·
+    the event journal is open: <a href="https://seb-feed.cbassuarez.workers.dev/api/corpus/export.json">export.json</a> ·
+    the static snapshot: <a href="https://seb-feed.cbassuarez.workers.dev/api/corpus/snapshot.html">snapshot.html</a> ·
     the snapshot is preservation, not the work.
   </p>
   <p class="affordances">
@@ -181,13 +191,13 @@
     <p>Only a hashed session token and a hashed address are retained — enough to prevent accidental repeated contribution and nothing more. No raw addresses. No full user-agents. No fingerprinting. No analytics.</p>
 
     <h2 class="colophon-eyebrow">preservation</h2>
-    <p>The live work is what is in front of you. The <a href="https://seb-feed.cbassuarez.workers.dev/api/body-for-visits/export.json">event journal</a> is the work's append-only substrate. The <a href="https://seb-feed.cbassuarez.workers.dev/api/body-for-visits/snapshot.html">static snapshot</a> is documentation, not the work itself — useful for citation, not for experiencing the piece.</p>
+    <p>The live work is what is in front of you. The <a href="https://seb-feed.cbassuarez.workers.dev/api/corpus/export.json">event journal</a> is the work's append-only substrate. The <a href="https://seb-feed.cbassuarez.workers.dev/api/corpus/snapshot.html">static snapshot</a> is documentation, not the work itself — useful for citation, not for experiencing the piece.</p>
 
     <form method="dialog">
       <button type="submit" class="affordance-link">[ ↵ return ]</button>
     </form>
   </article>
 </dialog>
-<script src="./script.js?v=20260520-dialog" defer></script>
+<script src="./script.js?v=20260521-corpus" defer></script>
 </body>
 </html>

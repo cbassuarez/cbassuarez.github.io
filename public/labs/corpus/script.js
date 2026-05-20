@@ -51,7 +51,7 @@
 
   async function fetchState() {
     try {
-      const resp = await fetch(`${API_BASE}/api/body-for-visits/state`, { credentials: 'omit' });
+      const resp = await fetch(`${API_BASE}/api/corpus/state`, { credentials: 'omit' });
       if (!resp.ok) throw new Error(`state http ${resp.status}`);
       const json = await resp.json();
       render(json);
@@ -78,7 +78,7 @@
   async function qualify() {
     const sid = sessionId();
     try {
-      const resp = await fetch(`${API_BASE}/api/body-for-visits/qualify`, {
+      const resp = await fetch(`${API_BASE}/api/corpus/qualify`, {
         method: 'POST',
         credentials: 'omit',
         headers: { 'content-type': 'application/json' },

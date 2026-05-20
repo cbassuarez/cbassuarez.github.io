@@ -3100,14 +3100,14 @@ export default {
       });
     }
 
-    if (url.pathname.startsWith("/api/body-for-visits/")) {
+    if (url.pathname.startsWith("/api/corpus/")) {
       if (!env.BFV_ROOM) {
         return new Response(JSON.stringify({ error: "bfv_unconfigured" }), {
           status: 503,
           headers: jsonHeaders(allowOrigin),
         });
       }
-      const sub = url.pathname.slice("/api/body-for-visits/".length);
+      const sub = url.pathname.slice("/api/corpus/".length);
 
       const id = env.BFV_ROOM.idFromName(BFV_ROOM_NAME);
       const stub = env.BFV_ROOM.get(id);

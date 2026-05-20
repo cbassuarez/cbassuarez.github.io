@@ -24,7 +24,7 @@ export function renderSnapshotHTML(state, takenAt = new Date().toISOString()) {
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="robots" content="noindex">
-<title>body for visits — snapshot</title>
+<title>corpus — snapshot</title>
 <style>
 :root { --bg:#fff; --ink:#111; --ink-soft:rgba(17,17,17,.55); --ink-faint:rgba(17,17,17,.28); }
 html,body { margin:0; background:var(--bg); color:var(--ink); }

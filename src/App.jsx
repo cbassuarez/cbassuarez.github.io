@@ -46,6 +46,7 @@ const RANDOM_LABS_ROUTES = [
   '/labs/guestbook',
   '/labs/chunk-surfer',
   '/labs/string',
+  '/labs/corpus',
   '/labs/repl',
   '/room',
   '/labs/tell-me-about-your-day'
@@ -1168,6 +1169,9 @@ function SiteLeftPane() {
             <a href="/labs/string">string</a>
           </li>
           <li>
+            <a href="/labs/corpus">corpus</a>
+          </li>
+          <li>
             <a href="/labs/repl">repl</a>
           </li>
           <li>
@@ -1271,7 +1275,7 @@ function GlobalFooter() {
               ]
             </span>
           ))}{' '}
-          [ <a href="/works">works</a> ] [ <a href="/recent">recent</a> ] [ <a href="/labs">labs</a> ] [ <a href="/about">about</a> ] [ <a href="/press">press</a> ] [ <a href="/contact">contact</a> ] [ labs: <a href="/labs/feed">seb feed</a> / <a href="/labs/guestbook">guestbook</a> / <a href="/labs/chunk-surfer">chunk surfer</a> / <a href="/labs/string">string</a> / <a href="/labs/repl">repl</a> ] [ <a href="/colophon">colophon</a> ] [ <a href="/access">access</a> ]
+          [ <a href="/works">works</a> ] [ <a href="/recent">recent</a> ] [ <a href="/labs">labs</a> ] [ <a href="/about">about</a> ] [ <a href="/press">press</a> ] [ <a href="/contact">contact</a> ] [ labs: <a href="/labs/feed">seb feed</a> / <a href="/labs/guestbook">guestbook</a> / <a href="/labs/chunk-surfer">chunk surfer</a> / <a href="/labs/string">string</a> / <a href="/labs/corpus">corpus</a> / <a href="/labs/repl">repl</a> ] [ <a href="/colophon">colophon</a> ] [ <a href="/access">access</a> ]
         </small>
       </center>
     </>
@@ -1409,8 +1413,8 @@ function HomePage({ shellMode = false }) {
         </p>
       )}
       <p>
-        <button type="button" onClick={() => { window.location.href = '/labs/body-for-visits'; }}>
-          body for visits
+        <button type="button" onClick={() => { window.location.href = '/labs/corpus'; }}>
+          corpus
         </button>
         <br />
         <small>one shared sentence, mutated by visitation.</small>
@@ -1560,7 +1564,7 @@ function HomePage({ shellMode = false }) {
           </p>
           <h3>labs</h3>
           <p>
-          [ <a href="/labs/feed">seb feed</a> ] [ <a href="/labs/guestbook">guestbook</a> ] [ <a href="/labs/chunk-surfer">chunk surfer</a> ] [ <a href="/labs/string">string</a> ] [ <a href="/room">anteroom</a> <small>(usually closed)</small> ]
+          [ <a href="/labs/feed">seb feed</a> ] [ <a href="/labs/guestbook">guestbook</a> ] [ <a href="/labs/chunk-surfer">chunk surfer</a> ] [ <a href="/labs/string">string</a> ] [ <a href="/labs/corpus">corpus</a> ] [ <a href="/room">anteroom</a> <small>(usually closed)</small> ]
         </p>
 
           <h3>operator</h3>
@@ -1664,6 +1668,9 @@ function HomePage({ shellMode = false }) {
                   </li>
                   <li>
                     <a href="/labs/string">string</a>
+                  </li>
+                  <li>
+                    <a href="/labs/corpus">corpus</a>
                   </li>
                   <li>
                     <a href="/room">anteroom</a> <small>(usually closed)</small>
@@ -2586,7 +2593,7 @@ function TalkRecapPage() {
       </p>
       <p>
         Walk the site:{' '}
-        [ <a href="/">home</a> ] [ <a href="/works">works</a> ] [ <a href="/labs/chunk-surfer">chunk surfer</a> ] [ <a href="/labs/string">string</a> ] [ <a href="/labs/feed">seb feed</a> ] [ <a href="/labs/guestbook">guestbook</a> ]
+        [ <a href="/">home</a> ] [ <a href="/works">works</a> ] [ <a href="/labs/chunk-surfer">chunk surfer</a> ] [ <a href="/labs/string">string</a> ] [ <a href="/labs/corpus">corpus</a> ] [ <a href="/labs/feed">seb feed</a> ] [ <a href="/labs/guestbook">guestbook</a> ]
       </p>
 
       <hr />
