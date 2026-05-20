@@ -1,278 +1,222 @@
-// Next-role state machine and token selector for body-for-visits.
-// Deterministic per (eventIndex, seed, model) so events are replayable from the
-// journal, replayed in order.
+// Offline speech-unit selector for (to)complete.
+// The runtime model is a committed n-gram table generated from pinned
+// public-domain texts. There are no live model calls in the Worker.
 
-import { BUCKETS, TOKEN_PRIORS } from "./lexicon.js";
+import { SPEECH_MODEL } from "./speech-model.generated.js";
 
-const NEXT_ROLES = {
-  openings:     ["adjectives", "nouns"],
-  punctuation:  ["openings", "adjectives", "nouns"],
-  sutures:      ["adjectives", "nouns"],
-  adjectives:   ["nouns"],
-  nouns:        ["verbs", "conjunctions", "punctuation", "sutures"],
-  verbs:        ["prepositions", "nouns", "punctuation", "sutures"],
-  prepositions: ["adjectives", "nouns"],
-  conjunctions: ["adjectives", "nouns"],
-};
+const MODEL_VERSION = 4;
+const SPEECH_ROLE = "speech_unit";
+const RECENT_TOKEN_WINDOW = 48;
+const RECENT_UNIT_WINDOW = 12;
+const MIN_WORDS = 2;
+const MAX_WORDS = 12;
+const MAX_ATTEMPTS = 36;
+const MAX_STEPS = 24;
 
-const MODEL_VERSION = 3;
-const RECENT_WINDOW = 18;
-const PHRASE_WINDOW = 12;
-
-// Smoothing weight. A learned count is added to the source word prior, so cold
-// starts stay deterministic and the journal takes over as it accumulates
-// evidence.
-const ROLE_ALPHA = 1;
-const WORD_ALPHA = 0.45;
-const INTRANSITIVE_VERBS = new Set([
-  "appears",
-  "arrives",
-  "becomes",
-  "begins",
-  "comes",
-  "continues",
-  "dies",
-  "exists",
-  "falls",
-  "goes",
-  "happens",
-  "thinks",
-  "lasts",
-  "lies",
-  "lives",
-  "occurs",
-  "remains",
-  "returns",
-  "rises",
-  "runs",
-  "sits",
-  "stands",
-  "stays",
-  "waits",
-  "works",
-]);
-const TRANSITIVE_VERBS = new Set([
-  "accepts",
-  "answers",
-  "breaks",
-  "calls",
-  "carries",
-  "changes",
-  "closes",
-  "crosses",
-  "draws",
-  "enters",
-  "finds",
-  "follows",
-  "forms",
-  "gives",
-  "has",
-  "holds",
-  "keeps",
-  "leaves",
-  "lets",
-  "looks",
-  "makes",
-  "means",
-  "names",
-  "needs",
-  "notices",
-  "opens",
-  "passes",
-  "reaches",
-  "reads",
-  "remembers",
-  "says",
-  "sees",
-  "sends",
-  "sets",
-  "shows",
-  "speaks",
-  "takes",
-  "tries",
-  "wants",
-  "writes",
-  "asks",
-  "feels",
-  "forgets",
-  "hears",
-  "knows",
-]);
-const PREPOSITIONAL_VERBS = new Set([
-  "appears",
-  "arrives",
-  "comes",
-  "continues",
-  "crosses",
-  "falls",
-  "goes",
-  "looks",
-  "moves",
-  "passes",
-  "speaks",
-  "thinks",
-  "returns",
-  "rises",
-  "runs",
-  "sits",
-  "stands",
-  "stays",
-  "turns",
-  "waits",
-  "walks",
-  "works",
-]);
-const DETERMINER_OPENINGS = new Set([
-  "the",
+const TOKEN_RE = /^[a-z]+(?:'[a-z]+)?$/;
+const PUNCTUATION = new Set([",", ";", "—"]);
+const HARD_TERMINAL_RE = /[.!?]\s*$/;
+const CONNECTORS = new Set(["and", "but", "or", "yet", "so", "then"]);
+const BAD_STARTERS = new Set([
   "a",
-  "this",
-  "that",
-  "some",
-  "another",
-  "maybe the",
-  "and then the",
-  "so the",
-  "you know the",
-  "I guess the",
+  "about",
+  "above",
+  "after",
+  "against",
+  "along",
+  "among",
+  "around",
+  "before",
+  "behind",
+  "below",
+  "beneath",
+  "beside",
+  "between",
+  "beyond",
+  "by",
+  "for",
+  "from",
+  "in",
+  "inside",
+  "into",
+  "near",
+  "of",
+  "on",
+  "onto",
+  "over",
+  "the",
+  "to",
+  "toward",
+  "under",
+  "with",
+  "within",
+  "without",
 ]);
-const VERB_PREPOSITION_MULTIPLIERS = {
-  thinks: { about: 5, of: 2.4, through: 0.45, over: 0.2, toward: 0.3, against: 0.25 },
-  speaks: { to: 4.5, with: 2.3, about: 2, against: 0.25, along: 0.35 },
-  waits: { for: 4, with: 1.5, about: 0.35 },
-  asks: { about: 3, for: 2.8, to: 1.7, against: 0.25 },
-  knows: { about: 3.2, of: 2.2, against: 0.25, along: 0.35 },
-  feels: { about: 2.4, through: 1.4, against: 0.35 },
-};
-const HUMAN_TOKEN_MULTIPLIERS = {
-  openings: {
-    "the": 2.2,
-    "a": 2,
-    "this": 2,
-    "that": 1.8,
-    "some": 1.45,
-    "another": 1.45,
-    "maybe the": 1.9,
-    "and then the": 1.8,
-    "so the": 1.55,
-    "you know the": 1.45,
-    "I guess the": 1.35,
-    "now": 1.3,
-    "then": 1.25,
-    "again": 1.2,
-  },
-  nouns: {
-    "someone": 4,
-    "something": 3.8,
-    "nothing": 3.1,
-    "everything": 3,
-    "everyone": 2.7,
-    "no one": 2.65,
-    "thing": 2.6,
-    "body": 2,
-    "voice": 1.95,
-    "hand": 1.45,
-    "face": 1.4,
-    "room": 1.35,
-    "word": 1.35,
-    "thought": 1.35,
-    "story": 1.3,
-    "friend": 1.3,
-    "door": 1.25,
-    "home": 1.25,
-    "moment": 1.25,
-    "name": 1.2,
-    "day": 1.15,
-    "night": 1.15,
-  },
-  verbs: {
-    "says": 3.2,
-    "keeps": 2.4,
-    "thinks": 2.4,
-    "tries": 2.35,
-    "asks": 2.2,
-    "feels": 2.15,
-    "forgets": 2.15,
-    "knows": 2.1,
-    "notices": 2.05,
-    "remembers": 1.55,
-    "waits": 1.5,
-    "comes": 1.35,
-    "looks": 1.35,
-    "wants": 1.35,
-  },
-  adjectives: {
-    "little": 2,
-    "weird": 1.9,
-    "wrong": 1.8,
-    "same": 1.55,
-    "old": 1.5,
-    "small": 1.45,
-    "quiet": 1.4,
-    "lost": 1.35,
-    "half": 1.35,
-    "next": 1.35,
-  },
-  conjunctions: {
-    "and": 1.8,
-    "but": 1.55,
-    "and then": 1.7,
-    "but then": 1.45,
-    "so": 1.35,
-    "or": 0.45,
-    "yet": 0.75,
-  },
-  sutures: {
-    "— I mean —": 2.2,
-    "— you know —": 2,
-    "— sort of —": 1.8,
-    "— wait —": 1.7,
-    "— no —": 1.5,
-    "— still —": 1.35,
-    "— again —": 1.25,
-  },
-};
-const STIFF_TOKEN_MULTIPLIERS = {
-  nouns: {
-    "area": 0.45,
-    "case": 0.5,
-    "center": 0.6,
-    "class": 0.45,
-    "effect": 0.55,
-    "figure": 0.55,
-    "kind": 0.65,
-    "mark": 0.7,
-    "number": 0.45,
-    "order": 0.55,
-    "part": 0.65,
-    "point": 0.65,
-    "record": 0.65,
-    "state": 0.55,
-    "surface": 0.65,
-  },
-  adjectives: {
-    "able": 0.35,
-    "bare": 0.55,
-    "central": 0.55,
-    "common": 0.65,
-    "final": 0.65,
-    "former": 0.55,
-    "general": 0.5,
-    "local": 0.65,
-    "possible": 0.65,
-    "public": 0.65,
-    "ready": 0.7,
-    "recent": 0.65,
-    "usual": 0.7,
-    "wide": 0.7,
-  },
-  verbs: {
-    "becomes": 0.2,
-    "forms": 0.55,
-    "means": 0.05,
-    "seems": 0.6,
-    "sets": 0.55,
-  },
-};
+const GOOD_STARTERS = new Set([
+  "again",
+  "ah",
+  "all",
+  "almost",
+  "already",
+  "and",
+  "anyway",
+  "back",
+  "because",
+  "but",
+  "can",
+  "can't",
+  "come",
+  "did",
+  "do",
+  "does",
+  "don't",
+  "even",
+  "everything",
+  "go",
+  "he",
+  "here",
+  "how",
+  "i",
+  "if",
+  "isn't",
+  "it",
+  "it's",
+  "just",
+  "look",
+  "maybe",
+  "never",
+  "no",
+  "not",
+  "nothing",
+  "now",
+  "oh",
+  "once",
+  "one",
+  "only",
+  "perhaps",
+  "see",
+  "she",
+  "so",
+  "something",
+  "still",
+  "sure",
+  "that",
+  "that's",
+  "then",
+  "there",
+  "there's",
+  "these",
+  "they",
+  "this",
+  "though",
+  "wait",
+  "we",
+  "well",
+  "what",
+  "when",
+  "where",
+  "who",
+  "why",
+  "won't",
+  "yes",
+  "yet",
+  "you",
+]);
+const BAD_ENDERS = new Set([
+  "a",
+  "again",
+  "already",
+  "am",
+  "an",
+  "about",
+  "and",
+  "any",
+  "as",
+  "at",
+  "be",
+  "been",
+  "being",
+  "because",
+  "but",
+  "by",
+  "can",
+  "come",
+  "could",
+  "did",
+  "do",
+  "don't",
+  "does",
+  "for",
+  "from",
+  "had",
+  "has",
+  "have",
+  "he",
+  "her",
+  "his",
+  "i",
+  "if",
+  "in",
+  "into",
+  "is",
+  "isn't",
+  "it",
+  "little",
+  "many",
+  "may",
+  "might",
+  "more",
+  "much",
+  "must",
+  "my",
+  "not",
+  "of",
+  "on",
+  "only",
+  "or",
+  "our",
+  "shall",
+  "should",
+  "so",
+  "some",
+  "that",
+  "the",
+  "they",
+  "then",
+  "this",
+  "to",
+  "very",
+  "was",
+  "we",
+  "were",
+  "what",
+  "will",
+  "with",
+  "would",
+  "you",
+  "your",
+]);
+const NARRATION_WORDS = new Set(["answered", "asked", "cried", "murmured", "replied", "said", "says"]);
+const BLOCKED_TERMS = new Set(SPEECH_MODEL.blockedTerms || []);
+const BLOCKED_PHRASES = [
+  "project gutenberg",
+  "the end",
+  "chapter ",
+  "ebook",
+  "my uncle",
+  "please your",
+  "public domain",
+  "said my",
+  "white whale",
+];
+const tableCache = new Map();
+
+function table(order) {
+  if (!tableCache.has(order)) {
+    tableCache.set(order, new Map(SPEECH_MODEL.grams[String(order)] || []));
+  }
+  return tableCache.get(order);
+}
 
 // Small mulberry32 — deterministic, no Math.random.
 function mulberry32(seed) {
@@ -286,281 +230,320 @@ function mulberry32(seed) {
   };
 }
 
-// Pick one item, probability proportional to its weight. Consumes exactly one
-// rng() call, so selection stays deterministic.
-function pickWeighted(rng, items, weights) {
+function pickWeighted(rng, pairs) {
+  if (!Array.isArray(pairs) || pairs.length === 0) return null;
   let total = 0;
-  for (let i = 0; i < weights.length; i++) total += weights[i];
-  if (!(total > 0)) return items[Math.floor(rng() * items.length)];
+  for (const pair of pairs) total += Number(pair[1]) || 0;
+  if (!(total > 0)) return pairs[Math.floor(rng() * pairs.length)]?.[0] ?? null;
   let r = rng() * total;
-  for (let i = 0; i < items.length; i++) {
-    r -= weights[i];
-    if (r < 0) return items[i];
+  for (const pair of pairs) {
+    r -= Number(pair[1]) || 0;
+    if (r < 0) return pair[0];
   }
-  return items[items.length - 1];
+  return pairs[pairs.length - 1]?.[0] ?? null;
 }
 
-export function allowedNext(prevRole) {
-  return NEXT_ROLES[prevRole] || NEXT_ROLES.punctuation;
-}
-
-function countRecent(items, value) {
-  if (!Array.isArray(items)) return 0;
-  let n = 0;
-  for (const item of items) if (item === value) n++;
-  return n;
-}
-
-function distanceSince(seq, role) {
-  for (let i = seq.length - 1, distance = 1; i >= 0; i--, distance++) {
-    if (seq[i]?.role === role) return distance;
+function hashTokens(tokens) {
+  let h = 0x811c9dc5;
+  for (const token of tokens) {
+    for (let i = 0; i < token.length; i++) {
+      h ^= token.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    h ^= 0x20;
   }
-  return null;
+  return h >>> 0;
 }
 
-function phraseLength(seq) {
-  let n = 0;
-  for (let i = seq.length - 1; i >= 0; i--) {
-    if (seq[i]?.role === "punctuation") break;
-    n++;
+function isWord(token) {
+  return TOKEN_RE.test(token || "");
+}
+
+function wordCount(tokens) {
+  return tokens.filter(isWord).length;
+}
+
+export function tokenizeSpeech(text) {
+  const normalized = String(text || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/--+|[—–]/g, " — ")
+    .replace(/[:]/g, ",")
+    .replace(/[,]+/g, " , ")
+    .replace(/[;]+/g, " ; ")
+    .replace(/[.!?]+/g, " ")
+    .replace(/[^a-zA-Z',;—\s-]/g, " ")
+    .toLowerCase();
+  const tokens = [];
+  for (const raw of normalized.split(/\s+/)) {
+    if (!raw) continue;
+    if (PUNCTUATION.has(raw)) {
+      tokens.push(raw);
+      continue;
+    }
+    const word = raw.replace(/^-+|-+$/g, "").replace(/^'+|'+$/g, "");
+    if (isWord(word)) tokens.push(word);
   }
-  return n;
+  return tokens;
 }
 
-function phraseEvents(seq) {
+function detokenize(tokens) {
+  let out = "";
+  for (const token of tokens) {
+    if (!token) continue;
+    if (token === "," || token === ";") {
+      out = out.replace(/\s+$/g, "") + token;
+    } else if (token === "—") {
+      out = `${out.replace(/\s+$/g, "")} — `;
+    } else {
+      out += `${out && !out.endsWith(" ") ? " " : ""}${token}`;
+    }
+  }
+  return out.replace(/\s+/g, " ").replace(/\s+([,;])/g, "$1").trim();
+}
+
+function normalizeUnit(unit) {
+  return detokenize(tokenizeSpeech(unit));
+}
+
+function hasBlockedTerm(tokens) {
+  return tokens.some((token) => BLOCKED_TERMS.has(token));
+}
+
+function hasRepeatedAdjacentWord(tokens) {
+  let prev = null;
+  for (const token of tokens) {
+    if (!isWord(token)) continue;
+    if (token === prev) return true;
+    prev = token;
+  }
+  return false;
+}
+
+function endsOpen(tokens) {
+  const last = tokens[tokens.length - 1];
+  if (!last) return false;
+  if (PUNCTUATION.has(last)) return true;
+  if (CONNECTORS.has(last)) return true;
+  return isWord(last);
+}
+
+export function validateSpeechUnit(unit, prevToken = null) {
+  const raw = String(unit || "");
+  if (!raw.trim()) return { ok: false, reason: "empty" };
+  if (/[\r\n]/.test(raw)) return { ok: false, reason: "multiline" };
+  if (/https?:|www\.|<[^>]+>/i.test(raw)) return { ok: false, reason: "markup" };
+  if (HARD_TERMINAL_RE.test(raw)) return { ok: false, reason: "terminal" };
+  if (/[A-Z]{3,}/.test(raw)) return { ok: false, reason: "caps" };
+
+  const normalized = normalizeUnit(raw);
+  const lower = normalized.toLowerCase();
+  for (const phrase of BLOCKED_PHRASES) {
+    if (lower.includes(phrase)) return { ok: false, reason: "source_phrase" };
+  }
+
+  const tokens = tokenizeSpeech(normalized);
+  const words = wordCount(tokens);
+  if (words < MIN_WORDS || words > MAX_WORDS) return { ok: false, reason: "length" };
+  if (!isWord(tokens[0])) return { ok: false, reason: "bad_start" };
+  if (!endsOpen(tokens)) return { ok: false, reason: "closed" };
+  if (hasBlockedTerm(tokens)) return { ok: false, reason: "source_term" };
+  if (hasRepeatedAdjacentWord(tokens)) return { ok: false, reason: "repeat" };
+
+  const previous = tokenizeSpeech(prevToken || "");
+  const prevWords = previous.filter(isWord);
+  const first = tokens.find(isWord);
+  const wordsOnly = tokens.filter(isWord);
+  const lastPrev = prevWords[prevWords.length - 1];
+  if (BAD_STARTERS.has(first)) return { ok: false, reason: "bad_starter" };
+  if (!GOOD_STARTERS.has(first)) return { ok: false, reason: "weak_starter" };
+  if (wordsOnly.some((word) => NARRATION_WORDS.has(word))) return { ok: false, reason: "narration" };
+  const lastWord = wordsOnly[wordsOnly.length - 1];
+  if (BAD_ENDERS.has(lastWord)) return { ok: false, reason: "dangling_end" };
+  if (lastPrev && first && lastPrev === first) return { ok: false, reason: "join_repeat" };
+  if (!lastPrev && CONNECTORS.has(first)) return { ok: false, reason: "orphan_connector" };
+
+  return { ok: true, token: normalized };
+}
+
+function flattenTokens(sequence) {
   const out = [];
-  for (let i = seq.length - 1; i >= 0; i--) {
-    if (seq[i]?.role === "punctuation") break;
-    out.unshift(seq[i]);
+  const seq = Array.isArray(sequence) ? sequence : [];
+  for (const event of seq) {
+    if (!event || event.role === "fold_marker" || event.role === "corruption") continue;
+    out.push(...tokenizeSpeech(event.token));
   }
   return out;
 }
 
-function tailRun(seq, field) {
-  const last = seq.length > 0 ? seq[seq.length - 1]?.[field] : null;
-  if (last == null) return { value: null, count: 0 };
-  let count = 0;
-  for (let i = seq.length - 1; i >= 0; i--) {
-    if (seq[i]?.[field] !== last) break;
-    count++;
-  }
-  return { value: last, count };
+export function allowedNext(_prevRole) {
+  return [SPEECH_ROLE];
+}
+
+export function inferModel(sequence) {
+  const seq = Array.isArray(sequence) ? sequence : [];
+  const flattened = flattenTokens(seq);
+  return {
+    version: MODEL_VERSION,
+    role: SPEECH_ROLE,
+    speechModel: {
+      version: SPEECH_MODEL.version,
+      order: SPEECH_MODEL.order,
+      sources: SPEECH_MODEL.sources,
+    },
+    recentTokens: flattened.slice(-RECENT_TOKEN_WINDOW),
+    recentUnits: seq
+      .filter((event) => event && event.role !== "fold_marker" && event.role !== "corruption")
+      .slice(-RECENT_UNIT_WINDOW)
+      .map((event) => String(event.token || "")),
+    count: seq.length,
+  };
 }
 
 function normalizeModel(model) {
   return {
     version: Number(model?.version) || MODEL_VERSION,
-    roles: model?.roles || {},
-    words: model?.words || {},
-    recentRoles: Array.isArray(model?.recentRoles) ? model.recentRoles : [],
-    recentTokens: Array.isArray(model?.recentTokens) ? model.recentTokens : [],
-    phraseRoles: Array.isArray(model?.phraseRoles) ? model.phraseRoles : [],
-    phraseTokens: Array.isArray(model?.phraseTokens) ? model.phraseTokens : [],
-    distanceSincePunctuation:
-      typeof model?.distanceSincePunctuation === "number" ? model.distanceSincePunctuation : null,
-    distanceSinceSuture:
-      typeof model?.distanceSinceSuture === "number" ? model.distanceSinceSuture : null,
-    phraseLength: typeof model?.phraseLength === "number" ? model.phraseLength : 0,
-    roleRun: model?.roleRun || { value: null, count: 0 },
-    tokenRun: model?.tokenRun || { value: null, count: 0 },
+    recentTokens: Array.isArray(model?.recentTokens) ? model.recentTokens.filter((t) => isWord(t) || PUNCTUATION.has(t)) : [],
+    recentUnits: Array.isArray(model?.recentUnits) ? model.recentUnits.map(String) : [],
     count: typeof model?.count === "number" ? model.count : 0,
   };
 }
 
-function phraseHasVerb(model) {
-  return Array.isArray(model.phraseRoles) && model.phraseRoles.includes("verbs");
+function chooseStart(rng) {
+  const picked = pickWeighted(rng, SPEECH_MODEL.starts);
+  return picked ? picked.split(" ").filter(isWord) : [];
 }
 
-function phraseTailNounAfterVerb(model) {
-  const roles = Array.isArray(model.phraseRoles) ? model.phraseRoles : [];
-  if (roles[roles.length - 1] !== "nouns") return false;
-  const lastVerb = roles.lastIndexOf("verbs");
-  return lastVerb >= 0 && lastVerb < roles.length - 1;
+function chooseFragment(rng, contextTokens) {
+  const fragments = SPEECH_MODEL.fragments || [];
+  if (!Array.isArray(fragments) || fragments.length === 0) return "";
+  const prevWords = contextTokens.filter(isWord);
+  const last = prevWords[prevWords.length - 1] || "";
+  const afterPunctuation = PUNCTUATION.has(contextTokens[contextTokens.length - 1]);
+  const scored = [];
+  for (const pair of fragments) {
+    const text = pair[0];
+    const weight = Number(pair[1]) || 1;
+    const tokens = tokenizeSpeech(text);
+    const first = tokens.find(isWord) || "";
+    if (!first || first === last) continue;
+    if (contextTokens.length === 0 && CONNECTORS.has(first)) continue;
+    let score = weight;
+    if (CONNECTORS.has(first)) score *= afterPunctuation ? 0.75 : 1.6;
+    if (last && tokens.includes(last)) score *= 1.18;
+    scored.push([text, score]);
+  }
+  return pickWeighted(rng, scored) || "";
 }
 
-// Build the learned model from the journal — the ordered human events as
-// { role, token }. The model is intentionally small and replayable: counts plus
-// local health signals used by the adaptive scorer.
-export function inferModel(sequence) {
-  const roles = {};
-  const words = {};
-  const bump = (table, a, b) => {
-    if (a == null || b == null) return;
-    const row = table[a] || (table[a] = {});
-    row[b] = (row[b] || 0) + 1;
-  };
-  const seq = Array.isArray(sequence) ? sequence : [];
-  for (let i = 1; i < seq.length; i++) {
-    const prev = seq[i - 1];
-    const cur = seq[i];
-    if (!prev || !cur) continue;
-    bump(words, prev.token, cur.token);
-    bump(roles, prev.role, cur.role);
+function chooseNext(rng, context) {
+  for (let order = SPEECH_MODEL.order || 4; order >= 1; order--) {
+    const key = context.slice(-order).join(" ");
+    if (!key) continue;
+    const options = table(order).get(key);
+    if (options && options.length > 0) {
+      const picked = pickWeighted(rng, options);
+      if (picked && !BLOCKED_TERMS.has(picked)) return picked;
+    }
   }
-  return {
-    version: MODEL_VERSION,
-    roles,
-    words,
-    recentRoles: seq.slice(-RECENT_WINDOW).map((e) => e.role),
-    recentTokens: seq.slice(-RECENT_WINDOW).map((e) => e.token),
-    phraseRoles: phraseEvents(seq).slice(-PHRASE_WINDOW).map((e) => e.role),
-    phraseTokens: phraseEvents(seq).slice(-PHRASE_WINDOW).map((e) => e.token),
-    distanceSincePunctuation: distanceSince(seq, "punctuation"),
-    distanceSinceSuture: distanceSince(seq, "sutures"),
-    phraseLength: phraseLength(seq),
-    roleRun: tailRun(seq, "role"),
-    tokenRun: tailRun(seq, "token"),
-    count: seq.length,
-  };
+  return null;
 }
 
-function scoreRole(role, prevRole, model, prevToken = null) {
-  const m = normalizeModel(model);
-  const learned = m.roles[prevRole] || {};
-  let weight = ROLE_ALPHA + (learned[role] || 0);
-  const recentCount = countRecent(m.recentRoles, role);
-  const hasVerb = phraseHasVerb(m) || prevRole === "verbs";
-  const tailNounAfterVerb = phraseTailNounAfterVerb(m);
+function targetWordCount(rng) {
+  const r = rng();
+  if (r < 0.18) return 2 + Math.floor(rng() * 2);
+  if (r < 0.72) return 4 + Math.floor(rng() * 4);
+  return 8 + Math.floor(rng() * 5);
+}
 
-  if (recentCount > 0) {
-    weight *= 1 / (1 + recentCount * 0.18);
-  }
-  if (m.roleRun.value === role && m.roleRun.count > 1) {
-    weight *= Math.max(0.16, 1 / (m.roleRun.count * 0.8));
-  }
+function generateCandidate(rng, contextTokens) {
+  const fragment = chooseFragment(rng, contextTokens);
+  if (fragment) return fragment;
+  const target = targetWordCount(rng);
+  const context = contextTokens.slice(-RECENT_TOKEN_WINDOW);
+  const out = context.length > 0 ? [] : chooseStart(rng).slice(0, Math.max(2, Math.min(4, target)));
 
-  if (role === "punctuation") {
-    const phrase = m.phraseLength;
-    const dist = m.distanceSincePunctuation ?? (m.count + 1);
-    if (phrase <= 1) weight *= 0.05;
-    else if (!hasVerb) weight *= 0.12;
-    else if (phrase <= 3) weight *= 0.45;
-    else weight *= 0.65 + Math.min(3.2, Math.pow((phrase - 2) / 6, 1.3));
-    if (dist < 4) weight *= 0.25;
-    if (tailNounAfterVerb) weight *= 1.45;
+  if (out.length > 0) {
+    context.push(...out);
   }
 
-  if (role === "sutures") {
-    const dist = m.distanceSinceSuture ?? Math.min(m.count + 1, 24);
-    if (dist < 8) weight *= 0.05;
-    else weight *= Math.min(3.2, 0.45 + Math.pow((dist - 4) / 14, 1.35));
-    if (!hasVerb) weight *= 0.16;
-    else if (m.phraseLength < 4) weight *= 0.35;
-    if (prevRole === "conjunctions") weight *= 0.55;
-    if (tailNounAfterVerb) weight *= 1.25;
-  }
+  let steps = 0;
+  while (wordCount(out) < MAX_WORDS && steps < MAX_STEPS) {
+    steps++;
+    const next = chooseNext(rng, context);
+    if (!next) {
+      if (wordCount(out) >= MIN_WORDS) break;
+      const restart = chooseStart(rng).slice(0, Math.max(2, Math.min(4, target - wordCount(out))));
+      if (restart.length === 0) break;
+      out.push(...restart);
+      context.push(...restart);
+      continue;
+    }
+    if (out.length === 0 && !isWord(next)) continue;
+    if (BLOCKED_TERMS.has(next)) continue;
+    const last = out[out.length - 1];
+    if (isWord(last) && last === next) continue;
+    if (PUNCTUATION.has(last) && PUNCTUATION.has(next)) continue;
 
-  if (prevRole === "nouns") {
-    if (!hasVerb) {
-      if (role === "verbs") weight *= 4.8;
-      if (role === "conjunctions") weight *= 0.16;
-      if (role === "punctuation" || role === "sutures") weight *= 0.22;
-    } else if (tailNounAfterVerb) {
-      if (role === "verbs") weight *= 0.28;
-      if (role === "conjunctions") weight *= 1.35;
-      if (role === "punctuation" || role === "sutures") weight *= 1.45;
+    out.push(next);
+    context.push(next);
+
+    const words = wordCount(out);
+    if (words >= MIN_WORDS && PUNCTUATION.has(next)) {
+      if (rng() < 0.86) break;
+    }
+    if (words >= target && isWord(next)) {
+      if (!CONNECTORS.has(next) && rng() < 0.48) {
+        const maybePunctuation = chooseNext(rng, context);
+        if (PUNCTUATION.has(maybePunctuation)) {
+          out.push(maybePunctuation);
+          context.push(maybePunctuation);
+          break;
+        }
+      }
+      if (CONNECTORS.has(next) || rng() < 0.74) break;
     }
   }
 
-  if (prevRole === "verbs" && INTRANSITIVE_VERBS.has(prevToken)) {
-    if (role === "nouns") weight *= 0.005;
-    if (role === "prepositions") weight *= PREPOSITIONAL_VERBS.has(prevToken) ? 1.25 : 0.06;
-    if (role === "punctuation" || role === "sutures") weight *= 1.9;
-  }
-  if (prevRole === "verbs" && TRANSITIVE_VERBS.has(prevToken)) {
-    if (role === "nouns") weight *= 1.75;
-    if (role === "prepositions") weight *= PREPOSITIONAL_VERBS.has(prevToken) ? 1.15 : 0.005;
-    if (role === "punctuation" || role === "sutures") weight *= 0.55;
-  }
-  return Math.max(0, weight);
+  return detokenize(out);
 }
 
-// Weighted role pick within the grammatical guardrail. Cadence emerges from
-// pressure in the text model instead of hardcoded modulo intervals.
-function chooseRole(rng, prevRole, model, prevToken = null) {
-  const choices = allowedNext(prevRole);
-  const weights = choices.map((r) => scoreRole(r, prevRole, model, prevToken));
-  return pickWeighted(rng, choices, weights);
-}
-
-function scoreToken(token, role, prevToken, model) {
-  const m = normalizeModel(model);
-  if (token === prevToken) return 0;
-
-  const learned = prevToken != null ? m.words[prevToken] || {} : {};
-  const prior = TOKEN_PRIORS[role]?.[token] || 1;
-  let weight = WORD_ALPHA * prior + (learned[token] || 0);
-  const recentCount = countRecent(m.recentTokens, token);
-  if (recentCount > 0) weight *= 1 / (1 + Math.pow(recentCount, 1.4));
-  weight *= HUMAN_TOKEN_MULTIPLIERS[role]?.[token] || 1;
-  weight *= STIFF_TOKEN_MULTIPLIERS[role]?.[token] || 1;
-  if (DETERMINER_OPENINGS.has(prevToken)) {
-    if (role === "adjectives") {
-      if (["little", "old", "same", "weird", "wrong", "small", "quiet", "lost", "half", "next"].includes(token)) {
-        weight *= 1.8;
-      } else {
-        weight *= 0.78;
-      }
-    } else if (role === "nouns") {
-      if (["someone", "something", "nothing", "everything", "everyone", "no one", "thing", "body", "voice", "hand", "face", "room", "story", "friend", "door", "home"].includes(token)) {
-        weight *= 1.8;
-      } else if (STIFF_TOKEN_MULTIPLIERS.nouns?.[token]) {
-        weight *= 0.55;
-      }
-    }
-  }
-
-  if (role === "punctuation") {
-    if (token === ",") weight *= 1.45;
-    else if (token === ";") weight *= 1.2;
-    else if (token === ".") weight *= 0.28;
-    else if (token === "—") weight *= 0.22;
-  }
-  if (role === "prepositions" && prevToken && VERB_PREPOSITION_MULTIPLIERS[prevToken]) {
-    weight *= VERB_PREPOSITION_MULTIPLIERS[prevToken][token] || 0.18;
-  }
-
-  return Math.max(0, weight);
-}
-
-function chooseToken(rng, role, prevToken, model) {
-  const pool = BUCKETS[role] || BUCKETS.nouns;
-  const weights = pool.map((token) => scoreToken(token, role, prevToken, model));
-  return pickWeighted(rng, pool, weights);
-}
-
-// Returns { token, role }.
-// prevRole — role of the token immediately before; null for an empty body.
-// eventIndex — 1-based count of human events appended so far (this one inclusive).
-// seed — integer; together with eventIndex makes selection deterministic.
-// prevToken — the last token string, used to avoid back-to-back duplicates.
-// model — optional learned model from inferModel(); when absent, selection is
-//         driven by source priors only.
+// Returns { token, role } or null if the offline model cannot produce a safe
+// continuation after bounded retries.
 export function selectNextToken(prevRole, eventIndex, seed, prevToken = null, model = null) {
-  const rng = mulberry32((seed ^ (eventIndex * 0x9e3779b1)) >>> 0);
-
-  let role;
-  if (!prevRole) {
-    role = "openings";
-  } else {
-    role = chooseRole(rng, prevRole, model, prevToken);
+  void prevRole;
+  const m = normalizeModel(model);
+  const context = m.recentTokens.length > 0 ? m.recentTokens : tokenizeSpeech(prevToken || "");
+  const contextHash = hashTokens(context.slice(-8));
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const attemptSeed = (
+      seed ^
+      contextHash ^
+      Math.imul(eventIndex, 0x9e3779b1) ^
+      Math.imul(attempt + 1, 0x85ebca6b)
+    ) >>> 0;
+    const rng = mulberry32(attemptSeed);
+    const candidate = generateCandidate(rng, context);
+    const validation = validateSpeechUnit(candidate, prevToken);
+    if (validation.ok) {
+      return { token: validation.token, role: SPEECH_ROLE };
+    }
   }
-
-  const token = chooseToken(rng, role, prevToken, model);
-  return { token, role };
+  return null;
 }
 
 export const _internals = {
-  NEXT_ROLES,
   MODEL_VERSION,
-  RECENT_WINDOW,
-  PHRASE_WINDOW,
-  ROLE_ALPHA,
-  WORD_ALPHA,
-  INTRANSITIVE_VERBS,
-  TRANSITIVE_VERBS,
-  PREPOSITIONAL_VERBS,
+  SPEECH_ROLE,
+  MIN_WORDS,
+  MAX_WORDS,
+  MAX_ATTEMPTS,
+  RECENT_TOKEN_WINDOW,
   normalizeModel,
-  scoreRole,
-  scoreToken,
+  tokenizeSpeech,
+  validateSpeechUnit,
+  generateCandidate,
+  hashTokens,
 };

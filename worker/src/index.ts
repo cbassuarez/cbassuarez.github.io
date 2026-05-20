@@ -2049,6 +2049,16 @@ export class BodyForVisitsRoom {
       return this.responseJson({ ...data, skipped: "bot" });
     }
 
+    if (decision.action === "withhold") {
+      const data = this.buildResponseBody(stateRow, null);
+      return this.responseJson({
+        ...data,
+        skipped: "generator",
+        error: "generator_unavailable",
+        quota,
+      }, 503);
+    }
+
     // append
     sql.exec(
       `INSERT INTO events (ts, kind, ip_hash, session_hash, ua_class, token, role)

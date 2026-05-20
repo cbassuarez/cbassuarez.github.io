@@ -1,13 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BUCKETS } from "../src/body-for-visits/lexicon.js";
-import { selectNextToken, allowedNext, inferModel, _internals } from "../src/body-for-visits/grammar.js";
+import {
+  selectNextToken,
+  allowedNext,
+  inferModel,
+  tokenizeSpeech,
+  validateSpeechUnit,
+  _internals,
+} from "../src/body-for-visits/grammar.js";
 
-const { MODEL_VERSION, scoreRole, scoreToken } = _internals;
-
-function containsToken(bucket, token) {
-  return BUCKETS[bucket].includes(token);
-}
+const { MODEL_VERSION, SPEECH_ROLE } = _internals;
 
 function simulate(seed, count, initialEvents = []) {
   const events = initialEvents.slice();
@@ -16,232 +18,103 @@ function simulate(seed, count, initialEvents = []) {
 
   while (events.length < count) {
     const model = inferModel(events);
-    const { token, role } = selectNextToken(prevRole, events.length + 1, seed, prevToken, model);
-    events.push({ token, role });
-    prevRole = role;
-    prevToken = token;
+    const next = selectNextToken(prevRole, events.length + 1, seed, prevToken, model);
+    assert.ok(next, `seed=${seed} event=${events.length + 1} failed to generate`);
+    events.push(next);
+    prevRole = next.role;
+    prevToken = next.token;
   }
   return events;
 }
 
-function roleGaps(events, role) {
-  const indexes = [];
-  events.forEach((event, i) => {
-    if (event.role === role) indexes.push(i + 1);
-  });
-  const gaps = [];
-  for (let i = 1; i < indexes.length; i++) gaps.push(indexes[i] - indexes[i - 1]);
-  return gaps;
-}
-
-test("first token is always an opening", () => {
-  const { token, role } = selectNextToken(null, 1, 12345);
-  assert.equal(role, "openings");
-  assert.ok(containsToken("openings", token));
+test("allowed-next exposes the speech unit role", () => {
+  assert.deepEqual(allowedNext(null), [SPEECH_ROLE]);
+  assert.deepEqual(allowedNext("nouns"), [SPEECH_ROLE]);
+  assert.deepEqual(allowedNext("speech_unit"), [SPEECH_ROLE]);
 });
 
-test("allowed-next table prevents punctuation followed by suture", () => {
-  assert.deepEqual(allowedNext("punctuation"), ["openings", "adjectives", "nouns"]);
-  assert.deepEqual(allowedNext("adjectives"), ["nouns"]);
-  assert.deepEqual(allowedNext("conjunctions"), ["adjectives", "nouns"]);
-  assert.ok(allowedNext("nouns").includes("sutures"));
-  assert.ok(allowedNext("verbs").includes("sutures"));
-});
-
-test("inferModel returns versioned local state from the journal", () => {
+test("inferModel returns versioned speech context and source metadata", () => {
   const seq = [
-    { role: "nouns", token: "request" },
-    { role: "punctuation", token: "," },
-    { role: "openings", token: "again" },
-    { role: "nouns", token: "room" },
-    { role: "verbs", token: "answers" },
-    { role: "sutures", token: "— signal received —" },
+    { role: "speech_unit", token: "at first the room remembers," },
+    { role: "speech_unit", token: "and then it keeps going" },
   ];
   const model = inferModel(seq);
 
   assert.equal(model.version, MODEL_VERSION);
-  assert.equal(model.roles.nouns.punctuation, 1);
-  assert.equal(model.roles.nouns.verbs, 1);
-  assert.equal(model.words.request[","], 1);
-  assert.deepEqual(model.recentRoles, seq.map((event) => event.role));
-  assert.deepEqual(model.recentTokens, seq.map((event) => event.token));
-  assert.equal(model.distanceSincePunctuation, 5);
-  assert.equal(model.distanceSinceSuture, 1);
-  assert.equal(model.phraseLength, 4);
-  assert.deepEqual(model.roleRun, { value: "sutures", count: 1 });
-  assert.deepEqual(model.tokenRun, { value: "— signal received —", count: 1 });
-  assert.equal(model.count, seq.length);
+  assert.equal(model.role, SPEECH_ROLE);
+  assert.ok(model.speechModel.version >= 1);
+  assert.ok(Array.isArray(model.speechModel.sources));
+  assert.ok(model.speechModel.sources.length >= 4);
+  assert.deepEqual(model.recentUnits, seq.map((event) => event.token));
+  assert.deepEqual(model.recentTokens.slice(-5), ["and", "then", "it", "keeps", "going"]);
 });
 
-test("an empty model selects identically to no model", () => {
-  const empty = { roles: {}, words: {} };
-  for (let i = 2; i <= 24; i++) {
-    const a = selectNextToken("nouns", i, 0xabc, "request", null);
-    const b = selectNextToken("nouns", i, 0xabc, "request", empty);
-    assert.deepEqual(a, b, `event ${i}: empty model must match no model`);
+test("tokenizeSpeech preserves open punctuation without terminal periods", () => {
+  assert.deepEqual(
+    tokenizeSpeech("Then--well, the room thinks; no."),
+    ["then", "—", "well", ",", "the", "room", "thinks", ";", "no"]
+  );
+});
+
+test("validator accepts short open speech units", () => {
+  const result = validateSpeechUnit("and then I guess the room,", "someone remembers");
+  assert.equal(result.ok, true);
+  assert.equal(result.token, "and then i guess the room,");
+});
+
+test("validator rejects closed, unsafe, or source-identifying units", () => {
+  const bad = [
+    "this is done.",
+    "go to https://example.com",
+    "<b>no</b>",
+    "PROJECT GUTENBERG",
+    "ahab waits",
+    "the the room",
+    "and then",
+  ];
+  for (const unit of bad) {
+    assert.equal(validateSpeechUnit(unit).ok, false, unit);
   }
 });
 
-test("selection is deterministic given a model", () => {
-  const model = inferModel([
-    { role: "nouns", token: "room" },
-    { role: "verbs", token: "holds" },
-    { role: "nouns", token: "request" },
-  ]);
-  const a = selectNextToken("verbs", 5, 7, "holds", model);
-  const b = selectNextToken("verbs", 5, 7, "holds", model);
+test("selection is deterministic given the same seed and context", () => {
+  const events = [
+    { role: "speech_unit", token: "at first the room remembers," },
+    { role: "speech_unit", token: "and then it keeps going" },
+  ];
+  const model = inferModel(events);
+  const a = selectNextToken("speech_unit", 3, 0xabc, events[1].token, model);
+  const b = selectNextToken("speech_unit", 3, 0xabc, events[1].token, model);
   assert.deepEqual(a, b);
 });
 
-test("learned role transitions bias the adaptive scorer", () => {
-  const biased = {
-    roles: { nouns: { verbs: 80 } },
-    words: {},
-    recentRoles: [],
-    recentTokens: [],
-    phraseLength: 3,
-    distanceSincePunctuation: 4,
-    distanceSinceSuture: 10,
-    count: 20,
-  };
-  let verbs = 0;
-  for (let seed = 1; seed <= 300; seed++) {
-    const { role } = selectNextToken("nouns", 5, seed, null, biased);
-    if (role === "verbs") verbs++;
-  }
-  assert.ok(verbs / 300 > 0.85, `expected strong verbs bias, got ${verbs}/300`);
+test("different contexts can produce different valid continuations", () => {
+  const aEvents = [{ role: "speech_unit", token: "at first the room remembers," }];
+  const bEvents = [{ role: "speech_unit", token: "after all the sea keeps" }];
+  const a = selectNextToken("speech_unit", 2, 0x2222, aEvents[0].token, inferModel(aEvents));
+  const b = selectNextToken("speech_unit", 2, 0x2222, bEvents[0].token, inferModel(bEvents));
+
+  assert.ok(a);
+  assert.ok(b);
+  assert.equal(a.role, SPEECH_ROLE);
+  assert.equal(b.role, SPEECH_ROLE);
+  assert.notEqual(a.token, b.token);
+  assert.equal(validateSpeechUnit(a.token, aEvents[0].token).ok, true);
+  assert.equal(validateSpeechUnit(b.token, bEvents[0].token).ok, true);
 });
 
-test("token scorer favors comma and semicolon over terminal punctuation", () => {
-  const model = {
-    words: { request: { ",": 20, ";": 20, ".": 20, "—": 20 } },
-    recentTokens: [],
-  };
-  const comma = scoreToken(",", "punctuation", "request", model);
-  const semicolon = scoreToken(";", "punctuation", "request", model);
-  const period = scoreToken(".", "punctuation", "request", model);
-  const dash = scoreToken("—", "punctuation", "request", model);
-
-  assert.ok(comma > period);
-  assert.ok(semicolon > period);
-  assert.ok(comma > dash);
-});
-
-test("punctuation pressure rises with phrase length", () => {
-  const shortPhrase = inferModel([
-    { role: "openings", token: "again" },
-    { role: "nouns", token: "room" },
-  ]);
-  const longPhrase = inferModel([
-    { role: "openings", token: "again" },
-    { role: "nouns", token: "room" },
-    { role: "verbs", token: "answers" },
-    { role: "prepositions", token: "through" },
-    { role: "adjectives", token: "quiet" },
-    { role: "nouns", token: "signal" },
-    { role: "verbs", token: "returns" },
-    { role: "prepositions", token: "inside" },
-    { role: "nouns", token: "archive" },
-  ]);
-
-  assert.ok(
-    scoreRole("punctuation", "nouns", longPhrase) > scoreRole("punctuation", "nouns", shortPhrase)
-  );
-});
-
-test("suture pressure rises with distance since the last suture", () => {
-  const recentSuture = {
-    roles: {},
-    words: {},
-    recentRoles: ["nouns", "sutures", "adjectives", "nouns"],
-    recentTokens: [],
-    phraseLength: 6,
-    distanceSinceSuture: 4,
-    count: 20,
-  };
-  const distantSuture = {
-    ...recentSuture,
-    recentRoles: ["adjectives", "nouns", "verbs", "prepositions", "nouns"],
-    distanceSinceSuture: 22,
-    count: 48,
-  };
-
-  assert.ok(
-    scoreRole("sutures", "nouns", distantSuture) > scoreRole("sutures", "nouns", recentSuture)
-  );
-});
-
-test("intransitive verbs strongly discourage immediate object-like nouns", () => {
-  const model = {
-    roles: {},
-    words: {},
-    recentRoles: [],
-    recentTokens: [],
-    phraseLength: 5,
-    distanceSincePunctuation: 8,
-    distanceSinceSuture: 10,
-    count: 20,
-  };
-  const noun = scoreRole("nouns", "verbs", model, "exists");
-  const punctuation = scoreRole("punctuation", "verbs", model, "exists");
-  assert.ok(punctuation > noun * 10, `expected punctuation pressure over object after exists`);
-});
-
-test("adaptive walks stay inside grammar and buckets", () => {
-  for (let seed = 1; seed <= 40; seed++) {
+test("simulated speech walks stay open and avoid known bad fragments", () => {
+  const blockedTerms = /\b(?:ahab|ishmael|tristram|shandy|ulysses|bloom|strether|gutenberg)\b/;
+  for (let seed = 1; seed <= 16; seed++) {
     const events = simulate(seed, 500);
     for (let i = 0; i < events.length; i++) {
-      const prev = events[i - 1] || null;
-      const cur = events[i];
-      if (!prev) assert.equal(cur.role, "openings");
-      else assert.ok(allowedNext(prev.role).includes(cur.role), `seed=${seed} event=${i + 1} ${prev.role}->${cur.role}`);
-      assert.ok(containsToken(cur.role, cur.token), `seed=${seed} event=${i + 1} token not in ${cur.role}`);
+      const event = events[i];
+      assert.equal(event.role, SPEECH_ROLE, `seed=${seed} event=${i + 1}`);
+      assert.equal(validateSpeechUnit(event.token, events[i - 1]?.token || null).ok, true, event.token);
+      assert.ok(!/[.!?]\s*$/.test(event.token), `terminal closure: ${event.token}`);
+      assert.ok(!blockedTerms.test(event.token), `source leakage: ${event.token}`);
+      assert.notEqual(event.token, "area looks face");
+      assert.notEqual(event.token, "at first area looks face;");
     }
   }
-});
-
-test("adaptive walks never place suture after punctuation or duplicate adjacent tokens", () => {
-  for (let seed = 1; seed <= 40; seed++) {
-    const events = simulate(seed, 500);
-    for (let i = 1; i < events.length; i++) {
-      assert.notEqual(events[i].token, events[i - 1].token, `seed=${seed} event=${i + 1} duplicate token`);
-      if (events[i - 1].role === "punctuation") {
-        assert.notEqual(events[i].role, "sutures", `seed=${seed} event=${i + 1} punctuation->suture`);
-      }
-    }
-  }
-});
-
-test("adaptive walks avoid clause fragments that need a missing subject", () => {
-  const badConjunctions = new Set(["whereas", "so that", "unless", "because", "although", "though", "while"]);
-  for (let seed = 1; seed <= 40; seed++) {
-    const events = simulate(seed, 500);
-    for (let i = 1; i < events.length; i++) {
-      const prev = events[i - 1];
-      const cur = events[i];
-      assert.notEqual(`${prev.token} ${cur.token}`, "exists event", `seed=${seed} event=${i + 1}`);
-      assert.ok(!badConjunctions.has(cur.token), `seed=${seed} event=${i + 1} bad conjunction ${cur.token}`);
-      if (prev.role === "conjunctions") {
-        assert.ok(cur.role === "adjectives" || cur.role === "nouns", `seed=${seed} event=${i + 1} conjunction->${cur.role}`);
-      }
-      if (prev.role === "adjectives") {
-        assert.equal(cur.role, "nouns", `seed=${seed} event=${i + 1} adjective->${cur.role}`);
-      }
-    }
-  }
-});
-
-test("adaptive walks have healthy punctuation and suture ranges without fixed cadence", () => {
-  const events = simulate(0xdecaf, 360);
-  const punctuation = events.filter((event) => event.role === "punctuation").length;
-  const sutures = events.filter((event) => event.role === "sutures").length;
-  const punctuationRatio = punctuation / events.length;
-  const sutureRatio = sutures / events.length;
-  const punctuationGaps = roleGaps(events, "punctuation");
-  const sutureGaps = roleGaps(events, "sutures");
-
-  assert.ok(punctuationRatio > 0.05 && punctuationRatio < 0.24, `punctuation ratio ${punctuationRatio}`);
-  assert.ok(sutureRatio > 0.015 && sutureRatio < 0.16, `suture ratio ${sutureRatio}`);
-  assert.ok(new Set(punctuationGaps).size >= 4, `punctuation gaps too regular: ${punctuationGaps.join(",")}`);
-  assert.ok(new Set(sutureGaps).size >= 3, `suture gaps too regular: ${sutureGaps.join(",")}`);
 });

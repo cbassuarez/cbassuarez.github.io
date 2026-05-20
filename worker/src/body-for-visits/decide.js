@@ -35,6 +35,7 @@ export function decideQualify({
   now = Date.now(),
   sessionQuotaLimit = SESSION_QUOTA_LIMIT_DEFAULT,
   model = null,
+  selector = selectNextToken,
 }) {
   const bot = classifyUA(ua);
   if (bot.isBot) {
@@ -43,12 +44,16 @@ export function decideQualify({
   if (Number(sessionWindowCount || 0) >= sessionQuotaLimit) {
     return { action: "cooldown" };
   }
-  const { token, role } = selectNextToken(
+  const next = selector(
     prevRole,
     humanEventIndex,
     seed >>> 0,
     prevToken,
     model
   );
+  if (!next || !next.token || !next.role) {
+    return { action: "withhold", reason: "generator" };
+  }
+  const { token, role } = next;
   return { action: "append", token, role, ua_class: "browser" };
 }

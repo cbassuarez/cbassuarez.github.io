@@ -22,7 +22,7 @@ test("first qualify from a fresh session appends", () => {
   assert.equal(d.action, "append");
   assert.equal(d.ua_class, "browser");
   assert.equal(typeof d.token, "string");
-  assert.equal(d.role, "openings");
+  assert.equal(d.role, "speech_unit");
 });
 
 test("same session can append below the rolling quota", () => {
@@ -51,6 +51,20 @@ test("same session at the rolling quota is cooldown", () => {
     now: t0 + SESSION_QUOTA_WINDOW_MS_DEFAULT - 1,
   });
   assert.equal(d.action, "cooldown");
+});
+
+test("generator failure withholds without appending", () => {
+  const d = decideQualify({
+    ua: browser,
+    sessionWindowCount: 0,
+    prevRole: "speech_unit",
+    prevToken: "at first the room remembers,",
+    humanEventIndex: 2,
+    seed: 42,
+    selector: () => null,
+  });
+  assert.equal(d.action, "withhold");
+  assert.equal(d.reason, "generator");
 });
 
 test("bot UA never appends, regardless of session state", () => {

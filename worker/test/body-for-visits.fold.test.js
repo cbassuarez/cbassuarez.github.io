@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { foldBody, realTokenCount, MAX_VISIBLE, KEEP_TAIL } from "../src/body-for-visits/fold.js";
 
 function makeToken(i) {
-  return { token: `t${i}`, role: "nouns", event_id: i, ts: i };
+  return { token: `entry ${i}`, role: "speech_unit", event_id: i, ts: i };
 }
 
 test("body unchanged when under MAX_VISIBLE", () => {
@@ -19,7 +19,7 @@ test("fold marker glyph matches expected format and ends with `held⟩`", () => 
   const result = foldBody(body, 0, 0);
   const marker = result.body[0];
   assert.equal(marker.role, "fold_marker");
-  assert.match(marker.token, /^⟨folded ×\d+: \d+ tokens held⟩$/);
+  assert.match(marker.token, /^⟨folded ×\d+: \d+ entries held⟩$/);
 });
 
 test("after fold, real tokens kept = KEEP_TAIL, marker is at index 0", () => {

@@ -262,8 +262,15 @@
         return;
       }
       if (!resp.ok) {
+        let error = null;
+        try { error = await resp.json(); } catch (_) { error = null; }
         blockMotion();
-        setStatus('upstream silent');
+        if (error && error.error === 'generator_unavailable') {
+          applyState(error);
+          setStatus('voice unavailable · try again');
+        } else {
+          setStatus('upstream silent');
+        }
         setContinueVisible(false);
         return;
       }

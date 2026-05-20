@@ -7,7 +7,7 @@ export const KEEP_TAIL = 90;
 
 export function makeFoldMarker(foldGenerations, foldCount) {
   return {
-    token: `⟨folded ×${foldGenerations}: ${foldCount} tokens held⟩`,
+    token: `⟨folded ×${foldGenerations}: ${foldCount} entries held⟩`,
     role: "fold_marker",
     event_id: null,
     ts: Date.now(),
@@ -36,7 +36,7 @@ export function foldBody(body, foldCount, foldGenerations, now = Date.now()) {
   const nextCount = foldCount + absorbed.length;
   const nextGens = foldGenerations + 1;
   const marker = {
-    token: `⟨folded ×${nextGens}: ${nextCount} tokens held⟩`,
+    token: `⟨folded ×${nextGens}: ${nextCount} entries held⟩`,
     role: "fold_marker",
     event_id: null,
     ts: now,
