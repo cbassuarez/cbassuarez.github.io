@@ -39,7 +39,7 @@ main { max-width:640px; margin:14vh auto 18vh; padding:0 24px;
 </style>
 </head><body><main>
 <p class="status">static snapshot taken at ${esc(takenAt)} — not the live work</p>
-<p class="body-text">${bodyHTML || "<span class=\"fold-marker\">⟨the room is listening⟩</span>"}</p>
+<p class="body-text">${bodyHTML || "<span class=\"fold-marker\">⟨awaiting first visit⟩</span>"}</p>
 <p class="fringe">${esc(fringe)}</p>
 <p class="status">body version ${version} · ${folded} folded · ${corrupt} corruptions</p>
 </main></body></html>

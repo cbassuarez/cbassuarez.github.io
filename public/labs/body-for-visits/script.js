@@ -48,7 +48,7 @@
       render(json);
       return json;
     } catch (err) {
-      setStatus('the server is unreachable');
+      setStatus('upstream unreachable');
       return null;
     }
   }
@@ -76,30 +76,30 @@
         body: JSON.stringify({ session_id: sid }),
       });
       if (resp.status === 429) {
-        setStatus('the room is throttling — try again later');
+        setStatus('rate-limited');
         return;
       }
       if (!resp.ok) {
-        setStatus('the room did not respond');
+        setStatus('upstream silent');
         return;
       }
       const json = await resp.json();
       if (json.skipped === 'cooldown') {
-        setStatus('your visit was held — the room already has you today');
+        setStatus('visit withheld · session already recorded');
         render(json);
         return;
       }
       if (json.skipped === 'bot') {
-        setStatus('machine mark withheld — your visit landed on the corruption fringe');
+        setStatus('machine mark withheld · deposited to fringe');
         render(json);
         return;
       }
       render(json, { newTokenIndex: json.new_token_index });
       const folded = Number(json.fold_count || 0);
-      const suffix = folded > 0 ? ` · ${folded} folded beneath` : '';
-      setStatus(`your visit was counted${suffix}`);
+      const suffix = folded > 0 ? ` · ${folded} folded` : '';
+      setStatus(`visible visit qualified${suffix}`);
     } catch (err) {
-      setStatus('the room is unreachable');
+      setStatus('upstream unreachable');
     }
   }
 
@@ -147,6 +147,6 @@
       if (timer && !attempted) { clearInterval(timer); timer = null; }
     }, 5 * 60 * 1000);
   } else {
-    setStatus('your visit was held — the room already has you today');
+    setStatus('visit withheld · session already recorded');
   }
 })();

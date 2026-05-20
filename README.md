@@ -106,8 +106,8 @@ The DO and rate-limit binding live on the existing `seb-feed` worker:
 
 1. Open `/labs/body-for-visits/` in a fresh incognito window. After ~3s of
    foreground dwell, one new token fades in; status reads
-   `your visit was counted`.
-2. Reload. Status reads `your visit was held — the room already has you today`;
+   `visible visit qualified`.
+2. Reload. Status reads `visit withheld · session already recorded`;
    body is unchanged.
 3. Visit from a second device or browser; new mutation appears.
 4. `curl -A 'GPTBot/1.0' -H 'content-type: application/json' \
