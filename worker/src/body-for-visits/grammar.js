@@ -7,12 +7,12 @@ import { BUCKETS, TOKEN_PRIORS } from "./lexicon.js";
 const NEXT_ROLES = {
   openings:     ["adjectives", "nouns"],
   punctuation:  ["openings", "adjectives", "nouns"],
-  sutures:      ["adjectives", "nouns", "verbs"],
-  adjectives:   ["nouns", "conjunctions"],
+  sutures:      ["adjectives", "nouns"],
+  adjectives:   ["nouns"],
   nouns:        ["verbs", "conjunctions", "punctuation", "sutures"],
-  verbs:        ["prepositions", "adjectives", "nouns", "punctuation", "sutures"],
+  verbs:        ["prepositions", "nouns", "punctuation", "sutures"],
   prepositions: ["adjectives", "nouns"],
-  conjunctions: ["adjectives", "nouns", "verbs", "sutures"],
+  conjunctions: ["adjectives", "nouns"],
 };
 
 const MODEL_VERSION = 2;
@@ -23,6 +23,32 @@ const RECENT_WINDOW = 18;
 // evidence.
 const ROLE_ALPHA = 1;
 const WORD_ALPHA = 1;
+const INTRANSITIVE_VERBS = new Set([
+  "appears",
+  "arrives",
+  "becomes",
+  "begins",
+  "comes",
+  "continues",
+  "dies",
+  "exists",
+  "falls",
+  "goes",
+  "happens",
+  "lasts",
+  "lies",
+  "lives",
+  "occurs",
+  "remains",
+  "returns",
+  "rises",
+  "runs",
+  "sits",
+  "stands",
+  "stays",
+  "waits",
+  "works",
+]);
 
 // Small mulberry32 — deterministic, no Math.random.
 function mulberry32(seed) {
@@ -140,7 +166,7 @@ export function inferModel(sequence) {
   };
 }
 
-function scoreRole(role, prevRole, model) {
+function scoreRole(role, prevRole, model, prevToken = null) {
   const m = normalizeModel(model);
   const learned = m.roles[prevRole] || {};
   let weight = ROLE_ALPHA + (learned[role] || 0);
@@ -170,14 +196,20 @@ function scoreRole(role, prevRole, model) {
     if (prevRole === "conjunctions") weight *= 0.55;
   }
 
+  if (prevRole === "verbs" && INTRANSITIVE_VERBS.has(prevToken)) {
+    if (role === "nouns") weight *= 0.04;
+    if (role === "prepositions") weight *= 1.35;
+    if (role === "punctuation" || role === "sutures") weight *= 1.9;
+  }
+
   return Math.max(0, weight);
 }
 
 // Weighted role pick within the grammatical guardrail. Cadence emerges from
 // pressure in the text model instead of hardcoded modulo intervals.
-function chooseRole(rng, prevRole, model) {
+function chooseRole(rng, prevRole, model, prevToken = null) {
   const choices = allowedNext(prevRole);
-  const weights = choices.map((r) => scoreRole(r, prevRole, model));
+  const weights = choices.map((r) => scoreRole(r, prevRole, model, prevToken));
   return pickWeighted(rng, choices, weights);
 }
 
@@ -221,7 +253,7 @@ export function selectNextToken(prevRole, eventIndex, seed, prevToken = null, mo
   if (!prevRole) {
     role = "openings";
   } else {
-    role = chooseRole(rng, prevRole, model);
+    role = chooseRole(rng, prevRole, model, prevToken);
   }
 
   const token = chooseToken(rng, role, prevToken, model);
@@ -234,6 +266,7 @@ export const _internals = {
   RECENT_WINDOW,
   ROLE_ALPHA,
   WORD_ALPHA,
+  INTRANSITIVE_VERBS,
   normalizeModel,
   scoreRole,
   scoreToken,

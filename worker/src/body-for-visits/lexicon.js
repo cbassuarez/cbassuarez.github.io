@@ -5,30 +5,90 @@
 
 import { WORD_PRIORS, WORD_PRIOR_SOURCE } from "./word-priors.generated.js";
 
-function tokens(role) {
-  return Object.freeze(Object.keys(WORD_PRIORS[role] || {}));
+const CORE_BUCKETS = Object.freeze({
+  openings: Object.freeze([
+    "now", "then", "again", "here", "there", "soon", "later", "already",
+    "meanwhile", "elsewhere", "afterward", "beforehand", "nearby", "inside",
+    "outside", "back", "ahead", "almost", "sometimes", "otherwise",
+    "at first", "for now", "by then", "once more", "not yet", "in time",
+  ]),
+  nouns: Object.freeze([
+    "act", "air", "answer", "area", "body", "book", "border", "breath",
+    "call", "case", "center", "change", "child", "city", "class", "color",
+    "country", "day", "door", "edge", "effect", "end", "face", "fact",
+    "field", "figure", "floor", "form", "friend", "group", "hand", "head",
+    "home", "house", "idea", "image", "kind", "language", "letter", "life",
+    "light", "line", "list", "mark", "matter", "meaning", "memory", "minute",
+    "moment", "name", "night", "number", "order", "page", "part", "place",
+    "point", "question", "record", "road", "room", "rule", "shape", "side",
+    "sound", "space", "state", "story", "surface", "thing", "thought",
+    "time", "voice", "wall", "water", "way", "word", "work", "world",
+  ]),
+  verbs: Object.freeze([
+    "accepts", "answers", "appears", "becomes", "begins", "breaks", "calls",
+    "carries", "changes", "closes", "comes", "continues", "crosses", "draws",
+    "ends", "enters", "exists", "falls", "finds", "follows", "forms", "gives",
+    "grows", "happens", "has", "holds", "keeps", "leaves", "lets", "lives",
+    "looks", "makes", "means", "moves", "names", "needs", "opens", "passes",
+    "reaches", "reads", "remains", "returns", "rises", "says", "sees",
+    "seems", "sends", "sets", "shows", "sits", "speaks", "stands", "stays",
+    "takes", "turns", "waits", "walks", "wants", "works", "writes",
+  ]),
+  prepositions: Object.freeze([
+    "across", "after", "against", "along", "among", "around", "before",
+    "behind", "below", "beneath", "beside", "between", "beyond", "inside",
+    "into", "near", "over", "through", "toward", "under", "with", "within",
+    "without",
+  ]),
+  adjectives: Object.freeze([
+    "able", "absent", "bare", "bright", "broad", "broken", "careful",
+    "central", "clear", "close", "cold", "common", "deep", "dry", "early",
+    "empty", "familiar", "far", "final", "first", "former", "free", "full",
+    "general", "hidden", "human", "inner", "last", "late", "left", "light",
+    "living", "local", "long", "loose", "lost", "low", "minor", "narrow",
+    "near", "new", "old", "open", "ordinary", "other", "partial", "plain",
+    "possible", "public", "quiet", "ready", "real", "recent", "same",
+    "second", "shared", "short", "silent", "simple", "slow", "small", "soft",
+    "still", "strange", "strong", "thin", "true", "usual", "warm", "whole",
+    "wide", "young",
+  ]),
+  conjunctions: Object.freeze(["and", "or", "but", "yet"]),
+  sutures: Object.freeze([
+    "— again —", "— then —", "— still —", "— briefly —", "— perhaps —",
+    "— already —", "— almost —", "— elsewhere —", "— for now —", "— not yet —",
+    "— once more —", "— in time —", "— at first —", "— after all —",
+    "— as if —", "— if so —", "— in part —", "— as before —",
+  ]),
+});
+
+function priors(role) {
+  const source = { ...(WORD_PRIORS[role] || {}) };
+  for (const token of CORE_BUCKETS[role] || []) {
+    if (typeof source[token] !== "number") source[token] = 1;
+  }
+  return Object.freeze(source);
 }
 
 export const BUCKETS = Object.freeze({
-  openings: tokens("openings"),
-  nouns: tokens("nouns"),
-  verbs: tokens("verbs"),
-  prepositions: tokens("prepositions"),
-  adjectives: tokens("adjectives"),
-  conjunctions: tokens("conjunctions"),
-  sutures: tokens("sutures"),
+  openings: CORE_BUCKETS.openings,
+  nouns: CORE_BUCKETS.nouns,
+  verbs: CORE_BUCKETS.verbs,
+  prepositions: CORE_BUCKETS.prepositions,
+  adjectives: CORE_BUCKETS.adjectives,
+  conjunctions: CORE_BUCKETS.conjunctions,
+  sutures: CORE_BUCKETS.sutures,
   punctuation: Object.freeze([".", ",", ";", "—"]),
   corruption_glyphs: Object.freeze(["▮", "░", "▒", "▓", "◌", "◍", "◯", "⌁", "⌇", "⎓", "⎔", "⏚"]),
 });
 
 export const TOKEN_PRIORS = Object.freeze({
-  openings: WORD_PRIORS.openings,
-  nouns: WORD_PRIORS.nouns,
-  verbs: WORD_PRIORS.verbs,
-  prepositions: WORD_PRIORS.prepositions,
-  adjectives: WORD_PRIORS.adjectives,
-  conjunctions: WORD_PRIORS.conjunctions,
-  sutures: WORD_PRIORS.sutures,
+  openings: priors("openings"),
+  nouns: priors("nouns"),
+  verbs: priors("verbs"),
+  prepositions: priors("prepositions"),
+  adjectives: priors("adjectives"),
+  conjunctions: priors("conjunctions"),
+  sutures: priors("sutures"),
   punctuation: Object.freeze({
     ".": 0.35,
     ",": 1.65,

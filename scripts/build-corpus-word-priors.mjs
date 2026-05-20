@@ -11,7 +11,7 @@ const LIMITS = {
   verbs: 520,
   adjectives: 520,
   prepositions: 80,
-  conjunctions: 56,
+  conjunctions: 5,
 };
 
 const OPENINGS = [
@@ -75,6 +75,7 @@ const GLOBAL_BLOCKLIST = new Set([
   "sex",
   "sexual",
 ]);
+const SAFE_CONJUNCTIONS = new Set(["and", "or", "but", "yet", "then"]);
 const ROLE_BLOCKLISTS = {
   nouns: new Set([
     "above",
@@ -120,7 +121,7 @@ const ROLE_BLOCKLISTS = {
     "sec",
   ]),
   verbs: new Set(["are"]),
-  prepositions: new Set(),
+  prepositions: new Set(["as", "than"]),
   conjunctions: new Set(),
 };
 
@@ -189,6 +190,7 @@ function priorWeight(size, token, frequency) {
 function addCandidate(buckets, role, token, size, frequency) {
   if (!token) return;
   if (GLOBAL_BLOCKLIST.has(token)) return;
+  if (role === "conjunctions" && !SAFE_CONJUNCTIONS.has(token)) return;
   if ((role === "nouns" || role === "verbs" || role === "adjectives") && token.length < 3) return;
   if (ROLE_BLOCKLISTS[role]?.has(token)) return;
   const current = buckets[role].get(token);

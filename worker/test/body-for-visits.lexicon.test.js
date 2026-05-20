@@ -32,9 +32,12 @@ test("no bucket has duplicates or empty entries", () => {
 test("linguistic buckets are backed by generated neutral word priors", () => {
   assert.ok(WORD_PRIOR_SOURCE.scowl.includes("en-wl/wordlist-diff"));
   assert.ok(WORD_PRIOR_SOURCE.frequency.includes("reneklacan/symspell"));
-  assert.ok(BUCKETS.nouns.length >= 500);
-  assert.ok(BUCKETS.verbs.length >= 400);
-  assert.ok(BUCKETS.adjectives.length >= 400);
+  assert.ok(Object.keys(TOKEN_PRIORS.nouns).length >= 500);
+  assert.ok(Object.keys(TOKEN_PRIORS.verbs).length >= 400);
+  assert.ok(Object.keys(TOKEN_PRIORS.adjectives).length >= 400);
+  assert.ok(BUCKETS.nouns.length >= 70);
+  assert.ok(BUCKETS.verbs.length >= 50);
+  assert.ok(BUCKETS.adjectives.length >= 60);
 
   for (const role of ROLES) {
     for (const token of BUCKETS[role]) {

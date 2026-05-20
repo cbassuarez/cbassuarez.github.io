@@ -42,9 +42,10 @@ test("first token is always an opening", () => {
 
 test("allowed-next table prevents punctuation followed by suture", () => {
   assert.deepEqual(allowedNext("punctuation"), ["openings", "adjectives", "nouns"]);
+  assert.deepEqual(allowedNext("adjectives"), ["nouns"]);
+  assert.deepEqual(allowedNext("conjunctions"), ["adjectives", "nouns"]);
   assert.ok(allowedNext("nouns").includes("sutures"));
   assert.ok(allowedNext("verbs").includes("sutures"));
-  assert.ok(allowedNext("conjunctions").includes("sutures"));
 });
 
 test("inferModel returns versioned local state from the journal", () => {
@@ -170,6 +171,22 @@ test("suture pressure rises with distance since the last suture", () => {
   );
 });
 
+test("intransitive verbs strongly discourage immediate object-like nouns", () => {
+  const model = {
+    roles: {},
+    words: {},
+    recentRoles: [],
+    recentTokens: [],
+    phraseLength: 5,
+    distanceSincePunctuation: 8,
+    distanceSinceSuture: 10,
+    count: 20,
+  };
+  const noun = scoreRole("nouns", "verbs", model, "exists");
+  const punctuation = scoreRole("punctuation", "verbs", model, "exists");
+  assert.ok(punctuation > noun * 10, `expected punctuation pressure over object after exists`);
+});
+
 test("adaptive walks stay inside grammar and buckets", () => {
   for (let seed = 1; seed <= 40; seed++) {
     const events = simulate(seed, 500);
@@ -190,6 +207,25 @@ test("adaptive walks never place suture after punctuation or duplicate adjacent 
       assert.notEqual(events[i].token, events[i - 1].token, `seed=${seed} event=${i + 1} duplicate token`);
       if (events[i - 1].role === "punctuation") {
         assert.notEqual(events[i].role, "sutures", `seed=${seed} event=${i + 1} punctuation->suture`);
+      }
+    }
+  }
+});
+
+test("adaptive walks avoid clause fragments that need a missing subject", () => {
+  const badConjunctions = new Set(["whereas", "so that", "unless", "because", "although", "though", "while"]);
+  for (let seed = 1; seed <= 40; seed++) {
+    const events = simulate(seed, 500);
+    for (let i = 1; i < events.length; i++) {
+      const prev = events[i - 1];
+      const cur = events[i];
+      assert.notEqual(`${prev.token} ${cur.token}`, "exists event", `seed=${seed} event=${i + 1}`);
+      assert.ok(!badConjunctions.has(cur.token), `seed=${seed} event=${i + 1} bad conjunction ${cur.token}`);
+      if (prev.role === "conjunctions") {
+        assert.ok(cur.role === "adjectives" || cur.role === "nouns", `seed=${seed} event=${i + 1} conjunction->${cur.role}`);
+      }
+      if (prev.role === "adjectives") {
+        assert.equal(cur.role, "nouns", `seed=${seed} event=${i + 1} adjective->${cur.role}`);
       }
     }
   }
