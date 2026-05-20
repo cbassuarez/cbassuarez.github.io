@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import TmaydLabsPage from './tmayd/TmaydLabsPage';
+import { fetchTmaydStatus } from './tmayd/tmaydApi';
 
 const SITE_DOMAIN = 'cbassuarez.com';
 const OPERATOR_NAME = 'seb suarez';
@@ -1296,14 +1297,10 @@ function SiteVersion() {
 }
 
 function HomePage({ shellMode = false }) {
-  const HOME_GUESTBOOK_LIMIT = 40;
   const isMobile = useIsMobile();
   const hits = useTruthfulHitCounter();
   const { feedItems, feedMeta, feedSources, isBooting, currentActivity } = useSebFeed();
-  const [name, setName] = useState('');
-  const [message, setMessage] = useState('');
-  const [guestbook, setGuestbook] = useState([]);
-  const [guestbookStatus, setGuestbookStatus] = useState('loading');
+  const [tmaydActive, setTmaydActive] = useState(false);
   const [bootDotCount, setBootDotCount] = useState(1);
   const obliqueLine = useMemo(() => {
     const index = Math.floor(Math.random() * OBLIQUE_STRATEGIES.length);
@@ -1313,22 +1310,13 @@ function HomePage({ shellMode = false }) {
   useEffect(() => {
     let active = true;
 
-    const loadGuestbook = async () => {
-      setGuestbookStatus('loading');
-
-      try {
-        const entries = await fetchGuestbookEntries(HOME_GUESTBOOK_LIMIT);
-        if (!active) return;
-        setGuestbook(entries);
-        setGuestbookStatus('ready');
-      } catch (error) {
-        if (!active) return;
-        setGuestbook([]);
-        setGuestbookStatus('offline');
-      }
-    };
-
-    loadGuestbook();
+    fetchTmaydStatus()
+      .then((result) => {
+        if (active) setTmaydActive(result?.data?.intakeOpen === true);
+      })
+      .catch(() => {
+        if (active) setTmaydActive(false);
+      });
 
     return () => {
       active = false;
@@ -1401,32 +1389,41 @@ function HomePage({ shellMode = false }) {
     return () => window.clearInterval(intervalId);
   }, [spotifyNow?.isPlaying, spotifyNow?.durationMs, spotifyNow?.url, spotifyNow?.at]);
 
-  const submitGuestbook = async (event) => {
-    event.preventDefault();
-
-    const cleanName = name.trim() || 'anonymous';
-    const cleanMessage = message.trim();
-
-    if (!cleanMessage) {
-      return;
-    }
-
-    try {
-      setGuestbookStatus('saving');
-      await createGuestbookEntry({ name: cleanName, message: cleanMessage });
-      const entries = await fetchGuestbookEntries(HOME_GUESTBOOK_LIMIT);
-      setGuestbook(entries);
-      setName('');
-      setMessage('');
-      setGuestbookStatus('ready');
-    } catch (error) {
-      if (error?.code === 'already_signed') {
-        setGuestbookStatus('duplicate');
-      } else {
-        setGuestbookStatus('offline');
-      }
-    }
-  };
+  const activeWorksLines = (
+    <>
+      {tmaydActive ? (
+        <p>
+          <button type="button" onClick={() => { window.location.href = '/labs/tell-me-about-your-day'; }}>
+            tell me about your day
+          </button>
+          <br />
+          <small>an exhibition you contribute to, open now.</small>
+        </p>
+      ) : (
+        <p>
+          <button type="button" onClick={() => { window.location.href = '/labs/repl'; }}>
+            repl
+          </button>
+          <br />
+          <small>live-code the cbassuarez voices: score-grid notation, sample wildcards, attractor coupling.</small>
+        </p>
+      )}
+      <p>
+        <button type="button" onClick={() => { window.location.href = '/labs/body-for-visits'; }}>
+          body for visits
+        </button>
+        <br />
+        <small>one shared sentence, mutated by visitation.</small>
+      </p>
+      <p>
+        <button type="button" onClick={() => { window.location.href = '/labs/string'; }}>
+          string
+        </button>
+        <br />
+        <small>a shared room of cybernetic strings, ringing for one another.</small>
+      </p>
+    </>
+  );
 
   if (shellMode) {
     return (
@@ -1518,55 +1515,11 @@ function HomePage({ shellMode = false }) {
           </p>
         </div>
 
-        <a id="guestbook" />
-        <h2>guestbook.exe [NEW]</h2>
-        <form onSubmit={submitGuestbook}>
-          <p>
-            name:{' '}
-            <input
-              type="text"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              size="24"
-            />
-          </p>
-          <p>
-            message:{' '}
-            <input
-              type="text"
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              size="48"
-            />
-          </p>
-          <p>
-            <button type="submit">sign guestbook</button>
-          </p>
-          {guestbookStatus === 'duplicate' ? (
-            <p><small>you&apos;ve already signed the guestbook.</small></p>
-          ) : null}
-        </form>
-
-        <table border="1" cellPadding="6" width="100%" style={{ fontFamily: MONO_FONT_STACK }}>
-          <tbody>
-            {guestbook.length === 0 ? (
-              <tr>
-                <td width="24%">system</td>
-                <td>
-                  {guestbookStatus === 'loading' || guestbookStatus === 'saving'
-                    ? 'loading entries...'
-                    : 'new feature: be the first to sign.'}
-                </td>
-              </tr>
-            ) : null}
-            {guestbook.map((entry, index) => (
-              <tr key={`${entry.name}-${entry.message}-${index}`}>
-                <td width="24%">{entry.name}</td>
-                <td>{entry.message}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <h2>active works</h2>
+        <p>
+          <small>pieces that are live right now.</small>
+        </p>
+        {activeWorksLines}
       </>
     );
   }
@@ -1655,57 +1608,11 @@ function HomePage({ shellMode = false }) {
             [ <a href="/labs/feed">open full seb feed</a> ]
           </p>
 
-          <h3>guestbook.exe [NEW]</h3>
-          <form onSubmit={submitGuestbook}>
-            <p>
-              name:{' '}
-              <input
-                type="text"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                size="16"
-              />
-            </p>
-            <p>
-              message:{' '}
-              <input
-                type="text"
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                size="28"
-              />
-            </p>
-            <p>
-              <button type="submit">sign guestbook</button>
-            </p>
-            {guestbookStatus === 'duplicate' ? (
-              <p><small>you&apos;ve already signed the guestbook.</small></p>
-            ) : null}
-          </form>
-
-          <table border="1" cellPadding="6" width="100%" style={{ fontFamily: MONO_FONT_STACK }}>
-            <tbody>
-              {guestbook.length === 0 ? (
-                <tr>
-                  <td>system</td>
-                  <td>
-                    {guestbookStatus === 'loading' || guestbookStatus === 'saving'
-                      ? 'loading entries...'
-                      : 'new feature: be the first to sign.'}
-                  </td>
-                </tr>
-              ) : null}
-              {guestbook.slice(0, 8).map((entry, index) => (
-                <tr key={`${entry.name}-${entry.message}-${index}`}>
-                  <td>{entry.name}</td>
-                  <td>{entry.message}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <h3>active works</h3>
           <p>
-            [ <a href="/labs/guestbook">open full guestbook</a> ]
+            <small>pieces that are live right now.</small>
           </p>
+          {activeWorksLines}
 
           <h3>social</h3>
           <ul>
@@ -1858,55 +1765,11 @@ function HomePage({ shellMode = false }) {
                   </p>
                 </div>
 
-                <a id="guestbook" />
-                <h2>guestbook.exe [NEW]</h2>
-                <form onSubmit={submitGuestbook}>
-                  <p>
-                    name:{' '}
-                    <input
-                      type="text"
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      size="24"
-                    />
-                  </p>
-                  <p>
-                    message:{' '}
-                    <input
-                      type="text"
-                      value={message}
-                      onChange={(event) => setMessage(event.target.value)}
-                      size="48"
-                    />
-                  </p>
-                  <p>
-                    <button type="submit">sign guestbook</button>
-                  </p>
-                  {guestbookStatus === 'duplicate' ? (
-                    <p><small>you&apos;ve already signed the guestbook.</small></p>
-                  ) : null}
-                </form>
-
-                <table border="1" cellPadding="6" width="100%" style={{ fontFamily: MONO_FONT_STACK }}>
-                  <tbody>
-                    {guestbook.length === 0 ? (
-                      <tr>
-                        <td width="24%">system</td>
-                        <td>
-                          {guestbookStatus === 'loading' || guestbookStatus === 'saving'
-                            ? 'loading entries...'
-                            : 'new feature: be the first to sign.'}
-                        </td>
-                      </tr>
-                    ) : null}
-                    {guestbook.map((entry, index) => (
-                      <tr key={`${entry.name}-${entry.message}-${index}`}>
-                        <td width="24%">{entry.name}</td>
-                        <td>{entry.message}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <h2>active works</h2>
+                <p>
+                  <small>pieces that are live right now.</small>
+                </p>
+                {activeWorksLines}
               </td>
             </tr>
           </tbody>
