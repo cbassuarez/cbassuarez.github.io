@@ -15,14 +15,15 @@ const NEXT_ROLES = {
   conjunctions: ["adjectives", "nouns"],
 };
 
-const MODEL_VERSION = 2;
+const MODEL_VERSION = 3;
 const RECENT_WINDOW = 18;
+const PHRASE_WINDOW = 12;
 
 // Smoothing weight. A learned count is added to the source word prior, so cold
 // starts stay deterministic and the journal takes over as it accumulates
 // evidence.
 const ROLE_ALPHA = 1;
-const WORD_ALPHA = 1;
+const WORD_ALPHA = 0.45;
 const INTRANSITIVE_VERBS = new Set([
   "appears",
   "arrives",
@@ -35,6 +36,7 @@ const INTRANSITIVE_VERBS = new Set([
   "falls",
   "goes",
   "happens",
+  "thinks",
   "lasts",
   "lies",
   "lives",
@@ -49,6 +51,228 @@ const INTRANSITIVE_VERBS = new Set([
   "waits",
   "works",
 ]);
+const TRANSITIVE_VERBS = new Set([
+  "accepts",
+  "answers",
+  "breaks",
+  "calls",
+  "carries",
+  "changes",
+  "closes",
+  "crosses",
+  "draws",
+  "enters",
+  "finds",
+  "follows",
+  "forms",
+  "gives",
+  "has",
+  "holds",
+  "keeps",
+  "leaves",
+  "lets",
+  "looks",
+  "makes",
+  "means",
+  "names",
+  "needs",
+  "notices",
+  "opens",
+  "passes",
+  "reaches",
+  "reads",
+  "remembers",
+  "says",
+  "sees",
+  "sends",
+  "sets",
+  "shows",
+  "speaks",
+  "takes",
+  "tries",
+  "wants",
+  "writes",
+  "asks",
+  "feels",
+  "forgets",
+  "hears",
+  "knows",
+]);
+const PREPOSITIONAL_VERBS = new Set([
+  "appears",
+  "arrives",
+  "comes",
+  "continues",
+  "crosses",
+  "falls",
+  "goes",
+  "looks",
+  "moves",
+  "passes",
+  "speaks",
+  "thinks",
+  "returns",
+  "rises",
+  "runs",
+  "sits",
+  "stands",
+  "stays",
+  "turns",
+  "waits",
+  "walks",
+  "works",
+]);
+const DETERMINER_OPENINGS = new Set([
+  "the",
+  "a",
+  "this",
+  "that",
+  "some",
+  "another",
+  "maybe the",
+  "and then the",
+  "so the",
+  "you know the",
+  "I guess the",
+]);
+const VERB_PREPOSITION_MULTIPLIERS = {
+  thinks: { about: 5, of: 2.4, through: 0.45, over: 0.2, toward: 0.3, against: 0.25 },
+  speaks: { to: 4.5, with: 2.3, about: 2, against: 0.25, along: 0.35 },
+  waits: { for: 4, with: 1.5, about: 0.35 },
+  asks: { about: 3, for: 2.8, to: 1.7, against: 0.25 },
+  knows: { about: 3.2, of: 2.2, against: 0.25, along: 0.35 },
+  feels: { about: 2.4, through: 1.4, against: 0.35 },
+};
+const HUMAN_TOKEN_MULTIPLIERS = {
+  openings: {
+    "the": 2.2,
+    "a": 2,
+    "this": 2,
+    "that": 1.8,
+    "some": 1.45,
+    "another": 1.45,
+    "maybe the": 1.9,
+    "and then the": 1.8,
+    "so the": 1.55,
+    "you know the": 1.45,
+    "I guess the": 1.35,
+    "now": 1.3,
+    "then": 1.25,
+    "again": 1.2,
+  },
+  nouns: {
+    "someone": 4,
+    "something": 3.8,
+    "nothing": 3.1,
+    "everything": 3,
+    "everyone": 2.7,
+    "no one": 2.65,
+    "thing": 2.6,
+    "body": 2,
+    "voice": 1.95,
+    "hand": 1.45,
+    "face": 1.4,
+    "room": 1.35,
+    "word": 1.35,
+    "thought": 1.35,
+    "story": 1.3,
+    "friend": 1.3,
+    "door": 1.25,
+    "home": 1.25,
+    "moment": 1.25,
+    "name": 1.2,
+    "day": 1.15,
+    "night": 1.15,
+  },
+  verbs: {
+    "says": 3.2,
+    "keeps": 2.4,
+    "thinks": 2.4,
+    "tries": 2.35,
+    "asks": 2.2,
+    "feels": 2.15,
+    "forgets": 2.15,
+    "knows": 2.1,
+    "notices": 2.05,
+    "remembers": 1.55,
+    "waits": 1.5,
+    "comes": 1.35,
+    "looks": 1.35,
+    "wants": 1.35,
+  },
+  adjectives: {
+    "little": 2,
+    "weird": 1.9,
+    "wrong": 1.8,
+    "same": 1.55,
+    "old": 1.5,
+    "small": 1.45,
+    "quiet": 1.4,
+    "lost": 1.35,
+    "half": 1.35,
+    "next": 1.35,
+  },
+  conjunctions: {
+    "and": 1.8,
+    "but": 1.55,
+    "and then": 1.7,
+    "but then": 1.45,
+    "so": 1.35,
+    "or": 0.45,
+    "yet": 0.75,
+  },
+  sutures: {
+    "— I mean —": 2.2,
+    "— you know —": 2,
+    "— sort of —": 1.8,
+    "— wait —": 1.7,
+    "— no —": 1.5,
+    "— still —": 1.35,
+    "— again —": 1.25,
+  },
+};
+const STIFF_TOKEN_MULTIPLIERS = {
+  nouns: {
+    "area": 0.45,
+    "case": 0.5,
+    "center": 0.6,
+    "class": 0.45,
+    "effect": 0.55,
+    "figure": 0.55,
+    "kind": 0.65,
+    "mark": 0.7,
+    "number": 0.45,
+    "order": 0.55,
+    "part": 0.65,
+    "point": 0.65,
+    "record": 0.65,
+    "state": 0.55,
+    "surface": 0.65,
+  },
+  adjectives: {
+    "able": 0.35,
+    "bare": 0.55,
+    "central": 0.55,
+    "common": 0.65,
+    "final": 0.65,
+    "former": 0.55,
+    "general": 0.5,
+    "local": 0.65,
+    "possible": 0.65,
+    "public": 0.65,
+    "ready": 0.7,
+    "recent": 0.65,
+    "usual": 0.7,
+    "wide": 0.7,
+  },
+  verbs: {
+    "becomes": 0.2,
+    "forms": 0.55,
+    "means": 0.05,
+    "seems": 0.6,
+    "sets": 0.55,
+  },
+};
 
 // Small mulberry32 — deterministic, no Math.random.
 function mulberry32(seed) {
@@ -103,6 +327,15 @@ function phraseLength(seq) {
   return n;
 }
 
+function phraseEvents(seq) {
+  const out = [];
+  for (let i = seq.length - 1; i >= 0; i--) {
+    if (seq[i]?.role === "punctuation") break;
+    out.unshift(seq[i]);
+  }
+  return out;
+}
+
 function tailRun(seq, field) {
   const last = seq.length > 0 ? seq[seq.length - 1]?.[field] : null;
   if (last == null) return { value: null, count: 0 };
@@ -121,6 +354,8 @@ function normalizeModel(model) {
     words: model?.words || {},
     recentRoles: Array.isArray(model?.recentRoles) ? model.recentRoles : [],
     recentTokens: Array.isArray(model?.recentTokens) ? model.recentTokens : [],
+    phraseRoles: Array.isArray(model?.phraseRoles) ? model.phraseRoles : [],
+    phraseTokens: Array.isArray(model?.phraseTokens) ? model.phraseTokens : [],
     distanceSincePunctuation:
       typeof model?.distanceSincePunctuation === "number" ? model.distanceSincePunctuation : null,
     distanceSinceSuture:
@@ -130,6 +365,17 @@ function normalizeModel(model) {
     tokenRun: model?.tokenRun || { value: null, count: 0 },
     count: typeof model?.count === "number" ? model.count : 0,
   };
+}
+
+function phraseHasVerb(model) {
+  return Array.isArray(model.phraseRoles) && model.phraseRoles.includes("verbs");
+}
+
+function phraseTailNounAfterVerb(model) {
+  const roles = Array.isArray(model.phraseRoles) ? model.phraseRoles : [];
+  if (roles[roles.length - 1] !== "nouns") return false;
+  const lastVerb = roles.lastIndexOf("verbs");
+  return lastVerb >= 0 && lastVerb < roles.length - 1;
 }
 
 // Build the learned model from the journal — the ordered human events as
@@ -157,6 +403,8 @@ export function inferModel(sequence) {
     words,
     recentRoles: seq.slice(-RECENT_WINDOW).map((e) => e.role),
     recentTokens: seq.slice(-RECENT_WINDOW).map((e) => e.token),
+    phraseRoles: phraseEvents(seq).slice(-PHRASE_WINDOW).map((e) => e.role),
+    phraseTokens: phraseEvents(seq).slice(-PHRASE_WINDOW).map((e) => e.token),
     distanceSincePunctuation: distanceSince(seq, "punctuation"),
     distanceSinceSuture: distanceSince(seq, "sutures"),
     phraseLength: phraseLength(seq),
@@ -171,6 +419,8 @@ function scoreRole(role, prevRole, model, prevToken = null) {
   const learned = m.roles[prevRole] || {};
   let weight = ROLE_ALPHA + (learned[role] || 0);
   const recentCount = countRecent(m.recentRoles, role);
+  const hasVerb = phraseHasVerb(m) || prevRole === "verbs";
+  const tailNounAfterVerb = phraseTailNounAfterVerb(m);
 
   if (recentCount > 0) {
     weight *= 1 / (1 + recentCount * 0.18);
@@ -182,26 +432,46 @@ function scoreRole(role, prevRole, model, prevToken = null) {
   if (role === "punctuation") {
     const phrase = m.phraseLength;
     const dist = m.distanceSincePunctuation ?? (m.count + 1);
-    if (phrase <= 1) weight *= 0.08;
-    else if (phrase <= 3) weight *= 0.35;
+    if (phrase <= 1) weight *= 0.05;
+    else if (!hasVerb) weight *= 0.12;
+    else if (phrase <= 3) weight *= 0.45;
     else weight *= 0.65 + Math.min(3.2, Math.pow((phrase - 2) / 6, 1.3));
     if (dist < 4) weight *= 0.25;
+    if (tailNounAfterVerb) weight *= 1.45;
   }
 
   if (role === "sutures") {
     const dist = m.distanceSinceSuture ?? Math.min(m.count + 1, 24);
     if (dist < 8) weight *= 0.05;
     else weight *= Math.min(3.2, 0.45 + Math.pow((dist - 4) / 14, 1.35));
-    if (m.phraseLength < 4) weight *= 0.35;
+    if (!hasVerb) weight *= 0.16;
+    else if (m.phraseLength < 4) weight *= 0.35;
     if (prevRole === "conjunctions") weight *= 0.55;
+    if (tailNounAfterVerb) weight *= 1.25;
+  }
+
+  if (prevRole === "nouns") {
+    if (!hasVerb) {
+      if (role === "verbs") weight *= 4.8;
+      if (role === "conjunctions") weight *= 0.16;
+      if (role === "punctuation" || role === "sutures") weight *= 0.22;
+    } else if (tailNounAfterVerb) {
+      if (role === "verbs") weight *= 0.28;
+      if (role === "conjunctions") weight *= 1.35;
+      if (role === "punctuation" || role === "sutures") weight *= 1.45;
+    }
   }
 
   if (prevRole === "verbs" && INTRANSITIVE_VERBS.has(prevToken)) {
-    if (role === "nouns") weight *= 0.04;
-    if (role === "prepositions") weight *= 1.35;
+    if (role === "nouns") weight *= 0.005;
+    if (role === "prepositions") weight *= PREPOSITIONAL_VERBS.has(prevToken) ? 1.25 : 0.06;
     if (role === "punctuation" || role === "sutures") weight *= 1.9;
   }
-
+  if (prevRole === "verbs" && TRANSITIVE_VERBS.has(prevToken)) {
+    if (role === "nouns") weight *= 1.75;
+    if (role === "prepositions") weight *= PREPOSITIONAL_VERBS.has(prevToken) ? 1.15 : 0.005;
+    if (role === "punctuation" || role === "sutures") weight *= 0.55;
+  }
   return Math.max(0, weight);
 }
 
@@ -222,12 +492,32 @@ function scoreToken(token, role, prevToken, model) {
   let weight = WORD_ALPHA * prior + (learned[token] || 0);
   const recentCount = countRecent(m.recentTokens, token);
   if (recentCount > 0) weight *= 1 / (1 + Math.pow(recentCount, 1.4));
+  weight *= HUMAN_TOKEN_MULTIPLIERS[role]?.[token] || 1;
+  weight *= STIFF_TOKEN_MULTIPLIERS[role]?.[token] || 1;
+  if (DETERMINER_OPENINGS.has(prevToken)) {
+    if (role === "adjectives") {
+      if (["little", "old", "same", "weird", "wrong", "small", "quiet", "lost", "half", "next"].includes(token)) {
+        weight *= 1.8;
+      } else {
+        weight *= 0.78;
+      }
+    } else if (role === "nouns") {
+      if (["someone", "something", "nothing", "everything", "everyone", "no one", "thing", "body", "voice", "hand", "face", "room", "story", "friend", "door", "home"].includes(token)) {
+        weight *= 1.8;
+      } else if (STIFF_TOKEN_MULTIPLIERS.nouns?.[token]) {
+        weight *= 0.55;
+      }
+    }
+  }
 
   if (role === "punctuation") {
     if (token === ",") weight *= 1.45;
     else if (token === ";") weight *= 1.2;
     else if (token === ".") weight *= 0.28;
     else if (token === "—") weight *= 0.22;
+  }
+  if (role === "prepositions" && prevToken && VERB_PREPOSITION_MULTIPLIERS[prevToken]) {
+    weight *= VERB_PREPOSITION_MULTIPLIERS[prevToken][token] || 0.18;
   }
 
   return Math.max(0, weight);
@@ -264,9 +554,12 @@ export const _internals = {
   NEXT_ROLES,
   MODEL_VERSION,
   RECENT_WINDOW,
+  PHRASE_WINDOW,
   ROLE_ALPHA,
   WORD_ALPHA,
   INTRANSITIVE_VERBS,
+  TRANSITIVE_VERBS,
+  PREPOSITIONAL_VERBS,
   normalizeModel,
   scoreRole,
   scoreToken,

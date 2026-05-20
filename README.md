@@ -127,7 +127,7 @@ history to shape itself.
    foreground dwell, one new token fades in; status reads
    `visible visit qualified`, and the accepted counter increments.
 2. Use `[ continue ]` up to four more times in the same browser session; each
-   re-armed visible dwell can qualify one additional token without reloading.
+   click checks quota and can qualify one additional token without reloading.
 3. After five accepted tokens within one hour, status reads
    `visit withheld · hourly quota reached`.
 4. Visit from a second device or browser; new mutation appears.

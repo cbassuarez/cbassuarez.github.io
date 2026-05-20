@@ -11,6 +11,8 @@ const CORE_BUCKETS = Object.freeze({
     "meanwhile", "elsewhere", "afterward", "beforehand", "nearby", "inside",
     "outside", "back", "ahead", "almost", "sometimes", "otherwise",
     "at first", "for now", "by then", "once more", "not yet", "in time",
+    "the", "a", "this", "that", "some", "another", "maybe the",
+    "and then the", "so the", "you know the", "I guess the",
   ]),
   nouns: Object.freeze([
     "act", "air", "answer", "area", "body", "book", "border", "breath",
@@ -23,6 +25,7 @@ const CORE_BUCKETS = Object.freeze({
     "point", "question", "record", "road", "room", "rule", "shape", "side",
     "sound", "space", "state", "story", "surface", "thing", "thought",
     "time", "voice", "wall", "water", "way", "word", "work", "world",
+    "someone", "something", "nothing", "everything", "everyone", "no one",
   ]),
   verbs: Object.freeze([
     "accepts", "answers", "appears", "becomes", "begins", "breaks", "calls",
@@ -32,13 +35,15 @@ const CORE_BUCKETS = Object.freeze({
     "looks", "makes", "means", "moves", "names", "needs", "opens", "passes",
     "reaches", "reads", "remains", "returns", "rises", "says", "sees",
     "seems", "sends", "sets", "shows", "sits", "speaks", "stands", "stays",
-    "takes", "turns", "waits", "walks", "wants", "works", "writes",
+    "takes", "thinks", "tries", "turns", "waits", "walks", "wants", "works",
+    "writes", "asks", "feels", "forgets", "hears", "knows", "notices",
+    "remembers",
   ]),
   prepositions: Object.freeze([
-    "across", "after", "against", "along", "among", "around", "before",
+    "about", "across", "after", "against", "along", "among", "around", "before",
     "behind", "below", "beneath", "beside", "between", "beyond", "inside",
-    "into", "near", "over", "through", "toward", "under", "with", "within",
-    "without",
+    "into", "near", "of", "over", "for", "through", "to", "toward", "under",
+    "with", "within", "without",
   ]),
   adjectives: Object.freeze([
     "able", "absent", "bare", "bright", "broad", "broken", "careful",
@@ -50,14 +55,15 @@ const CORE_BUCKETS = Object.freeze({
     "possible", "public", "quiet", "ready", "real", "recent", "same",
     "second", "shared", "short", "silent", "simple", "slow", "small", "soft",
     "still", "strange", "strong", "thin", "true", "usual", "warm", "whole",
-    "wide", "young",
+    "wide", "young", "little", "weird", "wrong", "half", "next",
   ]),
-  conjunctions: Object.freeze(["and", "or", "but", "yet"]),
+  conjunctions: Object.freeze(["and", "or", "but", "yet", "and then", "but then", "so"]),
   sutures: Object.freeze([
     "— again —", "— then —", "— still —", "— briefly —", "— perhaps —",
     "— already —", "— almost —", "— elsewhere —", "— for now —", "— not yet —",
     "— once more —", "— in time —", "— at first —", "— after all —",
     "— as if —", "— if so —", "— in part —", "— as before —",
+    "— I mean —", "— you know —", "— sort of —", "— wait —", "— no —",
   ]),
 });
 

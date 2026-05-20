@@ -395,7 +395,7 @@
       setContinueVisible(false);
       return;
     }
-    startVisibleDwell();
+    await qualify();
   }
 
   if (continueBtn) {
