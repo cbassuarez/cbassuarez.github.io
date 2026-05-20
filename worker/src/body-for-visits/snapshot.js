@@ -12,13 +12,16 @@ export function renderSnapshotHTML(state, takenAt = new Date().toISOString()) {
   const folded = Number(state?.fold_count || 0);
   const corrupt = Number(state?.corruption_count || 0);
 
-  const bodyHTML = body
-    .map((t) =>
-      t.role === "fold_marker"
-        ? `<span class="fold-marker">${esc(t.token)}</span>`
-        : esc(t.token)
-    )
-    .join(" ");
+  // Punctuation that clings to the previous word ("." "," ";") takes no
+  // leading space; everything else (including "—") is space-joined.
+  const HUG_LEFT = new Set([".", ",", ";"]);
+  let bodyHTML = "";
+  body.forEach((t, i) => {
+    if (i > 0 && !HUG_LEFT.has(t.token)) bodyHTML += " ";
+    bodyHTML += t.role === "fold_marker"
+      ? `<span class="fold-marker">${esc(t.token)}</span>`
+      : esc(t.token);
+  });
 
   return `<!doctype html>
 <html lang="en"><head>

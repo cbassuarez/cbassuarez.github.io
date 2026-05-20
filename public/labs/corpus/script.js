@@ -104,6 +104,9 @@
     setReadout('');
   }
 
+  // Punctuation glyphs that hug the preceding word — no space before them.
+  const HUG_LEFT = new Set(['.', ',', ';']);
+
   function render(state, opts = {}) {
     if (!state || !Array.isArray(state.body)) return;
     const newIndex = typeof opts.newTokenIndex === 'number' ? opts.newTokenIndex : null;
@@ -117,6 +120,10 @@
       return;
     }
     state.body.forEach((tok, i) => {
+      // Punctuation that clings to the previous word takes no leading space.
+      if (i > 0 && !HUG_LEFT.has(tok.token)) {
+        bodyEl.appendChild(document.createTextNode(' '));
+      }
       const span = document.createElement('span');
       if (tok.role === 'fold_marker') {
         span.className = 'fold-marker';
@@ -126,9 +133,6 @@
       }
       span.textContent = tok.token;
       bodyEl.appendChild(span);
-      if (i < state.body.length - 1) {
-        bodyEl.appendChild(document.createTextNode(' '));
-      }
     });
     fringeEl.textContent = typeof state.fringe === 'string' ? state.fringe : '';
   }
