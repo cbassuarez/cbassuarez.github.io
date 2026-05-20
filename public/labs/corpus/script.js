@@ -7,7 +7,9 @@
   const params = new URLSearchParams(location.search);
   const API_BASE = (params.get('api') || PROD_API).replace(/\/+$/, '');
 
-  const DWELL_MS = 3000;
+  const DWELL_MS = 2000;
+  const PULSE_INTERVAL_MS = 450;
+  const PULSE_FRAMES = ['', ' ·', ' ··', ' ···'];
   const SESSION_KEY = 'bfv:session-v1';
   const ATTEMPTED_KEY = 'bfv:attempted-v1';
 
@@ -33,14 +35,47 @@
     });
   }
 
-  function setStatus(text) {
+  let statusPulseTimer = null;
+  let statusPulseFrame = 0;
+
+  function writeStatus(text) {
     if (statusEl) statusEl.textContent = text;
+  }
+
+  function stopStatusPulse() {
+    if (statusPulseTimer) {
+      clearInterval(statusPulseTimer);
+      statusPulseTimer = null;
+    }
+    statusPulseFrame = 0;
+  }
+
+  function setStatus(text) {
+    stopStatusPulse();
+    writeStatus(text);
+  }
+
+  function startStatusPulse(text) {
+    stopStatusPulse();
+    writeStatus(text);
+    statusPulseTimer = setInterval(() => {
+      statusPulseFrame = (statusPulseFrame + 1) % PULSE_FRAMES.length;
+      writeStatus(`${text}${PULSE_FRAMES[statusPulseFrame]}`);
+    }, PULSE_INTERVAL_MS);
   }
 
   function render(state, opts = {}) {
     if (!state || !Array.isArray(state.body)) return;
     const newIndex = typeof opts.newTokenIndex === 'number' ? opts.newTokenIndex : null;
     bodyEl.innerHTML = '';
+    if (state.body.length === 0) {
+      const span = document.createElement('span');
+      span.className = 'fold-marker';
+      span.textContent = '⟨awaiting first visit⟩';
+      bodyEl.appendChild(span);
+      fringeEl.textContent = typeof state.fringe === 'string' ? state.fringe : '';
+      return;
+    }
     state.body.forEach((tok, i) => {
       const span = document.createElement('span');
       if (tok.role === 'fold_marker') {
@@ -126,10 +161,23 @@
   let attempted = false;
   try { attempted = sessionStorage.getItem(ATTEMPTED_KEY) === '1'; } catch (_) {}
   let cumulativeVisibleMs = 0;
-  let lastVisibleStart = document.visibilityState === 'visible' ? performance.now() : null;
+  let lastVisibleStart = null;
   let timer = null;
+  let dwellTimeout = null;
 
   function nowMs() { return performance.now(); }
+
+  function stopDwellTimer() {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+    if (dwellTimeout) {
+      clearTimeout(dwellTimeout);
+      dwellTimeout = null;
+    }
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+  }
 
   function onVisibilityChange() {
     if (document.visibilityState === 'visible') {
@@ -149,22 +197,35 @@
     if (visible >= DWELL_MS && document.visibilityState === 'visible') {
       attempted = true;
       try { sessionStorage.setItem(ATTEMPTED_KEY, '1'); } catch (_) {}
-      if (timer) { clearInterval(timer); timer = null; }
+      stopDwellTimer();
       qualify();
       return;
     }
   }
 
-  fetchState();
-
-  if (!attempted) {
+  function startVisibleDwell() {
+    cumulativeVisibleMs = 0;
+    lastVisibleStart = document.visibilityState === 'visible' ? nowMs() : null;
+    startStatusPulse('accepting visible visit');
     document.addEventListener('visibilitychange', onVisibilityChange);
     timer = setInterval(tick, 250);
     // bound the dwell wait so we don't churn forever on a backgrounded tab
-    setTimeout(() => {
-      if (timer && !attempted) { clearInterval(timer); timer = null; }
+    dwellTimeout = setTimeout(() => {
+      if (timer && !attempted) {
+        stopDwellTimer();
+        setStatus('accepting paused · reload to try again');
+      }
     }, 5 * 60 * 1000);
-  } else {
-    setStatus('visit withheld · session already recorded');
+    tick();
   }
+
+  startStatusPulse('loading body');
+  fetchState().then((state) => {
+    if (!state) return;
+    if (attempted) {
+      setStatus('visit withheld · session already recorded');
+      return;
+    }
+    startVisibleDwell();
+  });
 })();

@@ -73,7 +73,7 @@ node --test worker/test/body-for-visits.*.test.js
 
 A single shared linguistic body, mutated only by qualifying human visits. Each
 visit that is *visible* (`document.visibilityState === "visible"`) for at least
-three seconds, and that has not already contributed within the server-side
+two seconds, and that has not already contributed within the server-side
 cooldown, appends one grammar-aware token to the body. There is no form, no
 input. The medium is the visited networked surface.
 
@@ -104,7 +104,7 @@ The DO and rate-limit binding live on the existing `seb-feed` worker:
 
 ### Manual test checklist
 
-1. Open `/labs/corpus/` in a fresh incognito window. After ~3s of
+1. Open `/labs/corpus/` in a fresh incognito window. After ~2s of
    foreground dwell, one new token fades in; status reads
    `visible visit qualified`.
 2. Reload. Status reads `visit withheld · session already recorded`;

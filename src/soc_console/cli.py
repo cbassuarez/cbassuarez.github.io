@@ -6,7 +6,9 @@ import argparse
 import json
 import sys
 from dataclasses import asdict
+from pathlib import Path
 
+from .beeper import append_event, resolve_event_log, run_beeper, run_beeper_command
 from .ingest import ContextIngestPipeline
 from .runtime import build_runtime
 from .tmux_orchestrator import TmuxOrchestrator
@@ -129,6 +131,36 @@ def cmd_tmux(profile_name: str, action: str, scene: str | None) -> int:
     raise SystemExit(f"Unknown tmux action: {action}")
 
 
+def cmd_beeper(codex_home: str, events: str | None, interval: float, no_ui: bool, once: bool, beep: bool) -> int:
+    return run_beeper(
+        codex_home=Path(codex_home),
+        events_path=resolve_event_log(events),
+        interval=interval,
+        no_ui=no_ui,
+        once=once,
+        beep=beep,
+    )
+
+
+def cmd_beeper_event(kind: str, severity: str, message: str, events: str | None) -> int:
+    event = append_event(
+        resolve_event_log(events),
+        kind=kind,
+        severity=severity,
+        message=message,
+    )
+    _json_dump({"ok": True, "event": event.to_json()})
+    return 0
+
+
+def cmd_beeper_run(cwd: str, events: str | None, command: list[str]) -> int:
+    return run_beeper_command(
+        command=command,
+        cwd=Path(cwd).expanduser().resolve(),
+        events_path=resolve_event_log(events),
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="soc-console")
     sub = parser.add_subparsers(dest="subcommand", required=True)
@@ -158,6 +190,25 @@ def build_parser() -> argparse.ArgumentParser:
     tmux_parser.add_argument("--profile", default="seminar-default")
     tmux_parser.add_argument("--scene")
 
+    beeper_parser = sub.add_parser("beeper", help="Watch Codex session activity and beeper events")
+    beeper_parser.add_argument("--codex-home", default="~/.codex", help="Codex home directory to watch")
+    beeper_parser.add_argument("--events", help="JSONL event log path")
+    beeper_parser.add_argument("--interval", type=float, default=1.0, help="Refresh interval in seconds")
+    beeper_parser.add_argument("--no-ui", action="store_true", help="Use plain terminal redraw")
+    beeper_parser.add_argument("--once", action="store_true", help="Render one snapshot and exit")
+    beeper_parser.add_argument("--beep", action="store_true", help="Ring terminal bell on attention transitions")
+
+    beeper_event_parser = sub.add_parser("beeper-event", help="Append an event to the beeper stream")
+    beeper_event_parser.add_argument("--kind", default="note", choices=["note", "approval", "failure", "command-start", "command-finish"])
+    beeper_event_parser.add_argument("--severity", default="info", choices=["info", "warn", "error", "urgent"])
+    beeper_event_parser.add_argument("--message", required=True)
+    beeper_event_parser.add_argument("--events", help="JSONL event log path")
+
+    beeper_run_parser = sub.add_parser("beeper-run", help="Run a command while logging beeper events")
+    beeper_run_parser.add_argument("--cwd", default=".", help="Working directory for the command")
+    beeper_run_parser.add_argument("--events", help="JSONL event log path")
+    beeper_run_parser.add_argument("command", nargs=argparse.REMAINDER)
+
     return parser
 
 
@@ -184,6 +235,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.subcommand == "tmux":
         return cmd_tmux(args.profile, args.action, args.scene)
+
+    if args.subcommand == "beeper":
+        return cmd_beeper(args.codex_home, args.events, args.interval, args.no_ui, args.once, args.beep)
+
+    if args.subcommand == "beeper-event":
+        return cmd_beeper_event(args.kind, args.severity, args.message, args.events)
+
+    if args.subcommand == "beeper-run":
+        return cmd_beeper_run(args.cwd, args.events, args.command)
 
     parser.error(f"Unknown subcommand: {args.subcommand}")
     return 2
