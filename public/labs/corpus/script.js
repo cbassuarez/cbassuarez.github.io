@@ -16,6 +16,7 @@
   const statusEl = document.getElementById('bfv-status');
   const motionRoot = document.getElementById('bfv-motion-root');
   const readoutEl = document.getElementById('bfv-readout');
+  const presenceEl = document.getElementById('bfv-presence');
 
   const colophonBtn = document.getElementById('bfv-colophon-open');
   const colophonDlg = document.getElementById('bfv-colophon');
@@ -64,6 +65,39 @@
     if (readoutEl) readoutEl.textContent = text;
   }
 
+  function setPresence(count) {
+    if (!presenceEl) return;
+    const n = Math.max(0, Math.floor(Number(count) || 0));
+    // A quiet signal — shown only when you are not alone in the body.
+    presenceEl.textContent = n >= 2 ? `${n} here now` : '';
+  }
+
+  // Every state source — initial fetch, qualify response, WebSocket push, and
+  // poll — funnels through here. Monotonic guards make it idempotent: a stale,
+  // duplicated, or out-of-order update simply does nothing.
+  let lastBodyVersion = -1;
+  let lastCorruption = -1;
+
+  function applyState(state, opts = {}) {
+    if (!state || !Array.isArray(state.body)) return;
+    const version = Number(state.body_version);
+    const corruption = Number(state.corruption_count);
+    const bodyGrew = Number.isFinite(version) && version > lastBodyVersion;
+    const fringeChanged = Number.isFinite(corruption) && corruption > lastCorruption;
+    if (bodyGrew || fringeChanged) {
+      let newTokenIndex = null;
+      if (bodyGrew) {
+        newTokenIndex = typeof opts.newTokenIndex === 'number'
+          ? opts.newTokenIndex
+          : (typeof state.new_token_index === 'number' ? state.new_token_index : null);
+        lastBodyVersion = version;
+      }
+      if (fringeChanged) lastCorruption = corruption;
+      render(state, { newTokenIndex });
+    }
+    if (typeof state.presence === 'number') setPresence(state.presence);
+  }
+
   function settleMotion(progress = 1) {
     setMotionProgress(progress);
     setMotionPhase('settled');
@@ -104,14 +138,18 @@
       const resp = await fetch(`${API_BASE}/api/corpus/state`, { credentials: 'omit' });
       if (!resp.ok) throw new Error(`state http ${resp.status}`);
       const json = await resp.json();
-      render(json);
+      applyState(json);
       return json;
     } catch (err) {
-      bodyEl.innerHTML = '';
-      const span = document.createElement('span');
-      span.className = 'fold-marker';
-      span.textContent = '⟨body unavailable⟩';
-      bodyEl.appendChild(span);
+      // Only show the failure marker if nothing has rendered yet — the
+      // WebSocket may already have delivered the body.
+      if (lastBodyVersion < 0) {
+        bodyEl.innerHTML = '';
+        const span = document.createElement('span');
+        span.className = 'fold-marker';
+        span.textContent = '⟨body unavailable⟩';
+        bodyEl.appendChild(span);
+      }
       settleMotion(0);
       setStatus('upstream unreachable');
       return null;
@@ -157,16 +195,16 @@
       if (json.skipped === 'cooldown') {
         settleMotion();
         setStatus('visit withheld · session already recorded');
-        render(json);
+        applyState(json);
         return;
       }
       if (json.skipped === 'bot') {
         settleMotion();
         setStatus('machine mark withheld · deposited to fringe');
-        render(json);
+        applyState(json);
         return;
       }
-      render(json, { newTokenIndex: json.new_token_index });
+      applyState(json, { newTokenIndex: json.new_token_index });
       const folded = Number(json.fold_count || 0);
       const suffix = folded > 0 ? ` · ${folded} folded` : '';
       settleMotion();
@@ -259,9 +297,120 @@
     queueTick();
   }
 
+  // ── live updates ──────────────────────────────────────────────────────────
+  // The body is shared: other visitors mutate it while this page is open. A
+  // WebSocket pushes every change instantly; if it cannot connect, polling
+  // takes over so the page still auto-updates. The DO sends a full snapshot on
+  // every (re)connect, so a disconnect can never drop a token.
+  const WS_URL = (() => {
+    try {
+      const u = new URL(`${API_BASE}/api/corpus/socket`);
+      u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
+      return u.toString();
+    } catch (_) {
+      return null;
+    }
+  })();
+
+  let socket = null;
+  let socketPing = null;
+  let reconnectTimer = null;
+  let reconnectDelay = 800;
+  let socketFailures = 0;
+  const RECONNECT_MAX_MS = 15000;
+
+  let polling = false;
+  let pollTimer = null;
+  const POLL_VISIBLE_MS = 6000;
+  const POLL_HIDDEN_MS = 30000;
+
+  async function pollOnce() {
+    try {
+      const resp = await fetch(`${API_BASE}/api/corpus/state`, { credentials: 'omit' });
+      if (resp.ok) applyState(await resp.json());
+    } catch (_) {}
+  }
+
+  function queuePoll() {
+    if (!polling) return;
+    const delay = document.visibilityState === 'hidden' ? POLL_HIDDEN_MS : POLL_VISIBLE_MS;
+    pollTimer = setTimeout(async () => {
+      pollTimer = null;
+      if (!polling) return;
+      await pollOnce();
+      queuePoll();
+    }, delay);
+  }
+
+  function startPolling() {
+    if (polling) return;
+    polling = true;
+    queuePoll();
+  }
+
+  function stopPolling() {
+    polling = false;
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connectSocket();
+    }, reconnectDelay);
+    reconnectDelay = Math.min(Math.round(reconnectDelay * 1.7), RECONNECT_MAX_MS);
+  }
+
+  function connectSocket() {
+    if (!WS_URL) { startPolling(); return; }
+    let ws;
+    try {
+      ws = new WebSocket(WS_URL);
+    } catch (_) {
+      socketFailures += 1;
+      if (socketFailures >= 2) startPolling();
+      scheduleReconnect();
+      return;
+    }
+    socket = ws;
+    ws.addEventListener('open', () => {
+      reconnectDelay = 800;
+      socketFailures = 0;
+      stopPolling();
+      if (socketPing) clearInterval(socketPing);
+      socketPing = setInterval(() => {
+        try { if (ws.readyState === 1) ws.send('ping'); } catch (_) {}
+      }, 30000);
+    });
+    ws.addEventListener('message', (ev) => {
+      if (typeof ev.data !== 'string') return;
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch (_) { return; }
+      applyState(msg);
+    });
+    ws.addEventListener('close', () => {
+      if (socketPing) { clearInterval(socketPing); socketPing = null; }
+      if (socket === ws) socket = null;
+      socketFailures += 1;
+      if (socketFailures >= 2) startPolling();
+      scheduleReconnect();
+    });
+    ws.addEventListener('error', () => {
+      try { ws.close(); } catch (_) {}
+    });
+  }
+
+  // When the tab returns to the foreground during a polling fallback, refresh
+  // immediately rather than waiting out the interval.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && polling) pollOnce();
+  });
+
   setMotionProgress(0);
   setMotionPhase('loading');
   setStatus('loading body');
+  connectSocket();
   fetchState().then((state) => {
     if (!state) return;
     if (attempted) {

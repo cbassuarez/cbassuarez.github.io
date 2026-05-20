@@ -132,6 +132,14 @@
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.12em;
   }
+  .presence {
+    font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--ink-faint);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin: 14px 0 0 0;
+    min-height: 1em;
+  }
   .status a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink-faint); }
   .status a:hover, .status a:focus-visible { color: var(--accent); border-bottom-color: var(--accent); }
   .colophon {
@@ -258,6 +266,7 @@
       <span class="visit-readout" id="bfv-readout" aria-hidden="true"></span>
     </p>
   </div>
+  <p class="presence" id="bfv-presence" aria-live="polite"></p>
   <p class="colophon">
     a visible visit adds to the body. no form, no input. the page records only a hashed session token
     and a hashed ip, both for the sole purpose of preventing accidental repeated contribution.
@@ -291,6 +300,6 @@
   </article>
 </dialog>
 <script src="./corpus-motion.bundle.js?v=20260521-line-rule" defer></script>
-<script src="./script.js?v=20260521-line-rule" defer></script>
+<script src="./script.js?v=20260521-live" defer></script>
 </body>
 </html>

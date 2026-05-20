@@ -1,159 +1,357 @@
-import { BUCKETS as BFV_BUCKETS } from "./body-for-visits/lexicon.js";
-import { decideQualify as bfvDecide } from "./body-for-visits/decide.js";
-import { foldBody as bfvFold } from "./body-for-visits/fold.js";
-import { renderSnapshotHTML as bfvSnapshot } from "./body-for-visits/snapshot.js";
+var __defProp = Object.defineProperty;
+var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
-type FeedItem = {
-  source: string;
-  text: string;
-  at: string;
-  url?: string;
-  media?: string;
-  progressMs?: number;
-  durationMs?: number;
-  isPlaying?: boolean;
+// src/body-for-visits/lexicon.js
+var BUCKETS = {
+  openings: [
+    "here",
+    "again",
+    "still",
+    "meanwhile",
+    "before that",
+    "elsewhere",
+    "since you arrived",
+    "between requests",
+    "in the margin",
+    "under the cache"
+  ],
+  nouns: [
+    "visitor",
+    "witness",
+    "threshold",
+    "cache",
+    "archive",
+    "residue",
+    "surface",
+    "server",
+    "room",
+    "request",
+    "response",
+    "signal",
+    "latency",
+    "body",
+    "column",
+    "breath",
+    "address",
+    "hand"
+  ],
+  verbs: [
+    "arrives",
+    "lingers",
+    "returns",
+    "folds",
+    "holds",
+    "attends",
+    "forgets",
+    "remembers",
+    "compresses",
+    "answers",
+    "withholds",
+    "passes through",
+    "marks",
+    "keeps",
+    "releases"
+  ],
+  prepositions: [
+    "into",
+    "against",
+    "before",
+    "beneath",
+    "through",
+    "toward",
+    "inside",
+    "between",
+    "after",
+    "without",
+    "with",
+    "near"
+  ],
+  adjectives: [
+    "quiet",
+    "attentive",
+    "partial",
+    "unfinished",
+    "legible",
+    "narrow",
+    "slow",
+    "late",
+    "present",
+    "consented",
+    "seen",
+    "archived",
+    "nameless",
+    "returning"
+  ],
+  conjunctions: ["and", "or", "then", "yet", "because", "so that", "until", "while"],
+  sutures: [
+    "\u2014 the room notes this \u2014",
+    "\u2014 archive holds \u2014",
+    "\u2014 signal received \u2014",
+    "\u2014 witness counted \u2014",
+    "\u2014 without name \u2014",
+    "\u2014 after latency \u2014",
+    "\u2014 a small consent \u2014",
+    "\u2014 folded once \u2014"
+  ],
+  punctuation: [".", ",", ";", "\u2014"],
+  corruption_glyphs: ["\u25AE", "\u2591", "\u2592", "\u2593", "\u25CC", "\u25CD", "\u25EF", "\u2301", "\u2307", "\u2393", "\u2394", "\u23DA"]
 };
+var ROLES = Object.freeze([
+  "openings",
+  "nouns",
+  "verbs",
+  "prepositions",
+  "adjectives",
+  "conjunctions",
+  "sutures",
+  "punctuation"
+]);
 
-type CurrentActivity = {
-  source: string;
-  text: string;
-  at: string;
-  url?: string;
-  isLive: boolean;
-  ageLabel: string;
+// src/body-for-visits/bot.js
+var RULES = [
+  { bucket: "search", needles: ["googlebot", "bingbot", "duckduckbot", "yandex", "baiduspider"] },
+  {
+    bucket: "llm",
+    needles: [
+      "gptbot",
+      "claude-web",
+      "anthropic-ai",
+      "perplexitybot",
+      "ccbot",
+      "bytespider",
+      "applebot-extended",
+      "oai-searchbot"
+    ]
+  },
+  {
+    bucket: "social",
+    needles: [
+      "facebookexternalhit",
+      "twitterbot",
+      "discordbot",
+      "slackbot",
+      "linkedinbot",
+      "telegrambot",
+      "whatsapp"
+    ]
+  },
+  {
+    bucket: "client",
+    needles: [
+      "curl/",
+      "wget/",
+      "python-requests",
+      "python-urllib",
+      "httpie",
+      "node-fetch",
+      "axios/",
+      "headlesschrome"
+    ]
+  },
+  { bucket: "generic", needles: ["bot", "crawler", "spider"] }
+];
+function classifyUA(ua) {
+  const raw = String(ua || "").trim();
+  if (!raw) return { isBot: true, bucket: "empty" };
+  const lower = raw.toLowerCase();
+  for (const { bucket, needles } of RULES) {
+    for (const n of needles) {
+      if (lower.includes(n)) return { isBot: true, bucket };
+    }
+  }
+  return { isBot: false, bucket: "browser" };
+}
+__name(classifyUA, "classifyUA");
+
+// src/body-for-visits/grammar.js
+var NEXT_ROLES = {
+  openings: ["adjectives", "nouns"],
+  punctuation: ["openings", "adjectives", "nouns"],
+  sutures: ["adjectives", "nouns", "verbs"],
+  adjectives: ["nouns", "conjunctions"],
+  nouns: ["verbs", "conjunctions", "punctuation"],
+  verbs: ["prepositions", "adjectives", "nouns", "punctuation"],
+  prepositions: ["adjectives", "nouns"],
+  conjunctions: ["adjectives", "nouns", "verbs"]
 };
+var SUTURE_EVERY = 7;
+var PUNCT_EVERY = 13;
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function() {
+    a = a + 1831565813 >>> 0;
+    let t = a;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+__name(mulberry32, "mulberry32");
+function allowedNext(prevRole) {
+  return NEXT_ROLES[prevRole] || NEXT_ROLES.punctuation;
+}
+__name(allowedNext, "allowedNext");
+function selectNextToken(prevRole, eventIndex, seed, prevToken = null) {
+  const rng = mulberry32((seed ^ eventIndex * 2654435761) >>> 0);
+  let role;
+  if (!prevRole) {
+    role = "openings";
+  } else if (eventIndex > 0 && eventIndex % PUNCT_EVERY === 0) {
+    role = "punctuation";
+  } else if (eventIndex > 0 && eventIndex % SUTURE_EVERY === 0) {
+    role = "sutures";
+  } else {
+    const choices = allowedNext(prevRole);
+    role = choices[Math.floor(rng() * choices.length)];
+  }
+  const pool = BUCKETS[role] || BUCKETS.nouns;
+  let token = pool[Math.floor(rng() * pool.length)];
+  for (let i = 0; i < 4 && token === prevToken && pool.length > 1; i++) {
+    token = pool[Math.floor(rng() * pool.length)];
+  }
+  return { token, role };
+}
+__name(selectNextToken, "selectNextToken");
 
-type SourceStatus = {
-  status: "ok" | "missing_config" | "error";
-  count: number;
-  message?: string;
-};
+// src/body-for-visits/decide.js
+var COOLDOWN_MS_DEFAULT = 24 * 60 * 60 * 1e3;
+function decideQualify({
+  ua,
+  lastSessionTs,
+  prevRole,
+  prevToken,
+  humanEventIndex,
+  seed,
+  now = Date.now(),
+  cooldownMs = COOLDOWN_MS_DEFAULT
+}) {
+  const bot = classifyUA(ua);
+  if (bot.isBot) {
+    return { action: "bot", bucket: bot.bucket };
+  }
+  if (typeof lastSessionTs === "number" && now - lastSessionTs < cooldownMs) {
+    return { action: "cooldown" };
+  }
+  const { token, role } = selectNextToken(prevRole, humanEventIndex, seed >>> 0, prevToken);
+  return { action: "append", token, role, ua_class: "browser" };
+}
+__name(decideQualify, "decideQualify");
 
-type GuestbookEntry = {
-  name: string;
-  message: string;
-  at: string;
-};
+// src/body-for-visits/fold.js
+var MAX_VISIBLE = 180;
+var KEEP_TAIL = 90;
+function foldBody(body, foldCount, foldGenerations, now = Date.now()) {
+  if (!Array.isArray(body) || body.length <= MAX_VISIBLE) {
+    return { body, fold_count: foldCount, fold_generations: foldGenerations };
+  }
+  const hadMarker = body.length > 0 && body[0].role === "fold_marker";
+  const real = hadMarker ? body.slice(1) : body;
+  const cut = real.length - KEEP_TAIL;
+  if (cut <= 0) {
+    return { body, fold_count: foldCount, fold_generations: foldGenerations };
+  }
+  const absorbed = real.slice(0, cut);
+  const tail = real.slice(cut);
+  const nextCount = foldCount + absorbed.length;
+  const nextGens = foldGenerations + 1;
+  const marker = {
+    token: `\u27E8folded \xD7${nextGens}: ${nextCount} tokens held\u27E9`,
+    role: "fold_marker",
+    event_id: null,
+    ts: now
+  };
+  return {
+    body: [marker, ...tail],
+    fold_count: nextCount,
+    fold_generations: nextGens
+  };
+}
+__name(foldBody, "foldBody");
 
-type SpotifyPlaybackState = {
-  trackKey: string;
-  trackName: string;
-  trackUrl?: string;
-  trackUri?: string;
-  isPlaying: boolean;
-  progressMs: number;
-  durationMs: number;
-  sessionStartedAt?: string;
-  observedAt: string;
-};
+// src/body-for-visits/snapshot.js
+var ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+var esc = /* @__PURE__ */ __name((s) => String(s).replace(/[&<>"']/g, (c) => ESC[c]), "esc");
+function renderSnapshotHTML(state, takenAt = (/* @__PURE__ */ new Date()).toISOString()) {
+  const body = Array.isArray(state?.body) ? state.body : [];
+  const fringe = String(state?.fringe || "");
+  const version = Number(state?.body_version || 0);
+  const folded = Number(state?.fold_count || 0);
+  const corrupt = Number(state?.corruption_count || 0);
+  const bodyHTML = body.map(
+    (t) => t.role === "fold_marker" ? `<span class="fold-marker">${esc(t.token)}</span>` : esc(t.token)
+  ).join(" ");
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>corpus \u2014 snapshot</title>
+<style>
+:root { --bg:#fff; --ink:#111; --ink-soft:rgba(17,17,17,.55); --ink-faint:rgba(17,17,17,.28); }
+html,body { margin:0; background:var(--bg); color:var(--ink); }
+main { max-width:640px; margin:14vh auto 18vh; padding:0 24px;
+       font:19px/1.62 ui-serif,"Iowan Old Style","Hoefler Text",Garamond,serif;
+       text-align:left; text-wrap:pretty; }
+.fold-marker { font-style:italic; color:var(--ink-soft); }
+.status,.fringe { font:11px/1.4 ui-monospace,"SF Mono",Menlo,monospace;
+                  letter-spacing:.18em; text-transform:uppercase; color:var(--ink-faint);
+                  margin-top:64px; }
+.fringe { letter-spacing:.4em; margin-top:8px; text-transform:none; }
+</style>
+</head><body><main>
+<p class="status">static snapshot taken at ${esc(takenAt)} \u2014 not the live work</p>
+<p class="body-text">${bodyHTML || '<span class="fold-marker">\u27E8awaiting first visit\u27E9</span>'}</p>
+<p class="fringe">${esc(fringe)}</p>
+<p class="status">body version ${version} \xB7 ${folded} folded \xB7 ${corrupt} corruptions</p>
+</main></body></html>
+`;
+}
+__name(renderSnapshotHTML, "renderSnapshotHTML");
 
-type RateLimitBinding = {
-  limit: (options: { key: string }) => Promise<{ success: boolean }>;
-};
-
-type Env = {
-  FEED_ALLOW_ORIGIN?: string;
-  TURNSTILE_SECRET_KEY?: string;
-  TURNSTILE_SITE_KEY?: string;
-  TURNSTILE_ALLOWED_HOSTNAMES?: string;
-  CONTACT_FORMSPREE_ENDPOINT?: string;
-  HITS_KV?: KVNamespace;
-  HITS_BASELINE?: string;
-  GITHUB_USERNAME?: string;
-  GITHUB_TOKEN?: string;
-  BANDCAMP_DOMAIN?: string;
-  IG_USER_ID?: string;
-  IG_ACCESS_TOKEN?: string;
-  SPOTIFY_CLIENT_ID?: string;
-  SPOTIFY_CLIENT_SECRET?: string;
-  SPOTIFY_REFRESH_TOKEN?: string;
-  X_USERNAME?: string;
-  X_BEARER_TOKEN?: string;
-  YT_CHANNEL_ID?: string;
-  YT_API_KEY?: string;
-  CF_ZONE_ID?: string;
-  CF_API_TOKEN?: string;
-  CF_ANALYTICS_SINCE?: string;
-  SITE_VERSION_URL?: string;
-  SITE_REPO_URL?: string;
-  RATE_LIMIT_FEED?: RateLimitBinding;
-  RATE_LIMIT_HIT?: RateLimitBinding;
-  RATE_LIMIT_GUESTBOOK_POST?: RateLimitBinding;
-  RATE_LIMIT_CONTACT_POST?: RateLimitBinding;
-  RATE_LIMIT_STRING_SOCKET?: RateLimitBinding;
-  RATE_LIMIT_COROOM_SOCKET?: RateLimitBinding;
-  RATE_LIMIT_BFV_QUALIFY?: RateLimitBinding;
-  RATE_LIMIT_BFV_SOCKET?: RateLimitBinding;
-  STRING_ROOM: DurableObjectNamespace;
-  CO_ROOM: DurableObjectNamespace;
-  BFV_ROOM: DurableObjectNamespace;
-  BFV_HASH_SALT?: string;
-};
-
-type FeedSnapshot = {
-  items: FeedItem[];
-  sources: Record<string, SourceStatus>;
-  generatedAt: string;
-};
-
-const FEED_SNAPSHOT_KEY = "feed:snapshot-v1";
-const FEED_MAX_ITEMS = 500;
-const FEED_EDGE_CACHE_SECONDS = 60;
-
-// Surfaces the same site is reachable from. Emitted as a Link header on every
-// worker response so anyone watching the network tab (or running `curl -i`)
-// discovers them. Browsers silently ignore the non-HTTP rel/scheme values.
-const DISCOVERY_LINK_HEADER = [
+// src/index.ts
+var FEED_SNAPSHOT_KEY = "feed:snapshot-v1";
+var FEED_MAX_ITEMS = 500;
+var FEED_EDGE_CACHE_SECONDS = 60;
+var DISCOVERY_LINK_HEADER = [
   '<https://cbassuarez.com/.well-known/cli-letter.txt>; rel="alternate"; type="text/plain"',
   '<ssh://ssh.cbassuarez.com>; rel="alternate"',
   '<gemini://gemini.cbassuarez.com>; rel="alternate"',
-  '<https://cbassuarez.com/humans.txt>; rel="author"',
+  '<https://cbassuarez.com/humans.txt>; rel="author"'
 ].join(", ");
-
-const jsonHeaders = (origin: string) => ({
+var jsonHeaders = /* @__PURE__ */ __name((origin) => ({
   "access-control-allow-origin": origin,
   "access-control-allow-methods": "GET,POST,OPTIONS",
   "access-control-allow-headers": "content-type,authorization",
   "cache-control": "no-store",
   "content-type": "application/json; charset=utf-8",
-  link: DISCOVERY_LINK_HEADER,
-});
-
-const clean = (value: unknown) =>
-  String(value ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-const stripTags = (value: string) => value.replace(/<[^>]+>/g, "");
-const toNonNegativeInt = (value: unknown) => {
+  link: DISCOVERY_LINK_HEADER
+}), "jsonHeaders");
+var clean = /* @__PURE__ */ __name((value) => String(value ?? "").replace(/\s+/g, " ").trim(), "clean");
+var stripTags = /* @__PURE__ */ __name((value) => value.replace(/<[^>]+>/g, ""), "stripTags");
+var toNonNegativeInt = /* @__PURE__ */ __name((value) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return null;
   const rounded = Math.floor(parsed);
   return rounded >= 0 ? rounded : null;
-};
-
-const short = (value: unknown, max = 120) => {
+}, "toNonNegativeInt");
+var short = /* @__PURE__ */ __name((value, max = 120) => {
   const text = clean(value);
   if (!text) return "";
-  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
-};
-
-const sourceBase = (source: unknown) => clean(source).toLowerCase().split(":")[0] || "feed";
-const parseFeedTimeMs = (value: unknown) => {
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}\u2026` : text;
+}, "short");
+var sourceBase = /* @__PURE__ */ __name((source) => clean(source).toLowerCase().split(":")[0] || "feed", "sourceBase");
+var parseFeedTimeMs = /* @__PURE__ */ __name((value) => {
   const ms = new Date(clean(value)).getTime();
   return Number.isFinite(ms) ? ms : 0;
-};
-
-const normalizeIsoAt = (value: unknown): string | null => {
+}, "parseFeedTimeMs");
+var normalizeIsoAt = /* @__PURE__ */ __name((value) => {
   const ms = parseFeedTimeMs(value);
   return ms > 0 ? new Date(ms).toISOString() : null;
-};
-
-const TURNSTILE_TEST_SECRET_KEY = "1x0000000000000000000000000000000AA";
-const CONTACT_TURNSTILE_ACTION = "contact_form_v1";
-const CONTACT_EMAIL_REGEX = /^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$/i;
-const CONTACT_ALLOWED_TOPICS = new Set(["commission", "performance", "collab", "press", "other"]);
-const CONTACT_BLOCKED_LOCAL_PARTS = new Set([
+}, "normalizeIsoAt");
+var TURNSTILE_TEST_SECRET_KEY = "1x0000000000000000000000000000000AA";
+var CONTACT_TURNSTILE_ACTION = "contact_form_v1";
+var CONTACT_EMAIL_REGEX = /^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$/i;
+var CONTACT_ALLOWED_TOPICS = /* @__PURE__ */ new Set(["commission", "performance", "collab", "press", "other"]);
+var CONTACT_BLOCKED_LOCAL_PARTS = /* @__PURE__ */ new Set([
   "a",
   "aa",
   "test",
@@ -164,28 +362,17 @@ const CONTACT_BLOCKED_LOCAL_PARTS = new Set([
   "admin",
   "none",
   "na",
-  "n/a",
+  "n/a"
 ]);
-const CONTACT_BLOCKED_DOMAINS = new Set([
+var CONTACT_BLOCKED_DOMAINS = /* @__PURE__ */ new Set([
   "example.com",
   "test.com",
   "localhost",
   "mailinator.com",
   "tempmail.com",
-  "fake.com",
+  "fake.com"
 ]);
-
-type ContactSubmission = {
-  name: string;
-  email: string;
-  subject: string;
-  topic: string;
-  timeSensitive: boolean;
-  message: string;
-  turnstileToken: string;
-};
-
-function parseSpotifyEvent(text: string): { action: string; label: string } {
+function parseSpotifyEvent(text) {
   const cleaned = clean(text);
   const match = cleaned.match(/^(now playing|played|last played|resumed|paused):\s*(.+)$/i);
   if (!match) {
@@ -193,67 +380,58 @@ function parseSpotifyEvent(text: string): { action: string; label: string } {
   }
   return { action: clean(match[1]).toLowerCase(), label: clean(match[2]).toLowerCase() };
 }
-
-function spotifyLabelRaw(text: string): string {
+__name(parseSpotifyEvent, "parseSpotifyEvent");
+function spotifyLabelRaw(text) {
   const cleaned = clean(text);
   const match = cleaned.match(/^(?:now playing|played|last played|resumed|paused):\s*(.+)$/i);
   return clean(match?.[1] || cleaned);
 }
-
-function withSpotifyAction(item: FeedItem, action: "now playing" | "paused" | "played"): FeedItem {
+__name(spotifyLabelRaw, "spotifyLabelRaw");
+function withSpotifyAction(item, action) {
   const label = spotifyLabelRaw(item.text);
   return {
     ...item,
     text: `${action}: ${label}`,
-    isPlaying: action === "now playing",
+    isPlaying: action === "now playing"
   };
 }
-
-function sanitizeSpotifyTimeline(items: FeedItem[]): FeedItem[] {
+__name(withSpotifyAction, "withSpotifyAction");
+function sanitizeSpotifyTimeline(items) {
   const newestFirst = [...items].sort((a, b) => parseFeedTimeMs(b.at) - parseFeedTimeMs(a.at));
-  const kept: FeedItem[] = [];
-
-  const seenSessionKeys = new Set<string>();
-  const seenBurstKeys = new Set<string>();
+  const kept = [];
+  const seenSessionKeys = /* @__PURE__ */ new Set();
+  const seenBurstKeys = /* @__PURE__ */ new Set();
   let seenNewestSpotifyState = false;
-
   for (const item of newestFirst) {
     if (sourceBase(item.source) !== "spotify") {
       kept.push(item);
       continue;
     }
-
     const atMs = parseFeedTimeMs(item.at);
     const { action, label } = parseSpotifyEvent(item.text);
     const trackKey = clean(item.media || item.url || label);
-
     if (!trackKey) {
       kept.push(item);
       continue;
     }
-
     if (action === "last played" || action === "played") {
       continue;
     }
-
     if (action === "now playing" || action === "resumed" || action === "paused") {
       if (action === "now playing" && item.isPlaying === false) continue;
-      const progressBucket = Math.round((toNonNegativeInt(item.progressMs) || 0) / 3000);
-      const timeBucket = Math.round(atMs / 90000);
+      const progressBucket = Math.round((toNonNegativeInt(item.progressMs) || 0) / 3e3);
+      const timeBucket = Math.round(atMs / 9e4);
       const burstKey = `burst:${trackKey}:${action}:${progressBucket}:${timeBucket}`;
       if (seenBurstKeys.has(burstKey)) continue;
       seenBurstKeys.add(burstKey);
-
       const sessionKey = `play:${trackKey}:${clean(item.at)}`;
       if (seenSessionKeys.has(sessionKey)) continue;
       seenSessionKeys.add(sessionKey);
-
       if (action === "paused") {
         seenNewestSpotifyState = true;
         kept.push(withSpotifyAction(item, "paused"));
         continue;
       }
-
       if (!seenNewestSpotifyState && item.isPlaying !== false) {
         kept.push(withSpotifyAction(item, "now playing"));
         seenNewestSpotifyState = true;
@@ -263,27 +441,24 @@ function sanitizeSpotifyTimeline(items: FeedItem[]): FeedItem[] {
       }
       continue;
     }
-
     kept.push(item);
   }
-
   return kept.sort((a, b) => parseFeedTimeMs(b.at) - parseFeedTimeMs(a.at));
 }
-
-function timelineIdentity(item: FeedItem): string {
+__name(sanitizeSpotifyTimeline, "sanitizeSpotifyTimeline");
+function timelineIdentity(item) {
   if (sourceBase(item.source) !== "spotify") {
     return `${item.source}|${item.at}|${item.url || ""}|${item.text}`;
   }
-
   const { label } = parseSpotifyEvent(item.text);
   const trackKey = clean(item.media || item.url || label);
   const atKey = clean(item.at);
   return `spotify|${trackKey}|${atKey}`;
 }
-
-function formatAgeLabel(msAgo: number): string {
+__name(timelineIdentity, "timelineIdentity");
+function formatAgeLabel(msAgo) {
   if (!Number.isFinite(msAgo) || msAgo < 0) return "just now";
-  const minutes = Math.floor(msAgo / 60000);
+  const minutes = Math.floor(msAgo / 6e4);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
@@ -291,50 +466,39 @@ function formatAgeLabel(msAgo: number): string {
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
 }
-
-function selectCurrentActivity(items: FeedItem[], nowMs = Date.now()): CurrentActivity | null {
+__name(formatAgeLabel, "formatAgeLabel");
+function selectCurrentActivity(items, nowMs = Date.now()) {
   if (!Array.isArray(items) || items.length === 0) return null;
-
-  const ordered = items
-    .filter((item) => clean(item?.text).length > 0)
-    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-
+  const ordered = items.filter((item) => clean(item?.text).length > 0).sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
   if (ordered.length === 0) return null;
-
-  const isRecent = (item: FeedItem, windowMs = 10 * 60 * 1000) => {
+  const isRecent = /* @__PURE__ */ __name((item, windowMs = 10 * 60 * 1e3) => {
     const atMs = new Date(item.at).getTime();
     return Number.isFinite(atMs) && nowMs - atMs <= windowMs;
-  };
-
-  const build = (item: FeedItem, isLive: boolean): CurrentActivity => {
+  }, "isRecent");
+  const build = /* @__PURE__ */ __name((item, isLive) => {
     const atMs = new Date(item.at).getTime();
     const ageLabel = isLive ? "live now" : formatAgeLabel(nowMs - atMs);
     return {
       source: clean(item.source || "feed"),
       text: clean(item.text),
       at: clean(item.at || new Date(nowMs).toISOString()),
-      url: clean(item.url || "") || undefined,
+      url: clean(item.url || "") || void 0,
       isLive,
-      ageLabel,
+      ageLabel
     };
-  };
-
+  }, "build");
   const latestSpotify = ordered.find((item) => sourceBase(item.source) === "spotify");
   if (latestSpotify && Boolean(latestSpotify.isPlaying)) return build(latestSpotify, true);
-
   const instagramLive = ordered.find((item) => sourceBase(item.source) === "instagram" && isRecent(item));
   if (instagramLive) return build(instagramLive, true);
-
   const githubLive = ordered.find((item) => sourceBase(item.source) === "github" && isRecent(item));
   if (githubLive) return build(githubLive, true);
-
   const bandcampLive = ordered.find((item) => sourceBase(item.source) === "bandcamp" && isRecent(item));
   if (bandcampLive) return build(bandcampLive, true);
-
   return build(ordered[0], false);
 }
-
-async function fetchJson(url: string, init?: RequestInit) {
+__name(selectCurrentActivity, "selectCurrentActivity");
+async function fetchJson(url, init) {
   const response = await fetch(url, init);
   if (!response.ok) {
     const body = await response.text();
@@ -342,19 +506,18 @@ async function fetchJson(url: string, init?: RequestInit) {
   }
   return response.json();
 }
-
-async function fetchGitHub(env: Env, limit: number): Promise<FeedItem[]> {
+__name(fetchJson, "fetchJson");
+async function fetchGitHub(env, limit) {
   const username = clean(env.GITHUB_USERNAME || "cbassuarez");
   if (!username) return [];
-
   const response = await fetch(`https://github.com/${encodeURIComponent(username)}.atom`);
   if (!response.ok) {
     throw new Error(`github atom ${response.status}`);
   }
   const xml = await response.text();
-  const items: FeedItem[] = [];
+  const items = [];
   const entryRegex = /<entry>([\s\S]*?)<\/entry>/gi;
-  let match: RegExpExecArray | null;
+  let match;
   while ((match = entryRegex.exec(xml)) && items.length < limit) {
     const block = match[1];
     const title = short(decodeHtml(clean((block.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || "")), 108);
@@ -364,64 +527,50 @@ async function fetchGitHub(env: Env, limit: number): Promise<FeedItem[]> {
     items.push({
       source: `github:${username}`,
       text: title,
-      at: updated || new Date().toISOString(),
-      url: link || `https://github.com/${username}`,
+      at: updated || (/* @__PURE__ */ new Date()).toISOString(),
+      url: link || `https://github.com/${username}`
     });
   }
   return items;
 }
-
-function decodeHtml(value: string) {
-  return value
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
+__name(fetchGitHub, "fetchGitHub");
+function decodeHtml(value) {
+  return value.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
-
-async function fetchBandcamp(env: Env, limit: number): Promise<FeedItem[]> {
+__name(decodeHtml, "decodeHtml");
+async function fetchBandcamp(env, limit) {
   const domain = clean(env.BANDCAMP_DOMAIN || "cbassuarez.bandcamp.com");
   if (!domain) return [];
-
   const response = await fetch(`https://${domain}/music`, {
     headers: {
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36",
-      accept: "text/html,application/xhtml+xml",
-    },
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36",
+      accept: "text/html,application/xhtml+xml"
+    }
   });
-
   if (!response.ok) {
     throw new Error(`bandcamp ${response.status}`);
   }
-
   const html = await response.text();
-  const items: FeedItem[] = [];
-
-  const itemRegex =
-    /<li[^>]*class="[^"]*music-grid-item[^"]*"[\s\S]*?<a href="([^"]+)"[\s\S]*?<p class="title">\s*([\s\S]*?)\s*<\/p>/gi;
-
-  let match: RegExpExecArray | null;
-  const releases: Array<{ title: string; url: string }> = [];
+  const items = [];
+  const itemRegex = /<li[^>]*class="[^"]*music-grid-item[^"]*"[\s\S]*?<a href="([^"]+)"[\s\S]*?<p class="title">\s*([\s\S]*?)\s*<\/p>/gi;
+  let match;
+  const releases = [];
   while ((match = itemRegex.exec(html)) && releases.length < limit) {
     const href = clean(match[1]);
     const title = short(stripTags(decodeHtml(clean(match[2]))), 96);
     if (!href || !title) continue;
     releases.push({
       title,
-      url: href.startsWith("http") ? href : `https://${domain}${href}`,
+      url: href.startsWith("http") ? href : `https://${domain}${href}`
     });
   }
-
-  async function fetchBandcampPublishedAt(url: string): Promise<string | null> {
-    const parseDateFromHtml = (releaseHtml: string): string | null => {
+  async function fetchBandcampPublishedAt(url) {
+    const parseDateFromHtml = /* @__PURE__ */ __name((releaseHtml) => {
       const datePublishedRaw = clean((releaseHtml.match(/"datePublished"\s*:\s*"([^"]+)"/i) || [])[1] || "");
       if (datePublishedRaw) {
         const ts = Date.parse(datePublishedRaw);
         if (Number.isFinite(ts)) return new Date(ts).toISOString();
       }
-
       const pubDateMeta = clean(
         (releaseHtml.match(/<meta[^>]+property="og:pubdate"[^>]+content="([^"]+)"/i) || [])[1] || ""
       );
@@ -429,34 +578,29 @@ async function fetchBandcamp(env: Env, limit: number): Promise<FeedItem[]> {
         const ts = Date.parse(pubDateMeta);
         if (Number.isFinite(ts)) return new Date(ts).toISOString();
       }
-
       const descriptionMeta = clean((releaseHtml.match(/<meta[^>]+name="description"[^>]+content="([^"]+)"/i) || [])[1] || "");
       const releasedInDescription = clean((descriptionMeta.match(/\breleased\s+(\d{1,2}\s+\w+\s+\d{4})/i) || [])[1] || "");
       if (releasedInDescription) {
         const ts = Date.parse(releasedInDescription);
         if (Number.isFinite(ts)) return new Date(ts).toISOString();
       }
-
       return null;
-    };
-
+    }, "parseDateFromHtml");
     const candidates = [`${url}?output=1`, url];
     for (const target of candidates) {
       const releaseResponse = await fetch(target, {
         headers: {
-          "user-agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36",
-          accept: "text/html,application/xhtml+xml",
-        },
+          "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36",
+          accept: "text/html,application/xhtml+xml"
+        }
       });
       if (!releaseResponse.ok) continue;
       const parsed = parseDateFromHtml(await releaseResponse.text());
       if (parsed) return parsed;
     }
-
     return null;
   }
-
+  __name(fetchBandcampPublishedAt, "fetchBandcampPublishedAt");
   const detailed = await Promise.all(
     releases.map(async (release) => {
       const at = await fetchBandcampPublishedAt(release.url);
@@ -465,127 +609,110 @@ async function fetchBandcamp(env: Env, limit: number): Promise<FeedItem[]> {
         source: "bandcamp",
         text: `release: ${release.title}`,
         at,
-        url: release.url,
-      } as FeedItem;
+        url: release.url
+      };
     })
   );
-
   for (const row of detailed) {
     if (row) items.push(row);
   }
-
   return items;
 }
-
-async function fetchInstagram(env: Env, limit: number): Promise<FeedItem[]> {
+__name(fetchBandcamp, "fetchBandcamp");
+async function fetchInstagram(env, limit) {
   const userId = clean(env.IG_USER_ID);
   const token = clean(env.IG_ACCESS_TOKEN);
   if (!userId || !token) return [];
-
   const query = `fields=id,caption,media_type,permalink,timestamp,media_url&limit=${Math.min(limit, 100)}&access_token=${encodeURIComponent(
     token
   )}`;
-
-  let data: any;
+  let data;
   try {
     data = await fetchJson(`https://graph.facebook.com/v23.0/${encodeURIComponent(userId)}/media?${query}`);
   } catch {
     data = await fetchJson(`https://graph.instagram.com/${encodeURIComponent(userId)}/media?${query}`);
   }
-
   const rows = Array.isArray(data?.data) ? data.data : [];
-  return rows.slice(0, limit).map((post: any) => ({
+  return rows.slice(0, limit).map((post) => ({
     source: "instagram",
     text: short(post?.caption || `new ${clean(post?.media_type || "post").toLowerCase()}`, 110),
-    at: post?.timestamp || new Date().toISOString(),
+    at: post?.timestamp || (/* @__PURE__ */ new Date()).toISOString(),
     url: clean(post?.permalink),
-    media: clean(post?.media_url),
+    media: clean(post?.media_url)
   }));
 }
-
-async function readSpotifyPlaybackState(env: Env): Promise<SpotifyPlaybackState | null> {
+__name(fetchInstagram, "fetchInstagram");
+async function readSpotifyPlaybackState(env) {
   const kv = env.HITS_KV;
   if (!kv) return null;
-
   const raw = await kv.get("feed:spotify-state-v1");
   if (!raw) return null;
-
   try {
-    const parsed: any = JSON.parse(raw);
+    const parsed = JSON.parse(raw);
     const observedAt = clean(parsed?.observedAt);
     const trackKey = clean(parsed?.trackKey);
     if (!observedAt && !trackKey) return null;
-
     return {
       trackKey,
       trackName: clean(parsed?.trackName),
-      trackUrl: clean(parsed?.trackUrl) || undefined,
-      trackUri: clean(parsed?.trackUri) || undefined,
+      trackUrl: clean(parsed?.trackUrl) || void 0,
+      trackUri: clean(parsed?.trackUri) || void 0,
       isPlaying: Boolean(parsed?.isPlaying),
       progressMs: Number.isFinite(parsed?.progressMs) ? parsed.progressMs : 0,
       durationMs: Number.isFinite(parsed?.durationMs) ? parsed.durationMs : 0,
-      sessionStartedAt: clean(parsed?.sessionStartedAt) || undefined,
-      observedAt: observedAt || new Date().toISOString(),
+      sessionStartedAt: clean(parsed?.sessionStartedAt) || void 0,
+      observedAt: observedAt || (/* @__PURE__ */ new Date()).toISOString()
     };
   } catch {
     return null;
   }
 }
-
-async function writeSpotifyPlaybackState(env: Env, state: SpotifyPlaybackState): Promise<void> {
+__name(readSpotifyPlaybackState, "readSpotifyPlaybackState");
+async function writeSpotifyPlaybackState(env, state) {
   const kv = env.HITS_KV;
   if (!kv) return;
   await kv.put("feed:spotify-state-v1", JSON.stringify(state));
 }
-
-async function fetchSpotify(env: Env): Promise<FeedItem[]> {
+__name(writeSpotifyPlaybackState, "writeSpotifyPlaybackState");
+async function fetchSpotify(env) {
   const clientId = clean(env.SPOTIFY_CLIENT_ID);
   const clientSecret = clean(env.SPOTIFY_CLIENT_SECRET);
   const refreshToken = clean(env.SPOTIFY_REFRESH_TOKEN);
   if (!clientId || !clientSecret || !refreshToken) return [];
-
   const auth = btoa(`${clientId}:${clientSecret}`);
   const tokenBody = new URLSearchParams({
     grant_type: "refresh_token",
-    refresh_token: refreshToken,
+    refresh_token: refreshToken
   });
-
   const tokenResponse = await fetch("https://accounts.spotify.com/api/token", {
     method: "POST",
     headers: {
       authorization: `Basic ${auth}`,
-      "content-type": "application/x-www-form-urlencoded",
+      "content-type": "application/x-www-form-urlencoded"
     },
-    body: tokenBody.toString(),
+    body: tokenBody.toString()
   });
-
   if (!tokenResponse.ok) {
     throw new Error(`spotify token ${tokenResponse.status}`);
   }
-
-  const tokenData = (await tokenResponse.json()) as { access_token?: string };
+  const tokenData = await tokenResponse.json();
   const accessToken = clean(tokenData.access_token);
   if (!accessToken) return [];
-
   const headers = { authorization: `Bearer ${accessToken}` };
   const current = await fetch("https://api.spotify.com/v1/me/player/currently-playing", { headers });
   const previousState = await readSpotifyPlaybackState(env);
-
-  const items: FeedItem[] = [];
+  const items = [];
   const nowMs = Date.now();
   const nowIso = new Date(nowMs).toISOString();
-
   if (current.status === 200) {
-    const payload: any = await current.json();
+    const payload = await current.json();
     const track = payload?.item;
     if (track) {
-      const artists = Array.isArray(track?.artists)
-        ? track.artists.map((artist: any) => clean(artist?.name)).filter(Boolean).join(", ")
-        : "";
+      const artists = Array.isArray(track?.artists) ? track.artists.map((artist) => clean(artist?.name)).filter(Boolean).join(", ") : "";
       const name = clean(track?.name);
       const url = clean(track?.external_urls?.spotify || "");
       const uri = clean(track?.uri || "");
-      const trackLabel = `${artists}${artists && name ? " — " : ""}${name}`;
+      const trackLabel = `${artists}${artists && name ? " \u2014 " : ""}${name}`;
       const trackKey = clean(uri || url || trackLabel);
       const isPlaying = Boolean(payload?.is_playing);
       const progressMs = Number.isFinite(payload?.progress_ms) ? payload.progress_ms : 0;
@@ -593,32 +720,28 @@ async function fetchSpotify(env: Env): Promise<FeedItem[]> {
       const startedAtMs = Math.max(0, nowMs - Math.max(0, progressMs));
       const startedAtIso = new Date(startedAtMs).toISOString();
       const sameTrack = previousState?.trackKey === trackKey && trackKey.length > 0;
-      const sessionStartedAt = sameTrack
-        ? clean(previousState?.sessionStartedAt) || startedAtIso
-        : startedAtIso;
+      const sessionStartedAt = sameTrack ? clean(previousState?.sessionStartedAt) || startedAtIso : startedAtIso;
       const statusPrefix = isPlaying ? "now playing" : "paused";
-
       items.push({
         source: "spotify",
         text: `${statusPrefix}: ${trackLabel}`,
         at: sessionStartedAt,
-        url: url || undefined,
-        media: uri || undefined,
+        url: url || void 0,
+        media: uri || void 0,
         progressMs,
         durationMs,
-        isPlaying,
+        isPlaying
       });
-
       await writeSpotifyPlaybackState(env, {
         trackKey,
         trackName: trackLabel,
-        trackUrl: url || undefined,
-        trackUri: uri || undefined,
+        trackUrl: url || void 0,
+        trackUri: uri || void 0,
         isPlaying,
         progressMs,
         durationMs,
         sessionStartedAt,
-        observedAt: nowIso,
+        observedAt: nowIso
       });
     }
   } else if (current.status === 204) {
@@ -631,109 +754,92 @@ async function fetchSpotify(env: Env): Promise<FeedItem[]> {
         media: previousState.trackUri,
         progressMs: previousState.progressMs || 0,
         durationMs: previousState.durationMs || 0,
-        isPlaying: false,
+        isPlaying: false
       });
       await writeSpotifyPlaybackState(env, {
         ...previousState,
         isPlaying: false,
-        observedAt: nowIso,
+        observedAt: nowIso
       });
     }
   }
-
   return items;
 }
-
-async function fetchX(env: Env, limit: number): Promise<FeedItem[]> {
+__name(fetchSpotify, "fetchSpotify");
+async function fetchX(env, limit) {
   const username = clean(env.X_USERNAME);
   const bearer = clean(env.X_BEARER_TOKEN);
   if (!username || !bearer) return [];
-
   const headers = { authorization: `Bearer ${bearer}` };
-  const userData: any = await fetchJson(
+  const userData = await fetchJson(
     `https://api.twitter.com/2/users/by/username/${encodeURIComponent(username)}?user.fields=id`,
     { headers }
   );
-
   const userId = clean(userData?.data?.id);
   if (!userId) return [];
-
-  const tweetsData: any = await fetchJson(
+  const tweetsData = await fetchJson(
     `https://api.twitter.com/2/users/${encodeURIComponent(
       userId
     )}/tweets?exclude=retweets,replies&max_results=${Math.min(limit, 100)}&tweet.fields=created_at`,
     { headers }
   );
-
   const rows = Array.isArray(tweetsData?.data) ? tweetsData.data : [];
-  return rows.slice(0, limit).map((tweet: any) => ({
+  return rows.slice(0, limit).map((tweet) => ({
     source: `x:${username}`,
     text: short(tweet?.text, 120),
-    at: tweet?.created_at || new Date().toISOString(),
-    url: `https://x.com/${username}/status/${clean(tweet?.id)}`,
+    at: tweet?.created_at || (/* @__PURE__ */ new Date()).toISOString(),
+    url: `https://x.com/${username}/status/${clean(tweet?.id)}`
   }));
 }
-
-async function fetchYouTube(env: Env, limit: number): Promise<FeedItem[]> {
+__name(fetchX, "fetchX");
+async function fetchYouTube(env, limit) {
   const apiKey = clean(env.YT_API_KEY);
   const channelId = clean(env.YT_CHANNEL_ID);
   if (!apiKey || !channelId) return [];
-
-  const data: any = await fetchJson(
+  const data = await fetchJson(
     `https://www.googleapis.com/youtube/v3/search?key=${encodeURIComponent(apiKey)}&channelId=${encodeURIComponent(
       channelId
     )}&part=snippet,id&order=date&maxResults=${Math.min(limit, 50)}`
   );
-
   const rows = Array.isArray(data?.items) ? data.items : [];
-  return rows
-    .filter((row: any) => row?.id?.videoId)
-    .slice(0, limit)
-    .map((video: any) => ({
-      source: "youtube",
-      text: short(video?.snippet?.title || "new upload", 120),
-      at: video?.snippet?.publishedAt || new Date().toISOString(),
-      url: `https://www.youtube.com/watch?v=${video.id.videoId}`,
-    }));
+  return rows.filter((row) => row?.id?.videoId).slice(0, limit).map((video) => ({
+    source: "youtube",
+    text: short(video?.snippet?.title || "new upload", 120),
+    at: video?.snippet?.publishedAt || (/* @__PURE__ */ new Date()).toISOString(),
+    url: `https://www.youtube.com/watch?v=${video.id.videoId}`
+  }));
 }
-
-async function incrementHitCount(env: Env): Promise<number> {
+__name(fetchYouTube, "fetchYouTube");
+async function incrementHitCount(env) {
   const kv = env.HITS_KV;
   if (!kv) {
     throw new Error("hits kv missing");
   }
-
   const deltaKey = "hits:delta-v2";
-
-  const resolveCloudflareBaseline = async () => {
+  const resolveCloudflareBaseline = /* @__PURE__ */ __name(async () => {
     const zoneId = clean(env.CF_ZONE_ID);
     const token = clean(env.CF_API_TOKEN);
     if (!zoneId || !token) return null;
-
     const sinceDay = clean(env.CF_ANALYTICS_SINCE || "");
     const defaultSince = "2020-01-01";
     const startDay = /^\d{4}-\d{2}-\d{2}$/.test(sinceDay) ? sinceDay : defaultSince;
-    const toIsoDay = (date: Date) => date.toISOString().slice(0, 10);
-    const addDaysUtc = (date: Date, days: number) => {
+    const toIsoDay = /* @__PURE__ */ __name((date) => date.toISOString().slice(0, 10), "toIsoDay");
+    const addDaysUtc = /* @__PURE__ */ __name((date, days) => {
       const next = new Date(date);
       next.setUTCDate(next.getUTCDate() + days);
       return next;
-    };
-
-    const today = new Date();
+    }, "addDaysUtc");
+    const today = /* @__PURE__ */ new Date();
     const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
     const earliestAvailable = addDaysUtc(todayUtc, -364);
-    let cursor = new Date(`${startDay}T00:00:00Z`);
+    let cursor = /* @__PURE__ */ new Date(`${startDay}T00:00:00Z`);
     if (Number.isNaN(cursor.getTime())) {
-      cursor = new Date(`${defaultSince}T00:00:00Z`);
+      cursor = /* @__PURE__ */ new Date(`${defaultSince}T00:00:00Z`);
     }
     if (cursor.getTime() < earliestAvailable.getTime()) {
       cursor = earliestAvailable;
     }
-
-    const query =
-      "query($zoneTag: string, $since: Date, $until: Date){ viewer { zones(filter: { zoneTag: $zoneTag }) { httpRequests1dGroups(filter: { date_geq: $since, date_leq: $until }, limit: 400) { sum { pageViews } } } } }";
-
+    const query = "query($zoneTag: string, $since: Date, $until: Date){ viewer { zones(filter: { zoneTag: $zoneTag }) { httpRequests1dGroups(filter: { date_geq: $since, date_leq: $until }, limit: 400) { sum { pageViews } } } } }";
     let totalPageViews = 0;
     while (cursor.getTime() <= todayUtc.getTime()) {
       const chunkEnd = addDaysUtc(cursor, 363);
@@ -743,30 +849,26 @@ async function incrementHitCount(env: Env): Promise<number> {
         variables: {
           zoneTag: zoneId,
           since: toIsoDay(cursor),
-          until: toIsoDay(until),
-        },
+          until: toIsoDay(until)
+        }
       });
-
       const response = await fetch("https://api.cloudflare.com/client/v4/graphql", {
         method: "POST",
         headers: {
           authorization: `Bearer ${token}`,
           accept: "application/json",
-          "content-type": "application/json",
+          "content-type": "application/json"
         },
-        body,
+        body
       });
-
       if (!response.ok) {
         throw new Error(`cloudflare graphql ${response.status}`);
       }
-
-      const payload: any = await response.json();
+      const payload = await response.json();
       if (Array.isArray(payload?.errors) && payload.errors.length > 0) {
         const firstError = clean(payload.errors[0]?.message || "cloudflare graphql error");
         throw new Error(firstError);
       }
-
       const groups = payload?.data?.viewer?.zones?.[0]?.httpRequests1dGroups;
       if (Array.isArray(groups)) {
         for (const group of groups) {
@@ -774,13 +876,10 @@ async function incrementHitCount(env: Env): Promise<number> {
           totalPageViews += pageViews;
         }
       }
-
       cursor = addDaysUtc(until, 1);
     }
-
     return totalPageViews;
-  };
-
+  }, "resolveCloudflareBaseline");
   let baseline = toNonNegativeInt(env.HITS_BASELINE);
   if (baseline === null) {
     try {
@@ -789,136 +888,93 @@ async function incrementHitCount(env: Env): Promise<number> {
       baseline = 0;
     }
   }
-
   const deltaRaw = await kv.get(deltaKey);
   const delta = toNonNegativeInt(deltaRaw) ?? 0;
   const nextDelta = delta + 1;
   await kv.put(deltaKey, String(nextDelta));
   return baseline + nextDelta;
 }
-
-async function readGuestbookEntries(env: Env): Promise<GuestbookEntry[]> {
+__name(incrementHitCount, "incrementHitCount");
+async function readGuestbookEntries(env) {
   const kv = env.HITS_KV;
   if (!kv) {
     throw new Error("guestbook kv missing");
   }
-
   const raw = await kv.get("guestbook:entries-v1");
   if (!raw) return [];
-
-  let parsed: unknown;
+  let parsed;
   try {
     parsed = JSON.parse(raw);
   } catch {
     return [];
   }
-
   if (!Array.isArray(parsed)) return [];
-  const rows = parsed
-    .map((item: any) => ({
-      name: clean(item?.name).slice(0, 48),
-      message: clean(item?.message).slice(0, 280),
-      at: clean(item?.at) || new Date().toISOString(),
-    }))
-    .filter((item: GuestbookEntry) => item.message.length > 0);
-
+  const rows = parsed.map((item) => ({
+    name: clean(item?.name).slice(0, 48),
+    message: clean(item?.message).slice(0, 280),
+    at: clean(item?.at) || (/* @__PURE__ */ new Date()).toISOString()
+  })).filter((item) => item.message.length > 0);
   return rows;
 }
-
-async function writeGuestbookEntries(env: Env, entries: GuestbookEntry[]): Promise<void> {
+__name(readGuestbookEntries, "readGuestbookEntries");
+async function writeGuestbookEntries(env, entries) {
   const kv = env.HITS_KV;
   if (!kv) {
     throw new Error("guestbook kv missing");
   }
   await kv.put("guestbook:entries-v1", JSON.stringify(entries));
 }
-
-async function hashGuestbookSigner(ip: string): Promise<string> {
+__name(writeGuestbookEntries, "writeGuestbookEntries");
+async function hashGuestbookSigner(ip) {
   const data = new TextEncoder().encode(`gb-signer-v1:${ip}`);
   const buffer = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(buffer))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  return Array.from(new Uint8Array(buffer)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
-
-async function hasGuestbookSignature(env: Env, ip: string): Promise<boolean> {
+__name(hashGuestbookSigner, "hashGuestbookSigner");
+async function hasGuestbookSignature(env, ip) {
   const kv = env.HITS_KV;
   if (!kv) return false;
   const hash = await hashGuestbookSigner(ip);
-  return (await kv.get(`guestbook:signer:${hash}`)) !== null;
+  return await kv.get(`guestbook:signer:${hash}`) !== null;
 }
-
-async function recordGuestbookSignature(env: Env, ip: string): Promise<void> {
+__name(hasGuestbookSignature, "hasGuestbookSignature");
+async function recordGuestbookSignature(env, ip) {
   const kv = env.HITS_KV;
   if (!kv) return;
   const hash = await hashGuestbookSigner(ip);
-  await kv.put(`guestbook:signer:${hash}`, new Date().toISOString());
+  await kv.put(`guestbook:signer:${hash}`, (/* @__PURE__ */ new Date()).toISOString());
 }
-
-type StringPluck = {
-  x: number;
-  y: number;
-  t: number;
-  who: string;
-  force: number;
-  pull: number;
-  speed: number;
-  width: number;
-  sign: 1 | -1;
-};
-type StringCursor = { x: number; t: number; who: string };
-
-const STRING_PLUCK_WINDOW_MS = 90_000;
-const STRING_CURSOR_WINDOW_MS = 5_000;
-const STRING_PLUCK_MAX = 200;
-const STRING_CURSOR_MAX = 64;
-const STRING_INCOMING_MAX_BYTES = 1024;
-const STRING_PLUCK_RATE_CAPACITY = 6;
-const STRING_PLUCK_RATE_REFILL_PER_SEC = 4;
-const STRING_CURSOR_RATE_CAPACITY = 30;
-const STRING_CURSOR_RATE_REFILL_PER_SEC = 30;
-const STRING_PERSIST_DEBOUNCE_MS = 5_000;
-const STRING_ALARM_INTERVAL_MS = 30_000;
-const STRING_ROOM_NAME = "string:room-v1";
-const STRING_PERSISTED_PLUCKS_KEY = "plucks-v1";
-
-const clamp01 = (value: unknown) => {
+__name(recordGuestbookSignature, "recordGuestbookSignature");
+var STRING_PLUCK_WINDOW_MS = 9e4;
+var STRING_CURSOR_WINDOW_MS = 5e3;
+var STRING_PLUCK_MAX = 200;
+var STRING_CURSOR_MAX = 64;
+var STRING_INCOMING_MAX_BYTES = 1024;
+var STRING_PLUCK_RATE_CAPACITY = 6;
+var STRING_PLUCK_RATE_REFILL_PER_SEC = 4;
+var STRING_CURSOR_RATE_CAPACITY = 30;
+var STRING_CURSOR_RATE_REFILL_PER_SEC = 30;
+var STRING_PERSIST_DEBOUNCE_MS = 5e3;
+var STRING_ALARM_INTERVAL_MS = 3e4;
+var STRING_ROOM_NAME = "string:room-v1";
+var STRING_PERSISTED_PLUCKS_KEY = "plucks-v1";
+var clamp01 = /* @__PURE__ */ __name((value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
   if (n < 0) return 0;
   if (n > 1) return 1;
   return n;
-};
-
-async function hashStringWho(ip: string): Promise<string> {
+}, "clamp01");
+async function hashStringWho(ip) {
   const data = new TextEncoder().encode(`string-who-v1:${ip}`);
   const buffer = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(buffer))
-    .slice(0, 6)
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  return Array.from(new Uint8Array(buffer)).slice(0, 6).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
-
-interface SocketAttachment {
-  who: string;
-  joinedAt: number;
-  lastSeenAt: number;
-  pluckTokens: number;
-  pluckLast: number;
-  cursorTokens: number;
-  cursorLast: number;
-}
-
-function consumeToken(
-  attachment: SocketAttachment,
-  kind: "pluck" | "cursor",
-  now: number,
-  capacity: number,
-  refillPerSec: number
-): boolean {
+__name(hashStringWho, "hashStringWho");
+function consumeToken(attachment, kind, now, capacity, refillPerSec) {
   const tokensField = kind === "pluck" ? "pluckTokens" : "cursorTokens";
   const lastField = kind === "pluck" ? "pluckLast" : "cursorLast";
-  const elapsedSec = Math.max(0, (now - attachment[lastField]) / 1000);
+  const elapsedSec = Math.max(0, (now - attachment[lastField]) / 1e3);
   const refilled = Math.min(capacity, attachment[tokensField] + elapsedSec * refillPerSec);
   attachment[lastField] = now;
   if (refilled < 1) {
@@ -928,43 +984,41 @@ function consumeToken(
   attachment[tokensField] = refilled - 1;
   return true;
 }
-
-function readAttachment(ws: WebSocket): SocketAttachment | null {
+__name(consumeToken, "consumeToken");
+function readAttachment(ws) {
   try {
     const value = ws.deserializeAttachment();
     if (!value || typeof value !== "object") return null;
-    const att = value as SocketAttachment;
+    const att = value;
     if (typeof att.who !== "string" || att.who.length === 0) return null;
     return att;
   } catch {
     return null;
   }
 }
-
-export class StringRoom {
-  private readonly state: DurableObjectState;
-  private readonly env: Env;
-  private plucks: StringPluck[] = [];
-  private cursors: Map<string, StringCursor> = new Map();
-  private persistDirty = false;
-
-  constructor(state: DurableObjectState, env: Env) {
+__name(readAttachment, "readAttachment");
+var StringRoom = class {
+  static {
+    __name(this, "StringRoom");
+  }
+  state;
+  env;
+  plucks = [];
+  cursors = /* @__PURE__ */ new Map();
+  persistDirty = false;
+  constructor(state, env) {
     this.state = state;
     this.env = env;
     void this.state.blockConcurrencyWhile(async () => {
       try {
-        const persisted = await this.state.storage.get<StringPluck[]>(STRING_PERSISTED_PLUCKS_KEY);
+        const persisted = await this.state.storage.get(STRING_PERSISTED_PLUCKS_KEY);
         if (Array.isArray(persisted)) {
           const cutoff = Date.now() - STRING_PLUCK_WINDOW_MS;
-          this.plucks = persisted
-            .filter((p) => p && Number.isFinite(p.t) && p.t >= cutoff)
-            .slice(-STRING_PLUCK_MAX);
+          this.plucks = persisted.filter((p) => p && Number.isFinite(p.t) && p.t >= cutoff).slice(-STRING_PLUCK_MAX);
         }
       } catch {
         this.plucks = [];
       }
-      // Reattach to any sockets that survived hibernation by topping up their
-      // token buckets so reactivated clients aren't immediately throttled.
       const now = Date.now();
       for (const ws of this.state.getWebSockets()) {
         const att = readAttachment(ws);
@@ -976,49 +1030,40 @@ export class StringRoom {
         try {
           ws.serializeAttachment(att);
         } catch {
-          // ignore: closed sockets get cleaned up by the runtime
         }
       }
     });
   }
-
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request) {
     const url = new URL(request.url);
     if (!url.pathname.endsWith("/socket")) {
       return new Response(JSON.stringify({ error: "not_found" }), {
         status: 404,
-        headers: { "content-type": "application/json; charset=utf-8" },
+        headers: { "content-type": "application/json; charset=utf-8" }
       });
     }
     const upgrade = request.headers.get("upgrade") || "";
     if (upgrade.toLowerCase() !== "websocket") {
       return new Response("expected websocket upgrade", { status: 426 });
     }
-
     const claimed = clean(url.searchParams.get("who")).toLowerCase();
-    const seed =
-      request.headers.get("cf-connecting-ip") ||
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      "anon";
+    const seed = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "anon";
     const who = /^[0-9a-f]{6,16}$/i.test(claimed) ? claimed : await hashStringWho(seed);
-
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-
     const now = Date.now();
-    const attachment: SocketAttachment = {
+    const attachment = {
       who,
       joinedAt: now,
       lastSeenAt: now,
       pluckTokens: STRING_PLUCK_RATE_CAPACITY,
       pluckLast: now,
       cursorTokens: STRING_CURSOR_RATE_CAPACITY,
-      cursorLast: now,
+      cursorLast: now
     };
     server.serializeAttachment(attachment);
     this.state.acceptWebSocket(server);
-
     this.pruneExpired(now);
     const recentCursors = [...this.cursors.values()].filter((c) => c.t >= now - STRING_CURSOR_WINDOW_MS);
     try {
@@ -1028,23 +1073,19 @@ export class StringRoom {
           who,
           serverNow: now,
           plucks: this.plucks,
-          cursors: recentCursors,
+          cursors: recentCursors
         })
       );
     } catch {
-      // already disconnected; runtime cleans up
     }
-
     this.broadcast(JSON.stringify({ type: "join", who, t: now }), server);
     void this.scheduleMaintenanceAlarm();
-
     return new Response(null, { status: 101, webSocket: client });
   }
-
-  async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+  async webSocketMessage(ws, raw) {
     if (typeof raw !== "string") return;
     if (raw.length === 0 || raw.length > STRING_INCOMING_MAX_BYTES) return;
-    let parsed: any;
+    let parsed;
     try {
       parsed = JSON.parse(raw);
     } catch {
@@ -1053,17 +1094,15 @@ export class StringRoom {
     if (!parsed || typeof parsed !== "object") return;
     const att = readAttachment(ws);
     if (!att) return;
-
     const now = Date.now();
     att.lastSeenAt = now;
     const type = String(parsed.type || "");
-
     if (type === "pluck") {
       if (!consumeToken(att, "pluck", now, STRING_PLUCK_RATE_CAPACITY, STRING_PLUCK_RATE_REFILL_PER_SEC)) {
         ws.serializeAttachment(att);
         return;
       }
-      const pluck: StringPluck = {
+      const pluck = {
         who: att.who,
         t: now,
         x: clamp01(parsed.x),
@@ -1072,11 +1111,11 @@ export class StringRoom {
         pull: clamp01(parsed.pull),
         speed: clamp01(parsed.speed),
         width: clamp01(parsed.width),
-        sign: Number(parsed.sign) < 0 ? -1 : 1,
+        sign: Number(parsed.sign) < 0 ? -1 : 1
       };
       this.plucks.push(pluck);
       const cutoff = now - STRING_PLUCK_WINDOW_MS;
-      if (this.plucks.length > STRING_PLUCK_MAX || (this.plucks[0] && this.plucks[0].t < cutoff)) {
+      if (this.plucks.length > STRING_PLUCK_MAX || this.plucks[0] && this.plucks[0].t < cutoff) {
         this.plucks = this.plucks.filter((p) => p.t >= cutoff).slice(-STRING_PLUCK_MAX);
       }
       this.persistDirty = true;
@@ -1085,21 +1124,19 @@ export class StringRoom {
       ws.serializeAttachment(att);
       return;
     }
-
     if (type === "cursor") {
       if (!consumeToken(att, "cursor", now, STRING_CURSOR_RATE_CAPACITY, STRING_CURSOR_RATE_REFILL_PER_SEC)) {
         ws.serializeAttachment(att);
         return;
       }
-      const cursor: StringCursor = {
+      const cursor = {
         who: att.who,
         t: now,
-        x: clamp01(parsed.x),
+        x: clamp01(parsed.x)
       };
       this.cursors.set(att.who, cursor);
       if (this.cursors.size > STRING_CURSOR_MAX) {
-        // drop the oldest tracked cursor to bound memory
-        let oldestWho: string | null = null;
+        let oldestWho = null;
         let oldestT = Infinity;
         for (const [w, c] of this.cursors) {
           if (c.t < oldestT) {
@@ -1113,27 +1150,22 @@ export class StringRoom {
       ws.serializeAttachment(att);
       return;
     }
-
     if (type === "ping") {
       try {
         ws.send(JSON.stringify({ type: "pong", t: now }));
       } catch {
-        // ignore
       }
       ws.serializeAttachment(att);
       return;
     }
   }
-
-  webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): void {
+  webSocketClose(ws, _code, _reason, _wasClean) {
     this.handleDeparture(ws);
   }
-
-  webSocketError(ws: WebSocket, _error: unknown): void {
+  webSocketError(ws, _error) {
     this.handleDeparture(ws);
   }
-
-  async alarm(): Promise<void> {
+  async alarm() {
     const now = Date.now();
     this.pruneExpired(now);
     if (this.persistDirty) {
@@ -1141,25 +1173,21 @@ export class StringRoom {
         await this.state.storage.put(STRING_PERSISTED_PLUCKS_KEY, this.plucks);
         this.persistDirty = false;
       } catch {
-        // observability surfaces the failure; retry on next alarm
       }
     } else if (this.plucks.length === 0) {
       try {
         await this.state.storage.delete(STRING_PERSISTED_PLUCKS_KEY);
       } catch {
-        // ignore
       }
     }
     if (this.state.getWebSockets().length > 0 || this.persistDirty || this.cursors.size > 0) {
       try {
         await this.state.storage.setAlarm(Date.now() + STRING_ALARM_INTERVAL_MS);
       } catch {
-        // ignore alarm scheduling failure
       }
     }
   }
-
-  private handleDeparture(ws: WebSocket): void {
+  handleDeparture(ws) {
     const att = readAttachment(ws);
     if (!att) return;
     const stillPresent = this.state.getWebSockets().some((other) => {
@@ -1171,19 +1199,16 @@ export class StringRoom {
     this.cursors.delete(att.who);
     this.broadcast(JSON.stringify({ type: "leave", who: att.who, t: Date.now() }), ws);
   }
-
-  private broadcast(message: string, exclude?: WebSocket): void {
+  broadcast(message, exclude) {
     for (const ws of this.state.getWebSockets()) {
       if (ws === exclude) continue;
       try {
         ws.send(message);
       } catch {
-        // socket dead; runtime will reap
       }
     }
   }
-
-  private pruneExpired(now: number): void {
+  pruneExpired(now) {
     const pluckCutoff = now - STRING_PLUCK_WINDOW_MS;
     if (this.plucks.length > 0 && this.plucks[0].t < pluckCutoff) {
       const before = this.plucks.length;
@@ -1195,48 +1220,24 @@ export class StringRoom {
       if (cursor.t < cursorCutoff) this.cursors.delete(who);
     }
   }
-
-  private async scheduleMaintenanceAlarm(): Promise<void> {
+  async scheduleMaintenanceAlarm() {
     try {
       const existing = await this.state.storage.getAlarm();
       if (existing != null) return;
       const target = Date.now() + STRING_PERSIST_DEBOUNCE_MS;
       await this.state.storage.setAlarm(target);
     } catch {
-      // ignore: best-effort scheduling
     }
   }
-}
-
-// ---------- co-presence room (the back of /404) ----------
-
-type CoRoomMember = { who: string; joinedAt: number; location: string };
-type CoRoomLogEntry = {
-  startedAt: number;
-  endedAt: number;
-  durationMs: number;
-  peak: number;
-  // Distinct participants who passed through this instance, with last-known location.
-  members: Array<{ who: string; location: string }>;
 };
-
-const COROOM_NAME = "coroom:room-v1";
-const COROOM_LOG_KEY = "log-v1";
-const COROOM_LOG_MAX = 200;
-const COROOM_LEAVE_GRACE_MS = 4_000;
-const COROOM_INCOMING_MAX_BYTES = 256;
-// Accept legacy 12-hex IDs *and* UUID v4 with or without dashes.
-const COROOM_WHO_REGEX = /^[0-9a-f]{8,12}$|^[0-9a-f]{32}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-interface CoRoomAttachment {
-  who: string;
-  joinedAt: number;
-  lastSeenAt: number;
-  location: string;
-}
-
-function deriveCfLocation(request: Request): string {
-  const cf = (request as any).cf || {};
+var COROOM_NAME = "coroom:room-v1";
+var COROOM_LOG_KEY = "log-v1";
+var COROOM_LOG_MAX = 200;
+var COROOM_LEAVE_GRACE_MS = 4e3;
+var COROOM_INCOMING_MAX_BYTES = 256;
+var COROOM_WHO_REGEX = /^[0-9a-f]{8,12}$|^[0-9a-f]{32}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function deriveCfLocation(request) {
+  const cf = request.cf || {};
   const city = clean(cf.city || "");
   const region = clean(cf.region || cf.regionCode || "");
   const country = clean(cf.country || "");
@@ -1244,54 +1245,46 @@ function deriveCfLocation(request: Request): string {
   if (head && country) return `${head}, ${country}`;
   return head || country || "";
 }
-
-function readCoRoomAttachment(ws: WebSocket): CoRoomAttachment | null {
+__name(deriveCfLocation, "deriveCfLocation");
+function readCoRoomAttachment(ws) {
   try {
     const value = ws.deserializeAttachment();
     if (!value || typeof value !== "object") return null;
-    const att = value as CoRoomAttachment;
+    const att = value;
     if (typeof att.who !== "string" || att.who.length === 0) return null;
     return att;
   } catch {
     return null;
   }
 }
-
-export class CoRoom {
-  private readonly state: DurableObjectState;
-  private readonly env: Env;
-  private log: CoRoomLogEntry[] = [];
+__name(readCoRoomAttachment, "readCoRoomAttachment");
+var CoRoom = class {
+  static {
+    __name(this, "CoRoom");
+  }
+  state;
+  env;
+  log = [];
   // seenWhos maps each who that has been part of this instance to their last-known location.
-  private currentInstance: { startedAt: number; peak: number; seenWhos: Map<string, string> } | null = null;
-
-  constructor(state: DurableObjectState, env: Env) {
+  currentInstance = null;
+  constructor(state, env) {
     this.state = state;
     this.env = env;
     void this.state.blockConcurrencyWhile(async () => {
       try {
-        const persisted = await this.state.storage.get<CoRoomLogEntry[]>(COROOM_LOG_KEY);
+        const persisted = await this.state.storage.get(COROOM_LOG_KEY);
         if (Array.isArray(persisted)) {
-          this.log = persisted
-            .filter(
-              (e): e is CoRoomLogEntry =>
-                !!e &&
-                Number.isFinite(e.startedAt) &&
-                Number.isFinite(e.endedAt) &&
-                Number.isFinite(e.peak)
-            )
-            .slice(0, COROOM_LOG_MAX);
+          this.log = persisted.filter(
+            (e) => !!e && Number.isFinite(e.startedAt) && Number.isFinite(e.endedAt) && Number.isFinite(e.peak)
+          ).slice(0, COROOM_LOG_MAX);
         }
       } catch {
         this.log = [];
       }
-      // After hibernation wake, reconstruct in-memory instance from any sockets
-      // that survived. If no sockets remain, the instance state is correctly null.
       const whos = this.distinctWhos();
       if (whos.size >= 2) {
-        // We don't know the original startedAt; best-effort: use the earliest
-        // joinedAt across surviving sockets.
         let startedAt = Date.now();
-        const seen = new Map<string, string>();
+        const seen = /* @__PURE__ */ new Map();
         for (const ws of this.state.getWebSockets()) {
           const att = readCoRoomAttachment(ws);
           if (!att) continue;
@@ -1302,110 +1295,91 @@ export class CoRoom {
       }
     });
   }
-
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname.endsWith("/snapshot")) {
-      const now = Date.now();
-      const whos = this.distinctWhos();
+      const now2 = Date.now();
+      const whos2 = this.distinctWhos();
       const members = this.membersList();
       return new Response(
         JSON.stringify({
-          count: whos.size,
-          currentInstance: this.currentInstance
-            ? {
-                startedAt: this.currentInstance.startedAt,
-                peak: this.currentInstance.peak,
-                members,
-              }
-            : null,
+          count: whos2.size,
+          currentInstance: this.currentInstance ? {
+            startedAt: this.currentInstance.startedAt,
+            peak: this.currentInstance.peak,
+            members
+          } : null,
           log: this.log,
-          serverNow: now,
+          serverNow: now2
         }),
         {
           status: 200,
           headers: {
             "content-type": "application/json; charset=utf-8",
-            "cache-control": "no-store",
-          },
+            "cache-control": "no-store"
+          }
         }
       );
     }
     if (!url.pathname.endsWith("/socket")) {
       return new Response(JSON.stringify({ error: "not_found" }), {
         status: 404,
-        headers: { "content-type": "application/json; charset=utf-8" },
+        headers: { "content-type": "application/json; charset=utf-8" }
       });
     }
     const upgrade = request.headers.get("upgrade") || "";
     if (upgrade.toLowerCase() !== "websocket") {
       return new Response("expected websocket upgrade", { status: 426 });
     }
-
     const claimed = clean(url.searchParams.get("who")).toLowerCase();
-    const seed =
-      request.headers.get("cf-connecting-ip") ||
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      "anon";
+    const seed = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "anon";
     const who = COROOM_WHO_REGEX.test(claimed) ? claimed : await hashStringWho(seed);
     const location = deriveCfLocation(request);
-
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-
     const now = Date.now();
-    const att: CoRoomAttachment = { who, joinedAt: now, lastSeenAt: now, location };
+    const att = { who, joinedAt: now, lastSeenAt: now, location };
     server.serializeAttachment(att);
     this.state.acceptWebSocket(server);
-
-    // Determine instance lifecycle effects of this connection.
     const whos = this.distinctWhos();
     const wasOpen = this.currentInstance !== null;
     let openedNow = false;
     if (whos.size >= 2 && !this.currentInstance) {
-      const seen = new Map<string, string>();
+      const seen = /* @__PURE__ */ new Map();
       for (const m of this.membersList()) seen.set(m.who, m.location);
       this.currentInstance = { startedAt: now, peak: whos.size, seenWhos: seen };
       openedNow = true;
     } else if (this.currentInstance) {
       for (const m of this.membersList()) {
-        // Always update with the most recent location for each who.
         this.currentInstance.seenWhos.set(m.who, m.location);
       }
       if (whos.size > this.currentInstance.peak) this.currentInstance.peak = whos.size;
     }
-
-    // Send hello to the new socket with full state.
     const helloPayload = {
       type: "hello",
       who,
       count: whos.size,
-      currentInstance: this.currentInstance
-        ? {
-            startedAt: this.currentInstance.startedAt,
-            peak: this.currentInstance.peak,
-            members: this.membersList(),
-          }
-        : null,
+      currentInstance: this.currentInstance ? {
+        startedAt: this.currentInstance.startedAt,
+        peak: this.currentInstance.peak,
+        members: this.membersList()
+      } : null,
       log: this.log,
-      serverNow: now,
+      serverNow: now
     };
     try {
       server.send(JSON.stringify(helloPayload));
     } catch {
-      // ignore: socket may have closed pre-send
     }
-
-    // Broadcast lifecycle to other sockets.
     if (openedNow) {
       this.broadcast(
         JSON.stringify({
           type: "open",
-          startedAt: this.currentInstance!.startedAt,
-          peak: this.currentInstance!.peak,
+          startedAt: this.currentInstance.startedAt,
+          peak: this.currentInstance.peak,
           members: this.membersList(),
-          serverNow: now,
+          serverNow: now
         }),
         server
       );
@@ -1414,31 +1388,25 @@ export class CoRoom {
         JSON.stringify({
           type: "presence",
           count: whos.size,
-          peak: this.currentInstance!.peak,
+          peak: this.currentInstance.peak,
           members: this.membersList(),
-          serverNow: now,
+          serverNow: now
         }),
         server
       );
     }
-    // If !wasOpen && !openedNow: count stayed at 1, no broadcast needed (no listeners).
-
-    // Cancel any pending grace alarm now that we have ≥1 connections.
     if (whos.size >= 2) {
       try {
         await this.state.storage.deleteAlarm();
       } catch {
-        // ignore
       }
     }
-
     return new Response(null, { status: 101, webSocket: client });
   }
-
-  async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+  async webSocketMessage(ws, raw) {
     if (typeof raw !== "string") return;
     if (raw.length === 0 || raw.length > COROOM_INCOMING_MAX_BYTES) return;
-    let parsed: any;
+    let parsed;
     try {
       parsed = JSON.parse(raw);
     } catch {
@@ -1452,57 +1420,42 @@ export class CoRoom {
       try {
         ws.send(JSON.stringify({ type: "pong", t: att.lastSeenAt }));
       } catch {
-        // ignore
       }
       ws.serializeAttachment(att);
     }
-    // No other client messages accepted; door is opened by being there.
   }
-
-  webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): void {
+  webSocketClose(ws, _code, _reason, _wasClean) {
     void this.handleDisconnect(ws);
   }
-
-  webSocketError(ws: WebSocket, _error: unknown): void {
+  webSocketError(ws, _error) {
     void this.handleDisconnect(ws);
   }
-
-  async alarm(): Promise<void> {
+  async alarm() {
     const whos = this.distinctWhos();
     if (this.currentInstance && whos.size < 2) {
       const now = Date.now();
-      const entry: CoRoomLogEntry = {
+      const entry = {
         startedAt: this.currentInstance.startedAt,
         endedAt: now,
         durationMs: Math.max(0, now - this.currentInstance.startedAt),
         peak: this.currentInstance.peak,
-        members: [...this.currentInstance.seenWhos.entries()]
-          .map(([who, location]) => ({ who, location }))
-          .sort((a, b) => a.who.localeCompare(b.who)),
+        members: [...this.currentInstance.seenWhos.entries()].map(([who, location]) => ({ who, location })).sort((a, b) => a.who.localeCompare(b.who))
       };
       this.log.unshift(entry);
       this.log = this.log.slice(0, COROOM_LOG_MAX);
       try {
         await this.state.storage.put(COROOM_LOG_KEY, this.log);
       } catch {
-        // best-effort persist; will retry on next close
       }
       this.currentInstance = null;
       this.broadcast(
         JSON.stringify({ type: "close", entry, serverNow: now })
       );
     }
-    // If size >= 2, instance still alive; nothing to do.
   }
-
-  private async handleDisconnect(ws: WebSocket): Promise<void> {
+  async handleDisconnect(ws) {
     const att = readCoRoomAttachment(ws);
     if (!att) return;
-    // Cloudflare leaves the closing socket in state.getWebSockets() until this
-    // handler returns. Compute counts/members excluding it so the presence
-    // event we broadcast reflects post-disconnect state, not the transient
-    // pre-close state. Otherwise remaining clients keep seeing count=2 until
-    // the grace alarm fires (and the user perceives "stuck").
     const whos = this.distinctWhos(ws);
     const members = this.membersList(ws);
     const now = Date.now();
@@ -1513,7 +1466,7 @@ export class CoRoom {
           count: whos.size,
           peak: this.currentInstance.peak,
           members,
-          serverNow: now,
+          serverNow: now
         }),
         ws
       );
@@ -1524,14 +1477,12 @@ export class CoRoom {
             await this.state.storage.setAlarm(now + COROOM_LEAVE_GRACE_MS);
           }
         } catch {
-          // ignore alarm scheduling failure
         }
       }
     }
   }
-
-  private distinctWhos(exclude?: WebSocket): Set<string> {
-    const whos = new Set<string>();
+  distinctWhos(exclude) {
+    const whos = /* @__PURE__ */ new Set();
     for (const ws of this.state.getWebSockets()) {
       if (exclude && ws === exclude) continue;
       const att = readCoRoomAttachment(ws);
@@ -1539,9 +1490,8 @@ export class CoRoom {
     }
     return whos;
   }
-
-  private membersList(exclude?: WebSocket): CoRoomMember[] {
-    const aggregated = new Map<string, { joinedAt: number; location: string }>();
+  membersList(exclude) {
+    const aggregated = /* @__PURE__ */ new Map();
     for (const ws of this.state.getWebSockets()) {
       if (exclude && ws === exclude) continue;
       const att = readCoRoomAttachment(ws);
@@ -1550,71 +1500,45 @@ export class CoRoom {
       if (!prev || att.joinedAt < prev.joinedAt) {
         aggregated.set(att.who, { joinedAt: att.joinedAt, location: att.location || prev?.location || "" });
       } else if (att.location && !prev.location) {
-        // Backfill location if a sibling socket has it.
         aggregated.set(att.who, { ...prev, location: att.location });
       }
     }
-    return [...aggregated.entries()]
-      .map(([who, v]) => ({ who, joinedAt: v.joinedAt, location: v.location }))
-      .sort((a, b) => a.joinedAt - b.joinedAt);
+    return [...aggregated.entries()].map(([who, v]) => ({ who, joinedAt: v.joinedAt, location: v.location })).sort((a, b) => a.joinedAt - b.joinedAt);
   }
-
-  private broadcast(message: string, exclude?: WebSocket): void {
+  broadcast(message, exclude) {
     for (const ws of this.state.getWebSockets()) {
       if (ws === exclude) continue;
       try {
         ws.send(message);
       } catch {
-        // socket dead; runtime will reap
       }
     }
   }
-}
-
-// ─── body-for-visits ──────────────────────────────────────────────────────────
-// A single shared linguistic body, mutated only by qualifying human visits.
-// The event journal is the work's substrate; this DO is the substrate's home.
-const BFV_ROOM_NAME = "body-for-visits:room-v1";
-const BFV_FRINGE_KEEP = 12;
-
-type BfvToken = { token: string; role: string; event_id: number | null; ts: number };
-
-type BfvStateRow = {
-  body_json: string;
-  body_version: number;
-  fold_count: number;
-  fold_generations: number;
-  corruption_count: number;
-  fringe_json: string;
 };
-
-async function bfvHashIp(ip: string, salt: string): Promise<string> {
+var BFV_ROOM_NAME = "body-for-visits:room-v1";
+var BFV_FRINGE_KEEP = 12;
+async function bfvHashIp(ip, salt) {
   const data = new TextEncoder().encode(`bfv-ip-v1:${salt}:${ip}`);
   const buffer = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(buffer))
-    .slice(0, 8)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return Array.from(new Uint8Array(buffer)).slice(0, 8).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
-
-async function bfvHashSession(sessionId: string): Promise<string> {
+__name(bfvHashIp, "bfvHashIp");
+async function bfvHashSession(sessionId) {
   const data = new TextEncoder().encode(`bfv-session-v1:${sessionId}`);
   const buffer = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(buffer))
-    .slice(0, 8)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return Array.from(new Uint8Array(buffer)).slice(0, 8).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
-
-export class BodyForVisitsRoom {
-  private readonly state: DurableObjectState;
-  private readonly env: Env;
-  private ready = false;
-
-  constructor(state: DurableObjectState, env: Env) {
+__name(bfvHashSession, "bfvHashSession");
+var BodyForVisitsRoom = class {
+  static {
+    __name(this, "BodyForVisitsRoom");
+  }
+  state;
+  env;
+  ready = false;
+  constructor(state, env) {
     this.state = state;
     this.env = env;
-    // Idle keepalive pings are answered by the runtime without waking the DO.
     this.state.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong")
     );
@@ -1623,8 +1547,7 @@ export class BodyForVisitsRoom {
       this.ready = true;
     });
   }
-
-  private ensureSchema(): void {
+  ensureSchema() {
     const sql = this.state.storage.sql;
     sql.exec(
       `CREATE TABLE IF NOT EXISTS events (
@@ -1663,24 +1586,18 @@ export class BodyForVisitsRoom {
       );
     }
   }
-
-  private readState(): BfvStateRow {
-    const rows = this.state.storage.sql
-      .exec<BfvStateRow>(`SELECT body_json, body_version, fold_count, fold_generations, corruption_count, fringe_json FROM body_state WHERE id = 1`)
-      .toArray();
-    return (
-      rows[0] || {
-        body_json: "[]",
-        body_version: 0,
-        fold_count: 0,
-        fold_generations: 0,
-        corruption_count: 0,
-        fringe_json: "[]",
-      }
-    );
+  readState() {
+    const rows = this.state.storage.sql.exec(`SELECT body_json, body_version, fold_count, fold_generations, corruption_count, fringe_json FROM body_state WHERE id = 1`).toArray();
+    return rows[0] || {
+      body_json: "[]",
+      body_version: 0,
+      fold_count: 0,
+      fold_generations: 0,
+      corruption_count: 0,
+      fringe_json: "[]"
+    };
   }
-
-  private parseBody(row: BfvStateRow): BfvToken[] {
+  parseBody(row) {
     try {
       const parsed = JSON.parse(row.body_json);
       return Array.isArray(parsed) ? parsed : [];
@@ -1688,8 +1605,7 @@ export class BodyForVisitsRoom {
       return [];
     }
   }
-
-  private parseFringe(row: BfvStateRow): string[] {
+  parseFringe(row) {
     try {
       const parsed = JSON.parse(row.fringe_json);
       return Array.isArray(parsed) ? parsed.map(String).slice(-BFV_FRINGE_KEEP) : [];
@@ -1697,8 +1613,7 @@ export class BodyForVisitsRoom {
       return [];
     }
   }
-
-  private buildResponseBody(row: BfvStateRow, newTokenIndex: number | null) {
+  buildResponseBody(row, newTokenIndex) {
     const body = this.parseBody(row);
     const fringe = this.parseFringe(row);
     return {
@@ -1708,13 +1623,12 @@ export class BodyForVisitsRoom {
       fold_count: row.fold_count,
       fold_generations: row.fold_generations,
       corruption_count: row.corruption_count,
-      fringe: fringe.join(" "),
+      fringe: fringe.join(" ")
     };
   }
-
   // Presence = the number of open corpus pages (live WebSockets). Counted per
   // socket, so it stays simple, visible, and survives DO hibernation.
-  private presenceCount(exclude?: WebSocket): number {
+  presenceCount(exclude) {
     let n = 0;
     for (const ws of this.state.getWebSockets()) {
       if (exclude && ws === exclude) continue;
@@ -1722,76 +1636,55 @@ export class BodyForVisitsRoom {
     }
     return n;
   }
-
-  private broadcast(message: string, exclude?: WebSocket): void {
+  broadcast(message, exclude) {
     for (const ws of this.state.getWebSockets()) {
       if (ws === exclude) continue;
       try {
         ws.send(message);
       } catch {
-        // socket is dead; the runtime will reap it
       }
     }
   }
-
   // One unified message shape: a full authoritative snapshot plus the live
   // presence count. Clients gate on body_version / corruption_count, so a
   // dropped, duplicated, or out-of-order message can never accumulate drift.
-  private snapshotMessage(
-    row: BfvStateRow,
-    newTokenIndex: number | null,
-    excludePresence?: WebSocket
-  ): string {
+  snapshotMessage(row, newTokenIndex, excludePresence) {
     return JSON.stringify({
       type: "sync",
       ...this.buildResponseBody(row, newTokenIndex),
-      presence: this.presenceCount(excludePresence),
+      presence: this.presenceCount(excludePresence)
     });
   }
-
-  private handleSocket(request: Request): Response {
+  handleSocket(request) {
     if ((request.headers.get("upgrade") || "").toLowerCase() !== "websocket") {
       return new Response("expected websocket upgrade", { status: 426 });
     }
-
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
     this.state.acceptWebSocket(server);
-
-    // The new socket gets the current body immediately; everyone else just
-    // sees the presence count tick up (their body_version is unchanged).
     const message = this.snapshotMessage(this.readState(), null);
     try {
       server.send(message);
     } catch {
-      // socket may have closed before the first send
     }
     this.broadcast(message, server);
-
     return new Response(null, { status: 101, webSocket: client });
   }
-
-  webSocketMessage(_ws: WebSocket, _raw: string | ArrayBuffer): void {
-    // Keepalive "ping" is answered by setWebSocketAutoResponse. The socket is
-    // otherwise receive-only — visits mutate through POST /qualify.
+  webSocketMessage(_ws, _raw) {
   }
-
-  webSocketClose(ws: WebSocket): void {
+  webSocketClose(ws) {
     this.announcePresence(ws);
   }
-
-  webSocketError(ws: WebSocket): void {
+  webSocketError(ws) {
     this.announcePresence(ws);
   }
-
   // Cloudflare keeps the closing socket in getWebSockets() until the close
   // handler returns; exclude it so the broadcast reflects the post-close count.
-  private announcePresence(closing: WebSocket): void {
+  announcePresence(closing) {
     this.broadcast(this.snapshotMessage(this.readState(), null, closing), closing);
   }
-
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname;
     if (path.endsWith("/socket")) {
@@ -1808,17 +1701,16 @@ export class BodyForVisitsRoom {
     }
     if (request.method === "GET" && path === "/snapshot") {
       const state = this.buildResponseBody(this.readState(), null);
-      const html = bfvSnapshot(state, new Date().toISOString());
+      const html = renderSnapshotHTML(state, (/* @__PURE__ */ new Date()).toISOString());
       return new Response(html, {
         status: 200,
-        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" },
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }
       });
     }
     return this.responseJson({ error: "not_found" }, 404);
   }
-
-  private async qualify(request: Request): Promise<Response> {
-    let payload: any = {};
+  async qualify(request) {
+    let payload = {};
     try {
       payload = await request.json();
     } catch {
@@ -1829,52 +1721,39 @@ export class BodyForVisitsRoom {
       return this.responseJson({ error: "bad_session" }, 400);
     }
     const ua = request.headers.get("user-agent") || "";
-    const ip =
-      request.headers.get("cf-connecting-ip") ||
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      "anon";
+    const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "anon";
     const salt = this.env.BFV_HASH_SALT || "bfv-default-salt";
     const ipHash = await bfvHashIp(ip, salt);
     const sessionHash = await bfvHashSession(sessionId);
     const now = Date.now();
-
     const sql = this.state.storage.sql;
-    const lastRows = sql
-      .exec<{ max_ts: number | null }>(
-        `SELECT MAX(ts) AS max_ts FROM events WHERE session_hash = ? AND kind = 'human'`,
-        sessionHash
-      )
-      .toArray();
+    const lastRows = sql.exec(
+      `SELECT MAX(ts) AS max_ts FROM events WHERE session_hash = ? AND kind = 'human'`,
+      sessionHash
+    ).toArray();
     const lastSessionTs = lastRows[0]?.max_ts ?? null;
-
     const stateRow = this.readState();
     const body = this.parseBody(stateRow);
-    // For grammar, ignore the fold marker if it's at index 0.
     const realBody = body[0]?.role === "fold_marker" ? body.slice(1) : body;
     const prev = realBody.length > 0 ? realBody[realBody.length - 1] : null;
-    const humanCountRows = sql
-      .exec<{ n: number }>(`SELECT COUNT(*) AS n FROM events WHERE kind = 'human'`)
-      .toArray();
+    const humanCountRows = sql.exec(`SELECT COUNT(*) AS n FROM events WHERE kind = 'human'`).toArray();
     const humanEventIndex = (humanCountRows[0]?.n || 0) + 1;
     const seed = parseInt(ipHash.slice(0, 8), 16) || 1;
-
-    const decision = bfvDecide({
+    const decision = decideQualify({
       ua,
       lastSessionTs,
       prevRole: prev?.role ?? null,
       prevToken: prev?.token ?? null,
       humanEventIndex,
       seed,
-      now,
+      now
     });
-
     if (decision.action === "cooldown") {
-      const data = this.buildResponseBody(stateRow, null);
-      return this.responseJson({ ...data, skipped: "cooldown" });
+      const data2 = this.buildResponseBody(stateRow, null);
+      return this.responseJson({ ...data2, skipped: "cooldown" });
     }
-
     if (decision.action === "bot") {
-      const glyphs = BFV_BUCKETS.corruption_glyphs;
+      const glyphs = BUCKETS.corruption_glyphs;
       const glyph = glyphs[Math.abs(seed) % glyphs.length];
       sql.exec(
         `INSERT INTO events (ts, kind, ip_hash, session_hash, ua_class, token, role)
@@ -1897,11 +1776,9 @@ export class BodyForVisitsRoom {
       );
       const next = { ...stateRow, corruption_count: nextCorruption, fringe_json: JSON.stringify(fringeKept) };
       this.broadcast(this.snapshotMessage(next, null));
-      const data = this.buildResponseBody(next, null);
-      return this.responseJson({ ...data, skipped: "bot" });
+      const data2 = this.buildResponseBody(next, null);
+      return this.responseJson({ ...data2, skipped: "bot" });
     }
-
-    // append
     sql.exec(
       `INSERT INTO events (ts, kind, ip_hash, session_hash, ua_class, token, role)
        VALUES (?, 'human', ?, ?, 'browser', ?, ?)`,
@@ -1911,19 +1788,14 @@ export class BodyForVisitsRoom {
       decision.token,
       decision.role
     );
-    const eventIdRow = sql.exec<{ id: number }>(`SELECT last_insert_rowid() AS id`).toArray();
+    const eventIdRow = sql.exec(`SELECT last_insert_rowid() AS id`).toArray();
     const eventId = eventIdRow[0]?.id ?? null;
-
-    // The work never ends with a terminal period. If the new token is "." and
-    // would land at the body's tail, swap to a comma so the sentence stays open.
     let nextToken = decision.token;
-    if (nextToken === "." ) nextToken = ",";
-
-    const nextBody: BfvToken[] = [...body, { token: nextToken, role: decision.role, event_id: eventId, ts: now }];
-    const folded = bfvFold(nextBody, stateRow.fold_count, stateRow.fold_generations, now);
+    if (nextToken === ".") nextToken = ",";
+    const nextBody = [...body, { token: nextToken, role: decision.role, event_id: eventId, ts: now }];
+    const folded = foldBody(nextBody, stateRow.fold_count, stateRow.fold_generations, now);
     const newTokenIndex = folded.body.length - 1;
     const nextVersion = stateRow.body_version + 1;
-
     sql.exec(
       `UPDATE body_state
          SET body_json = ?, body_version = ?, fold_count = ?, fold_generations = ?, updated_at = ?
@@ -1934,145 +1806,117 @@ export class BodyForVisitsRoom {
       folded.fold_generations,
       now
     );
-
-    const updated: BfvStateRow = {
+    const updated = {
       body_json: JSON.stringify(folded.body),
       body_version: nextVersion,
       fold_count: folded.fold_count,
       fold_generations: folded.fold_generations,
       corruption_count: stateRow.corruption_count,
-      fringe_json: stateRow.fringe_json,
+      fringe_json: stateRow.fringe_json
     };
     this.broadcast(this.snapshotMessage(updated, newTokenIndex));
     const data = this.buildResponseBody(updated, newTokenIndex);
     return this.responseJson({ ...data, skipped: null });
   }
-
-  private export(): Response {
-    const rows = this.state.storage.sql
-      .exec(`SELECT id, ts, kind, session_hash, ua_class, token, role FROM events ORDER BY id ASC`)
-      .toArray();
+  export() {
+    const rows = this.state.storage.sql.exec(`SELECT id, ts, kind, session_hash, ua_class, token, role FROM events ORDER BY id ASC`).toArray();
     const stateRow = this.readState();
     const body = {
-      exported_at: new Date().toISOString(),
+      exported_at: (/* @__PURE__ */ new Date()).toISOString(),
       body_version: stateRow.body_version,
       fold_count: stateRow.fold_count,
       fold_generations: stateRow.fold_generations,
       corruption_count: stateRow.corruption_count,
-      events: rows,
+      events: rows
     };
     return new Response(JSON.stringify(body), {
       status: 200,
-      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
     });
   }
-
-  private responseJson(body: unknown, status = 200): Response {
+  responseJson(body, status = 200) {
     return new Response(JSON.stringify(body), {
       status,
-      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
     });
   }
-}
-// ─── /body-for-visits ─────────────────────────────────────────────────────────
-
-type SiteDeployRecord = {
-  sha: string;
-  shortSha: string;
-  at: string;
-  text: string;
-  url?: string;
 };
-
-const SITE_DEPLOYS_KEY = "feed:site-deploys-v1";
-const SITE_DEPLOYS_MAX = 30;
-const SITE_DEPLOY_TEXT_MAX = 240;
-const SITE_DEPLOY_SUBJECTS_MAX = 220;
-
-async function fetchSite(env: Env): Promise<FeedItem[]> {
+var SITE_DEPLOYS_KEY = "feed:site-deploys-v1";
+var SITE_DEPLOYS_MAX = 30;
+var SITE_DEPLOY_TEXT_MAX = 240;
+var SITE_DEPLOY_SUBJECTS_MAX = 220;
+async function fetchSite(env) {
   const url = clean(env.SITE_VERSION_URL);
   const kv = env.HITS_KV;
   if (!url || !kv) return [];
-
-  let stored: SiteDeployRecord[] = [];
+  let stored = [];
   try {
     const raw = await kv.get(SITE_DEPLOYS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        stored = parsed
-          .filter((d): d is SiteDeployRecord => !!d && typeof d.sha === "string" && typeof d.at === "string")
-          .slice(0, SITE_DEPLOYS_MAX);
+        stored = parsed.filter((d) => !!d && typeof d.sha === "string" && typeof d.at === "string").slice(0, SITE_DEPLOYS_MAX);
       }
     }
   } catch {
     stored = [];
   }
-
-  let manifest: any = null;
+  let manifest = null;
   try {
     const response = await fetch(url, {
       headers: { accept: "application/json" },
-      cf: { cacheTtl: 30, cacheEverything: false },
-    } as RequestInit);
+      cf: { cacheTtl: 30, cacheEverything: false }
+    });
     if (response.ok) {
       manifest = await response.json().catch(() => null);
     }
   } catch {
     manifest = null;
   }
-
   const sha = clean(manifest?.sha);
   if (sha && sha !== "dev" && !stored.some((d) => d.sha === sha)) {
     const shortSha = clean(manifest?.shortSha) || sha.slice(0, 7);
-    const at = normalizeIsoAt(manifest?.at) || new Date().toISOString();
-    const subjects = Array.isArray(manifest?.subjects)
-      ? manifest.subjects.map((s: unknown) => clean(s)).filter((s: string) => s.length > 0)
-      : [];
+    const at = normalizeIsoAt(manifest?.at) || (/* @__PURE__ */ new Date()).toISOString();
+    const subjects = Array.isArray(manifest?.subjects) ? manifest.subjects.map((s) => clean(s)).filter((s) => s.length > 0) : [];
     const subjectsBody = subjects.length > 0 ? short(subjects.join("; "), SITE_DEPLOY_SUBJECTS_MAX) : "";
-    const text = subjectsBody
-      ? short(`site deployed · ${shortSha} · ${subjectsBody}`, SITE_DEPLOY_TEXT_MAX)
-      : `site deployed · ${shortSha}`;
+    const text = subjectsBody ? short(`site deployed \xB7 ${shortSha} \xB7 ${subjectsBody}`, SITE_DEPLOY_TEXT_MAX) : `site deployed \xB7 ${shortSha}`;
     const repoUrl = clean(env.SITE_REPO_URL).replace(/\/+$/, "");
-    const commitUrl = repoUrl ? `${repoUrl}/commit/${sha}` : undefined;
-    const record: SiteDeployRecord = {
+    const commitUrl = repoUrl ? `${repoUrl}/commit/${sha}` : void 0;
+    const record = {
       sha,
       shortSha,
       at,
       text,
-      ...(commitUrl ? { url: commitUrl } : {}),
+      ...commitUrl ? { url: commitUrl } : {}
     };
     stored = [record, ...stored].slice(0, SITE_DEPLOYS_MAX);
     try {
       await kv.put(SITE_DEPLOYS_KEY, JSON.stringify(stored));
     } catch {
-      // best-effort persist; observability surfaces failure
     }
   }
-
   return stored.map((d) => ({
     source: "site",
     text: d.text,
     at: d.at,
-    ...(d.url ? { url: d.url } : {}),
+    ...d.url ? { url: d.url } : {}
   }));
 }
-
-async function buildFeedSnapshot(env: Env): Promise<FeedSnapshot> {
-  const tasks: Array<[string, () => Promise<FeedItem[]>]> = [
+__name(fetchSite, "fetchSite");
+async function buildFeedSnapshot(env) {
+  const tasks = [
     ["github", () => fetchGitHub(env, FEED_MAX_ITEMS)],
     ["bandcamp", () => fetchBandcamp(env, FEED_MAX_ITEMS)],
     ["instagram", () => fetchInstagram(env, FEED_MAX_ITEMS)],
     ["spotify", () => fetchSpotify(env)],
     ["x", () => fetchX(env, FEED_MAX_ITEMS)],
     ["youtube", () => fetchYouTube(env, FEED_MAX_ITEMS)],
-    ["site", () => fetchSite(env)],
+    ["site", () => fetchSite(env)]
   ];
-
   const results = await Promise.allSettled(tasks.map((task) => task[1]()));
-  const items: FeedItem[] = [];
-  const sources: Record<string, SourceStatus> = {};
-  const configured = (name: string) => {
+  const items = [];
+  const sources = {};
+  const configured = /* @__PURE__ */ __name((name) => {
     switch (name) {
       case "github":
         return !!clean(env.GITHUB_USERNAME || "cbassuarez");
@@ -2081,11 +1925,7 @@ async function buildFeedSnapshot(env: Env): Promise<FeedSnapshot> {
       case "instagram":
         return !!clean(env.IG_USER_ID) && !!clean(env.IG_ACCESS_TOKEN);
       case "spotify":
-        return (
-          !!clean(env.SPOTIFY_CLIENT_ID) &&
-          !!clean(env.SPOTIFY_CLIENT_SECRET) &&
-          !!clean(env.SPOTIFY_REFRESH_TOKEN)
-        );
+        return !!clean(env.SPOTIFY_CLIENT_ID) && !!clean(env.SPOTIFY_CLIENT_SECRET) && !!clean(env.SPOTIFY_REFRESH_TOKEN);
       case "x":
         return !!clean(env.X_USERNAME) && !!clean(env.X_BEARER_TOKEN);
       case "youtube":
@@ -2095,8 +1935,7 @@ async function buildFeedSnapshot(env: Env): Promise<FeedSnapshot> {
       default:
         return false;
     }
-  };
-
+  }, "configured");
   results.forEach((result, index) => {
     const name = tasks[index][0];
     if (result.status === "fulfilled") {
@@ -2105,70 +1944,60 @@ async function buildFeedSnapshot(env: Env): Promise<FeedSnapshot> {
       sources[name] = {
         status: value.length > 0 || configured(name) ? "ok" : "missing_config",
         count: value.length,
-        message: value.length > 0 ? undefined : configured(name) ? "No recent activity." : "No data returned.",
+        message: value.length > 0 ? void 0 : configured(name) ? "No recent activity." : "No data returned."
       };
       return;
     }
-
     const message = clean(result.reason?.message || result.reason || "unknown error");
     sources[name] = {
       status: message.toLowerCase().includes("missing") ? "missing_config" : "error",
       count: 0,
-      message,
+      message
     };
   });
-
   const previous = await readFeedSnapshot(env);
   const historical = previous?.items || [];
-  const merged = [...items, ...historical]
-    .map((item) => {
-      const at = normalizeIsoAt(item?.at);
-      return at ? { ...item, at } : null;
-    })
-    .filter((item): item is FeedItem => !!item && item.text.length > 0)
-    .sort((a, b) => parseFeedTimeMs(b.at) - parseFeedTimeMs(a.at))
-    .filter((item, index, array) => {
-      const key = timelineIdentity(item);
-      return array.findIndex((candidate) => timelineIdentity(candidate) === key) === index;
-    });
-
+  const merged = [...items, ...historical].map((item) => {
+    const at = normalizeIsoAt(item?.at);
+    return at ? { ...item, at } : null;
+  }).filter((item) => !!item && item.text.length > 0).sort((a, b) => parseFeedTimeMs(b.at) - parseFeedTimeMs(a.at)).filter((item, index, array) => {
+    const key = timelineIdentity(item);
+    return array.findIndex((candidate) => timelineIdentity(candidate) === key) === index;
+  });
   const persisted = sanitizeSpotifyTimeline(merged).slice(0, FEED_MAX_ITEMS);
   return {
     items: persisted,
     sources,
-    generatedAt: new Date().toISOString(),
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
-
-async function persistFeedSnapshot(env: Env, snapshot: FeedSnapshot): Promise<void> {
+__name(buildFeedSnapshot, "buildFeedSnapshot");
+async function persistFeedSnapshot(env, snapshot) {
   const kv = env.HITS_KV;
   if (!kv) return;
   await kv.put(FEED_SNAPSHOT_KEY, JSON.stringify(snapshot));
 }
-
-async function readFeedSnapshot(env: Env): Promise<FeedSnapshot | null> {
+__name(persistFeedSnapshot, "persistFeedSnapshot");
+async function readFeedSnapshot(env) {
   const kv = env.HITS_KV;
   if (!kv) return null;
-
   const raw = await kv.get(FEED_SNAPSHOT_KEY);
   if (!raw) return null;
-
   try {
-    const parsed: any = JSON.parse(raw);
+    const parsed = JSON.parse(raw);
     if (parsed && Array.isArray(parsed.items)) {
       return {
-        items: parsed.items as FeedItem[],
-        sources: (parsed.sources || {}) as Record<string, SourceStatus>,
-        generatedAt: clean(parsed.generatedAt) || new Date().toISOString(),
+        items: parsed.items,
+        sources: parsed.sources || {},
+        generatedAt: clean(parsed.generatedAt) || (/* @__PURE__ */ new Date()).toISOString()
       };
     }
   } catch {
-    // ignore parse failure, treat as missing
   }
   return null;
 }
-
-async function checkRateLimit(binding: RateLimitBinding | undefined, key: string): Promise<boolean> {
+__name(readFeedSnapshot, "readFeedSnapshot");
+async function checkRateLimit(binding, key) {
   if (!binding) return true;
   try {
     const result = await binding.limit({ key });
@@ -2177,23 +2006,19 @@ async function checkRateLimit(binding: RateLimitBinding | undefined, key: string
     return true;
   }
 }
-
-function tooManyRequests(allowOrigin: string): Response {
+__name(checkRateLimit, "checkRateLimit");
+function tooManyRequests(allowOrigin) {
   return new Response(
-    JSON.stringify({ error: "rate_limited", at: new Date().toISOString() }),
+    JSON.stringify({ error: "rate_limited", at: (/* @__PURE__ */ new Date()).toISOString() }),
     { status: 429, headers: { ...jsonHeaders(allowOrigin), "retry-after": "60" } }
   );
 }
-
-function clientKey(request: Request): string {
-  return (
-    request.headers.get("cf-connecting-ip") ||
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    "unknown"
-  );
+__name(tooManyRequests, "tooManyRequests");
+function clientKey(request) {
+  return request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 }
-
-function isValidContactEmail(value: unknown): boolean {
+__name(clientKey, "clientKey");
+function isValidContactEmail(value) {
   const email = clean(value);
   if (!CONTACT_EMAIL_REGEX.test(email)) return false;
   const lowered = email.toLowerCase();
@@ -2204,30 +2029,25 @@ function isValidContactEmail(value: unknown): boolean {
   if (domain.startsWith("example.") || domain.startsWith("test.")) return false;
   return true;
 }
-
-function parseContactSubmission(body: any): { ok: true; data: ContactSubmission } | { ok: false; error: string } {
+__name(isValidContactEmail, "isValidContactEmail");
+function parseContactSubmission(body) {
   const name = clean(body?.name).slice(0, 120);
   const email = clean(body?.email).slice(0, 254);
   const subject = clean(body?.subject).slice(0, 180);
-  const message = clean(body?.message).slice(0, 4000);
+  const message = clean(body?.message).slice(0, 4e3);
   const requestedTopic = clean(body?.topic).toLowerCase();
   const topic = CONTACT_ALLOWED_TOPICS.has(requestedTopic) ? requestedTopic : "other";
   const timeSensitive = clean(body?.time_sensitive).toLowerCase() === "yes" || body?.time_sensitive === true;
-  const token =
-    clean(body?.turnstileToken || body?.["cf-turnstile-response"]).slice(0, 2048);
-
+  const token = clean(body?.turnstileToken || body?.["cf-turnstile-response"]).slice(0, 2048);
   if (!name || !email || !subject || !message) {
     return { ok: false, error: "missing_required_fields" };
   }
-
   if (!isValidContactEmail(email)) {
     return { ok: false, error: "invalid_email" };
   }
-
   if (!token) {
     return { ok: false, error: "missing_turnstile_token" };
   }
-
   return {
     ok: true,
     data: {
@@ -2237,82 +2057,62 @@ function parseContactSubmission(body: any): { ok: true; data: ContactSubmission 
       topic,
       timeSensitive,
       message,
-      turnstileToken: token,
-    },
+      turnstileToken: token
+    }
   };
 }
-
-function resolveTurnstileSecret(env: Env, request: Request): string {
+__name(parseContactSubmission, "parseContactSubmission");
+function resolveTurnstileSecret(env, request) {
   const configured = clean(env.TURNSTILE_SECRET_KEY);
   if (configured) return configured;
-
   const host = clean(new URL(request.url).hostname).toLowerCase();
   const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1";
   return isLocalHost ? TURNSTILE_TEST_SECRET_KEY : "";
 }
-
-function allowedTurnstileHostnames(env: Env): Set<string> {
+__name(resolveTurnstileSecret, "resolveTurnstileSecret");
+function allowedTurnstileHostnames(env) {
   const raw = clean(env.TURNSTILE_ALLOWED_HOSTNAMES || "cbassuarez.com,www.cbassuarez.com");
-  const parts = raw
-    .split(",")
-    .map((host) => clean(host).toLowerCase())
-    .filter(Boolean);
+  const parts = raw.split(",").map((host) => clean(host).toLowerCase()).filter(Boolean);
   return new Set(parts);
 }
-
-async function verifyTurnstileToken(
-  token: string,
-  secret: string,
-  remoteIp: string
-): Promise<{ success: boolean; errorCodes: string[]; hostname: string; action: string }> {
+__name(allowedTurnstileHostnames, "allowedTurnstileHostnames");
+async function verifyTurnstileToken(token, secret, remoteIp) {
   const payload = new URLSearchParams();
   payload.set("secret", secret);
   payload.set("response", token);
   if (remoteIp && remoteIp !== "unknown") {
     payload.set("remoteip", remoteIp);
   }
-
   try {
     const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: payload.toString(),
+      body: payload.toString()
     });
-
-    const parsed: any = await response.json().catch(() => ({}));
-    const errorCodes = Array.isArray(parsed?.["error-codes"])
-      ? parsed["error-codes"].map((code: unknown) => clean(code)).filter(Boolean)
-      : [];
+    const parsed = await response.json().catch(() => ({}));
+    const errorCodes = Array.isArray(parsed?.["error-codes"]) ? parsed["error-codes"].map((code) => clean(code)).filter(Boolean) : [];
     const hostname = clean(parsed?.hostname || "").toLowerCase();
     const action = clean(parsed?.action || "");
-
     if (!response.ok) {
       return {
         success: false,
         errorCodes: errorCodes.length ? errorCodes : [`siteverify_http_${response.status}`],
         hostname,
-        action,
+        action
       };
     }
-
     return { success: Boolean(parsed?.success), errorCodes, hostname, action };
   } catch {
     return { success: false, errorCodes: ["siteverify_network_error"], hostname: "", action: "" };
   }
 }
-
-const CONTACT_FORMSPREE_DEFAULT_ENDPOINT = "https://formspree.io/f/mjkepaeo";
-
-async function deliverContactEmail(
-  env: Env,
-  payload: ContactSubmission,
-  receivedAt: string
-): Promise<{ ok: boolean; error: string | null; messageId: string | null }> {
+__name(verifyTurnstileToken, "verifyTurnstileToken");
+var CONTACT_FORMSPREE_DEFAULT_ENDPOINT = "https://formspree.io/f/mjkepaeo";
+async function deliverContactEmail(env, payload, receivedAt) {
   const endpoint = clean(env.CONTACT_FORMSPREE_ENDPOINT || CONTACT_FORMSPREE_DEFAULT_ENDPOINT);
   if (!endpoint) {
     return { ok: false, error: "formspree_endpoint_unconfigured", messageId: null };
   }
-
   const body = {
     name: payload.name,
     email: payload.email,
@@ -2322,56 +2122,43 @@ async function deliverContactEmail(
     topic: payload.topic,
     time_sensitive: payload.timeSensitive ? "yes" : "no",
     received_at: receivedAt,
-    message: payload.message,
+    message: payload.message
   };
-
   try {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        accept: "application/json",
+        accept: "application/json"
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(body)
     });
-
-    let parsed: any = null;
+    let parsed = null;
     try {
       parsed = await response.json();
     } catch {
       parsed = null;
     }
-
     if (!response.ok || parsed?.ok === false) {
-      const errors = Array.isArray(parsed?.errors)
-        ? parsed.errors.map((e: any) => clean(e?.message || e?.code || "")).filter(Boolean).join("; ")
-        : "";
+      const errors = Array.isArray(parsed?.errors) ? parsed.errors.map((e) => clean(e?.message || e?.code || "")).filter(Boolean).join("; ") : "";
       const detail = errors || clean(parsed?.error) || `formspree_status_${response.status}`;
       return { ok: false, error: short(detail, 220), messageId: null };
     }
-
     const id = clean(parsed?.id || parsed?.next || "");
     return { ok: true, error: null, messageId: id || null };
-  } catch (error: any) {
+  } catch (error) {
     const message = clean(error?.message || "formspree_network_error");
     return { ok: false, error: short(message, 220), messageId: null };
   }
 }
-
-async function handleFeedRequest(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-  allowOrigin: string
-): Promise<Response> {
+__name(deliverContactEmail, "deliverContactEmail");
+async function handleFeedRequest(request, env, ctx, allowOrigin) {
   const url = new URL(request.url);
   const limit = Math.max(1, Math.min(FEED_MAX_ITEMS, Number(url.searchParams.get("limit")) || 24));
-
   const cacheUrl = new URL(request.url);
   cacheUrl.search = `?limit=${limit}`;
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cache = caches.default;
-
   const cached = await cache.match(cacheKey);
   if (cached) {
     const response = new Response(cached.body, cached);
@@ -2379,51 +2166,44 @@ async function handleFeedRequest(
     response.headers.set("cache-control", "no-store");
     return response;
   }
-
   let snapshot = await readFeedSnapshot(env);
   if (!snapshot) {
-    snapshot = { items: [], sources: {}, generatedAt: new Date().toISOString() };
+    snapshot = { items: [], sources: {}, generatedAt: (/* @__PURE__ */ new Date()).toISOString() };
     ctx.waitUntil(
       (async () => {
         try {
           const built = await buildFeedSnapshot(env);
           await persistFeedSnapshot(env, built);
         } catch {
-          // surfaces in observability logs
         }
       })()
     );
   }
-
   const body = JSON.stringify(
     {
       items: snapshot.items.slice(0, limit),
       sources: snapshot.sources,
       currentActivity: selectCurrentActivity(snapshot.items),
-      generatedAt: snapshot.generatedAt,
+      generatedAt: snapshot.generatedAt
     },
     null,
     2
   );
-
   if (snapshot.items.length > 0) {
     const cacheable = new Response(body, {
       status: 200,
       headers: {
         ...jsonHeaders(allowOrigin),
-        "cache-control": `public, s-maxage=${FEED_EDGE_CACHE_SECONDS}`,
-      },
+        "cache-control": `public, s-maxage=${FEED_EDGE_CACHE_SECONDS}`
+      }
     });
     ctx.waitUntil(cache.put(cacheKey, cacheable.clone()));
   }
-
   return new Response(body, { status: 200, headers: jsonHeaders(allowOrigin) });
 }
-
-// ---------- CLI surface (curl, wget, httpie, ...) ----------
-
-const CLI_USER_AGENT_REGEX = /^(curl|wget|HTTPie|httpie|aria2|powershell|fetch|node-fetch|go-http-client|libwww-perl|python-requests|python-urllib)\b/i;
-const CLI_LETTER_FALLBACK = `hello.
+__name(handleFeedRequest, "handleFeedRequest");
+var CLI_USER_AGENT_REGEX = /^(curl|wget|HTTPie|httpie|aria2|powershell|fetch|node-fetch|go-http-client|libwww-perl|python-requests|python-urllib)\b/i;
+var CLI_LETTER_FALLBACK = `hello.
 
 this is cbassuarez.com from the command line.
 i'm seb. i make cybernetic music systems.
@@ -2435,7 +2215,7 @@ the live surfaces:
   /labs/guestbook a place to leave a small mark
 
 the offline ones:
-  let go / letting go · THE TUB · String · Praetorius
+  let go / letting go \xB7 THE TUB \xB7 String \xB7 Praetorius
 
 if you want to talk:  contact@cbassuarez.com
 if you want to read:  this came from /humans.txt
@@ -2450,21 +2230,9 @@ curl /repl       what /labs/repl is + ssh-render usage
 
 ssh ssh.cbassuarez.com repl < patch.txt | mpv -    actually plays the patch
 
-— seb
+\u2014 seb
 `;
-
-type CliPath =
-  | "letter"
-  | "feed"
-  | "string"
-  | "room"
-  | "works"
-  | "contact"
-  | "version"
-  | "humans"
-  | "repl";
-
-const CLI_PATH_MAP: Record<string, CliPath | undefined> = {
+var CLI_PATH_MAP = {
   "/": "letter",
   "/cli": "letter",
   "/cli/": "letter",
@@ -2482,10 +2250,9 @@ const CLI_PATH_MAP: Record<string, CliPath | undefined> = {
   "/works": "works",
   "/contact": "contact",
   "/version": "version",
-  "/repl": "repl",
+  "/repl": "repl"
 };
-
-function isCliClient(request: Request): boolean {
+function isCliClient(request) {
   const ua = clean(request.headers.get("user-agent") || "");
   if (CLI_USER_AGENT_REGEX.test(ua)) return true;
   const accept = clean(request.headers.get("accept") || "");
@@ -2494,72 +2261,66 @@ function isCliClient(request: Request): boolean {
   }
   return false;
 }
-
-function classifyCliPath(pathname: string): CliPath | null {
+__name(isCliClient, "isCliClient");
+function classifyCliPath(pathname) {
   const trimmed = pathname.replace(/\/+$/, "") || "/";
   return CLI_PATH_MAP[trimmed] ?? null;
 }
-
-function cliTextResponse(body: string, status = 200): Response {
+__name(classifyCliPath, "classifyCliPath");
+function cliTextResponse(body, status = 200) {
   return new Response(body.endsWith("\n") ? body : body + "\n", {
     status,
     headers: {
       "content-type": "text/plain; charset=utf-8",
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
-      link: DISCOVERY_LINK_HEADER,
-    },
+      link: DISCOVERY_LINK_HEADER
+    }
   });
 }
-
-function buildCliFooter(): string {
+__name(cliTextResponse, "cliTextResponse");
+function buildCliFooter() {
   return [
     "",
-    "—",
-    "more at https://cbassuarez.com  ·  signed at /humans.txt",
-    "",
+    "\u2014",
+    "more at https://cbassuarez.com  \xB7  signed at /humans.txt",
+    ""
   ].join("\n");
 }
-
-async function fetchCliLetter(request: Request): Promise<string> {
-  // Try fetching the canonical letter from the deployed site, fall back to
-  // the inline copy when the site is unreachable (e.g. local dev, transient
-  // outage). The fetch is best-effort and never blocks the response.
+__name(buildCliFooter, "buildCliFooter");
+async function fetchCliLetter(request) {
   try {
     const origin = new URL(request.url);
     origin.pathname = "/.well-known/cli-letter.txt";
     origin.search = "";
-    // Hit the canonical apex if available; fall back to the worker's own URL.
     const candidates = [
       `https://cbassuarez.com/.well-known/cli-letter.txt`,
-      origin.toString(),
+      origin.toString()
     ];
     for (const candidate of candidates) {
       try {
         const r = await fetch(candidate, {
           headers: { accept: "text/plain" },
-          cf: { cacheTtl: 60, cacheEverything: true },
-        } as RequestInit);
+          cf: { cacheTtl: 60, cacheEverything: true }
+        });
         if (r.ok) {
           const text = await r.text();
           const trimmed = text.trim();
           if (trimmed.length > 0) return text;
         }
       } catch {
-        // try next
       }
     }
   } catch {
-    // fall through to inline fallback
   }
   return CLI_LETTER_FALLBACK;
 }
-
-function formatCliRelative(at: string, nowMs: number): string {
+__name(fetchCliLetter, "fetchCliLetter");
+function formatCliRelative(at, nowMs) {
   const t = parseFeedTimeMs(at);
   if (!t) return "";
   const diffMs = Math.max(0, nowMs - t);
-  const min = Math.floor(diffMs / 60_000);
+  const min = Math.floor(diffMs / 6e4);
   if (min < 1) return "just now";
   if (min < 60) return `${min}m ago`;
   const hr = Math.floor(min / 60);
@@ -2567,8 +2328,8 @@ function formatCliRelative(at: string, nowMs: number): string {
   const d = Math.floor(hr / 24);
   return `${d}d ago`;
 }
-
-async function renderCliFeed(env: Env, allowOrigin: string): Promise<string> {
+__name(formatCliRelative, "formatCliRelative");
+async function renderCliFeed(env, allowOrigin) {
   const snapshot = await readFeedSnapshot(env);
   const items = (snapshot?.items || []).slice(0, 6);
   const now = Date.now();
@@ -2581,16 +2342,16 @@ async function renderCliFeed(env: Env, allowOrigin: string): Promise<string> {
       const src = sourceBase(item.source).padEnd(8, " ");
       const when = formatCliRelative(item.at, now).padEnd(8, " ");
       const text = short(item.text, 88);
-      lines.push(`  · ${when} ${src} ${text}`);
+      lines.push(`  \xB7 ${when} ${src} ${text}`);
     }
   }
   lines.push("");
   lines.push("more at https://cbassuarez.com/labs/feed");
   return lines.join("\n");
 }
-
-function formatCliDuration(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
+__name(renderCliFeed, "renderCliFeed");
+function formatCliDuration(ms) {
+  const s = Math.max(0, Math.floor(ms / 1e3));
   const m = Math.floor(s / 60);
   const r = s % 60;
   if (m >= 60) {
@@ -2600,8 +2361,8 @@ function formatCliDuration(ms: number): string {
   }
   return `${String(m).padStart(2, "0")}m${String(r).padStart(2, "0")}s`;
 }
-
-async function renderCliRoom(env: Env): Promise<string> {
+__name(formatCliDuration, "formatCliDuration");
+async function renderCliRoom(env) {
   if (!env.CO_ROOM) return "the /404 anteroom is not configured here.\n";
   try {
     const id = env.CO_ROOM.idFromName(COROOM_NAME);
@@ -2610,26 +2371,24 @@ async function renderCliRoom(env: Env): Promise<string> {
     if (!r.ok) {
       return "the /404 anteroom is unreachable right now.\n";
     }
-    const data: any = await r.json().catch(() => null);
+    const data = await r.json().catch(() => null);
     if (!data) return "the /404 anteroom returned no state.\n";
     const count = Number(data.count) || 0;
     const log = Array.isArray(data.log) ? data.log : [];
     if (data.currentInstance && count >= 2) {
       const startedAt = Number(data.currentInstance.startedAt) || 0;
-      const dur = formatCliDuration(Math.max(0, Date.now() - startedAt));
-      const peak = Number(data.currentInstance.peak) || count;
+      const dur2 = formatCliDuration(Math.max(0, Date.now() - startedAt));
+      const peak2 = Number(data.currentInstance.peak) || count;
       const members = Array.isArray(data.currentInstance.members) ? data.currentInstance.members : [];
-      const places = members
-        .map((m: any) => clean(m?.location || ""))
-        .filter((p: string) => p.length > 0);
-      const placeLine = places.length > 0 ? `they are connecting from ${places.join(", ")}.` : "";
+      const places2 = members.map((m) => clean(m?.location || "")).filter((p) => p.length > 0);
+      const placeLine2 = places2.length > 0 ? `they are connecting from ${places2.join(", ")}.` : "";
       return [
         `the /404 anteroom is open right now.`,
-        `${count} people are present (peak ${peak}); the instance has been open ${dur}.`,
-        placeLine,
+        `${count} people are present (peak ${peak2}); the instance has been open ${dur2}.`,
+        placeLine2,
         ``,
         `wander toward https://cbassuarez.com/this-does-not-exist if you want to join.`,
-        ``,
+        ``
       ].filter(Boolean).join("\n") + "\n";
     }
     const last = log[0];
@@ -2639,15 +2398,13 @@ async function renderCliRoom(env: Env): Promise<string> {
         "simultaneously asking the site for a page that doesn't exist.",
         "",
         "wander toward https://cbassuarez.com/this-does-not-exist if you want to try.",
-        "",
+        ""
       ].join("\n");
     }
     const dur = formatCliDuration(Number(last.durationMs) || 0);
     const ago = formatCliRelative(new Date(last.endedAt || 0).toISOString(), Date.now());
     const peak = Number(last.peak) || 0;
-    const places = Array.isArray(last.members)
-      ? last.members.map((m: any) => clean(m?.location || "")).filter((p: string) => p.length > 0)
-      : [];
+    const places = Array.isArray(last.members) ? last.members.map((m) => clean(m?.location || "")).filter((p) => p.length > 0) : [];
     const placeLine = places.length > 0 ? `they were from ${places.join(", ")}.` : "";
     return [
       `the /404 anteroom is currently closed.`,
@@ -2655,61 +2412,57 @@ async function renderCliRoom(env: Env): Promise<string> {
       placeLine,
       ``,
       `wander toward https://cbassuarez.com/this-does-not-exist if you want to try.`,
-      ``,
+      ``
     ].filter(Boolean).join("\n") + "\n";
   } catch {
     return "the /404 anteroom is unreachable right now.\n";
   }
 }
-
-async function renderCliString(env: Env): Promise<string> {
-  // The string lab's state lives only inside the StringRoom DO; surface a
-  // tiny prose summary by hitting it (or fall back to a static blurb).
-  // We don't add a /snapshot path to StringRoom in this pass — keep the
-  // CLI text purely descriptive.
+__name(renderCliRoom, "renderCliRoom");
+async function renderCliString(env) {
   return [
     "the string lab is a shared instrument that lives in your browser.",
     "every visitor plays one string; every pluck travels outward and",
     "returns as sympathetic sound from other strings nearby.",
     "",
     "pluck it yourself at https://cbassuarez.com/labs/string.",
-    "",
+    ""
   ].join("\n");
 }
-
-function renderCliWorks(): string {
+__name(renderCliString, "renderCliString");
+function renderCliWorks() {
   return [
     "the offline works:",
     "",
-    "  · let go / letting go    cybernetic performance, ongoing.",
-    "  · THE TUB                installation + sonic sculpture.",
-    "  · String                 cybernetic strings, multi-visitor.",
-    "  · Praetorius             prepared instruments + live system.",
+    "  \xB7 let go / letting go    cybernetic performance, ongoing.",
+    "  \xB7 THE TUB                installation + sonic sculpture.",
+    "  \xB7 String                 cybernetic strings, multi-visitor.",
+    "  \xB7 Praetorius             prepared instruments + live system.",
     "",
     "the online (live) ones:",
     "",
-    "  · /labs/string           shared string instrument.",
-    "  · /labs/repl             live-coding repl in score-grid notation.",
-    "  · /labs/feed             a feed of what i did online today.",
-    "  · /labs/guestbook        a place to leave a small mark.",
-    "  · /404 (anteroom)        opens only when two strangers are",
+    "  \xB7 /labs/string           shared string instrument.",
+    "  \xB7 /labs/repl             live-coding repl in score-grid notation.",
+    "  \xB7 /labs/feed             a feed of what i did online today.",
+    "  \xB7 /labs/guestbook        a place to leave a small mark.",
+    "  \xB7 /404 (anteroom)        opens only when two strangers are",
     "                           simultaneously on a page that doesn't exist.",
     "",
     "more at https://cbassuarez.com/works",
-    "",
+    ""
   ].join("\n");
 }
-
-function renderCliRepl(): string {
+__name(renderCliWorks, "renderCliWorks");
+function renderCliRepl() {
   return [
-    "/labs/repl — a live-coding piece in score-grid notation, powered by",
+    "/labs/repl \u2014 a live-coding piece in score-grid notation, powered by",
     "             the cbassuarez voices. it runs in two places:",
     "",
     "  in your browser, at https://cbassuarez.com/labs/repl",
-    "    — the canonical surface. live transport viz, sample browser,",
+    "    \u2014 the canonical surface. live transport viz, sample browser,",
     "      hot-reload on Cmd-Enter, share-by-URL.",
     "",
-    "  from your shell, over ssh — same patches, same DSL, rendered to a",
+    "  from your shell, over ssh \u2014 same patches, same DSL, rendered to a",
     "  WAV stream you pipe into a local audio player:",
     "",
     "    ssh ssh.cbassuarez.com repl < patch.txt | mpv -",
@@ -2741,7 +2494,7 @@ function renderCliRepl(): string {
     "selectors:    bank-* (random per fire), bank-*! (frozen),",
     "              bank-*&N (gradient), a/b (union of pools).",
     "",
-    "sample bank — 300 one-shots, mirrored from /labs/chunk-surfer:",
+    "sample bank \u2014 300 one-shots, mirrored from /labs/chunk-surfer:",
     "  main_b3        b3-01 .. b3-64       (64)",
     "  THE TUB        tub-xither-forge ..  (44)",
     "  amplifications amp-001 .. amp-064   (64)",
@@ -2749,11 +2502,11 @@ function renderCliRepl(): string {
     "  lux_nova       lux-001 .. lux-064   (64)",
     "",
     "more at https://cbassuarez.com/labs/repl",
-    "",
+    ""
   ].join("\n");
 }
-
-function renderCliContact(): string {
+__name(renderCliRepl, "renderCliRepl");
+function renderCliContact() {
   return [
     "to reach me:",
     "",
@@ -2764,18 +2517,18 @@ function renderCliContact(): string {
     "",
     "i read every email. i answer most of them.",
     "",
-    "— seb",
-    "",
+    "\u2014 seb",
+    ""
   ].join("\n");
 }
-
-async function renderCliVersion(env: Env): Promise<string> {
+__name(renderCliContact, "renderCliContact");
+async function renderCliVersion(env) {
   if (!env.HITS_KV) return "build label is not available right now.\n";
-  let manifest: any = null;
+  let manifest = null;
   try {
     const r = await fetch("https://cbassuarez.com/version.json", {
       headers: { accept: "application/json" },
-      cf: { cacheTtl: 60 } as any,
+      cf: { cacheTtl: 60 }
     });
     if (r.ok) manifest = await r.json().catch(() => null);
   } catch {
@@ -2788,14 +2541,14 @@ async function renderCliVersion(env: Env): Promise<string> {
   const at = clean(manifest.at).slice(0, 19).replace("T", " ");
   const subjects = Array.isArray(manifest.subjects) ? manifest.subjects : [];
   const lines = [
-    `build · ${shortSha} · ${at} UTC`,
-    "",
+    `build \xB7 ${shortSha} \xB7 ${at} UTC`,
+    ""
   ];
   if (subjects.length > 0) {
     lines.push("recent work:");
     for (const s of subjects.slice(0, 8)) {
       const trimmed = clean(s);
-      if (trimmed) lines.push(`  · ${trimmed}`);
+      if (trimmed) lines.push(`  \xB7 ${trimmed}`);
     }
     lines.push("");
   }
@@ -2803,34 +2556,29 @@ async function renderCliVersion(env: Env): Promise<string> {
   lines.push("");
   return lines.join("\n");
 }
-
-async function renderCliHumans(request: Request): Promise<string> {
+__name(renderCliVersion, "renderCliVersion");
+async function renderCliHumans(request) {
   try {
     const r = await fetch("https://cbassuarez.com/humans.txt", {
       headers: { accept: "text/plain" },
-      cf: { cacheTtl: 60 } as any,
+      cf: { cacheTtl: 60 }
     });
     if (r.ok) return await r.text();
   } catch {
-    // ignore
   }
   return "humans.txt is unavailable right now.\n";
 }
-
-async function handleCliRequest(
-  request: Request,
-  env: Env,
-  url: URL
-): Promise<Response> {
+__name(renderCliHumans, "renderCliHumans");
+async function handleCliRequest(request, env, url) {
   const kind = classifyCliPath(url.pathname);
   if (!kind) {
     const lines = [
-      `cbassuarez.com · cli`,
+      `cbassuarez.com \xB7 cli`,
       ``,
       `no such path: ${url.pathname}`,
       ``,
       `try: /, /feed, /string, /room, /works, /contact, /version`,
-      ``,
+      ``
     ];
     return cliTextResponse(lines.join("\n"), 404);
   }
@@ -2870,23 +2618,14 @@ async function handleCliRequest(
     }
   }
 }
-
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+__name(handleCliRequest, "handleCliRequest");
+var src_default = {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const allowOrigin = env.FEED_ALLOW_ORIGIN || "*";
-
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: jsonHeaders(allowOrigin) });
     }
-
-    // CLI surface: catch curl/wget/httpie at the top, before any API routes,
-    // so `curl <worker>/feed` and `curl <worker>/cli/feed` both serve text.
-    // Two ways to opt in:
-    //   1. The path is under /cli (explicit namespace) — always serve text.
-    //   2. The User-Agent looks CLI-shaped — serve text on the short paths.
-    // /api/* paths are explicitly NOT considered CLI paths so existing JSON
-    // contracts are preserved.
     if (request.method === "GET" && !url.pathname.startsWith("/api/")) {
       const cliKind = classifyCliPath(url.pathname);
       const explicitCliPath = url.pathname === "/cli" || url.pathname.startsWith("/cli/");
@@ -2894,144 +2633,130 @@ export default {
         return handleCliRequest(request, env, url);
       }
     }
-
     if (url.pathname === "/api/feed") {
-      if (!(await checkRateLimit(env.RATE_LIMIT_FEED, clientKey(request)))) {
+      if (!await checkRateLimit(env.RATE_LIMIT_FEED, clientKey(request))) {
         return tooManyRequests(allowOrigin);
       }
       return handleFeedRequest(request, env, ctx, allowOrigin);
     }
-
     if (url.pathname === "/api/hit") {
-      if (!(await checkRateLimit(env.RATE_LIMIT_HIT, clientKey(request)))) {
+      if (!await checkRateLimit(env.RATE_LIMIT_HIT, clientKey(request))) {
         return tooManyRequests(allowOrigin);
       }
       try {
         const value = await incrementHitCount(env);
-        return new Response(JSON.stringify({ value, at: new Date().toISOString() }), {
+        return new Response(JSON.stringify({ value, at: (/* @__PURE__ */ new Date()).toISOString() }), {
           status: 200,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
-      } catch (error: any) {
+      } catch (error) {
         return new Response(
-          JSON.stringify({ error: clean(error?.message || "hit_count_failed"), at: new Date().toISOString() }),
+          JSON.stringify({ error: clean(error?.message || "hit_count_failed"), at: (/* @__PURE__ */ new Date()).toISOString() }),
           {
             status: 502,
-            headers: jsonHeaders(allowOrigin),
+            headers: jsonHeaders(allowOrigin)
           }
         );
       }
     }
-
     if (url.pathname === "/api/guestbook") {
       if (request.method === "GET") {
         try {
           const rawLimit = Number(url.searchParams.get("limit"));
           const hasLimit = Number.isFinite(rawLimit) && rawLimit > 0;
-          const limit = hasLimit ? Math.max(1, Math.min(5000, Math.floor(rawLimit))) : null;
+          const limit = hasLimit ? Math.max(1, Math.min(5e3, Math.floor(rawLimit))) : null;
           const entries = await readGuestbookEntries(env);
           const selected = limit ? entries.slice(0, limit) : entries;
-          return new Response(JSON.stringify({ entries: selected, at: new Date().toISOString() }), {
+          return new Response(JSON.stringify({ entries: selected, at: (/* @__PURE__ */ new Date()).toISOString() }), {
             status: 200,
-            headers: jsonHeaders(allowOrigin),
+            headers: jsonHeaders(allowOrigin)
           });
-        } catch (error: any) {
+        } catch (error) {
           return new Response(
-            JSON.stringify({ error: clean(error?.message || "guestbook_read_failed"), at: new Date().toISOString() }),
+            JSON.stringify({ error: clean(error?.message || "guestbook_read_failed"), at: (/* @__PURE__ */ new Date()).toISOString() }),
             {
               status: 502,
-              headers: jsonHeaders(allowOrigin),
+              headers: jsonHeaders(allowOrigin)
             }
           );
         }
       }
-
       if (request.method === "POST") {
-        if (!(await checkRateLimit(env.RATE_LIMIT_GUESTBOOK_POST, clientKey(request)))) {
+        if (!await checkRateLimit(env.RATE_LIMIT_GUESTBOOK_POST, clientKey(request))) {
           return tooManyRequests(allowOrigin);
         }
         try {
           const signerIp = clientKey(request);
           if (await hasGuestbookSignature(env, signerIp)) {
             return new Response(
-              JSON.stringify({ error: "already_signed", at: new Date().toISOString() }),
+              JSON.stringify({ error: "already_signed", at: (/* @__PURE__ */ new Date()).toISOString() }),
               { status: 409, headers: jsonHeaders(allowOrigin) }
             );
           }
-
-          const body: any = await request.json();
+          const body = await request.json();
           const name = clean(body?.name || "anonymous").slice(0, 48) || "anonymous";
           const message = clean(body?.message || "").slice(0, 280);
-
           if (!message) {
-            return new Response(JSON.stringify({ error: "message_required", at: new Date().toISOString() }), {
+            return new Response(JSON.stringify({ error: "message_required", at: (/* @__PURE__ */ new Date()).toISOString() }), {
               status: 400,
-              headers: jsonHeaders(allowOrigin),
+              headers: jsonHeaders(allowOrigin)
             });
           }
-
           const entries = await readGuestbookEntries(env);
-          const next: GuestbookEntry[] = [{ name, message, at: new Date().toISOString() }, ...entries];
+          const next = [{ name, message, at: (/* @__PURE__ */ new Date()).toISOString() }, ...entries];
           await writeGuestbookEntries(env, next);
           await recordGuestbookSignature(env, signerIp);
-
-          return new Response(JSON.stringify({ ok: true, entries: next, at: new Date().toISOString() }), {
+          return new Response(JSON.stringify({ ok: true, entries: next, at: (/* @__PURE__ */ new Date()).toISOString() }), {
             status: 200,
-            headers: jsonHeaders(allowOrigin),
+            headers: jsonHeaders(allowOrigin)
           });
-        } catch (error: any) {
+        } catch (error) {
           return new Response(
-            JSON.stringify({ error: clean(error?.message || "guestbook_write_failed"), at: new Date().toISOString() }),
+            JSON.stringify({ error: clean(error?.message || "guestbook_write_failed"), at: (/* @__PURE__ */ new Date()).toISOString() }),
             {
               status: 502,
-              headers: jsonHeaders(allowOrigin),
+              headers: jsonHeaders(allowOrigin)
             }
           );
         }
       }
-
       return new Response(JSON.stringify({ error: "method_not_allowed" }), {
         status: 405,
-        headers: jsonHeaders(allowOrigin),
+        headers: jsonHeaders(allowOrigin)
       });
     }
-
     if (url.pathname === "/api/contact") {
       if (request.method !== "POST") {
         return new Response(JSON.stringify({ error: "method_not_allowed" }), {
           status: 405,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
       }
-      if (!(await checkRateLimit(env.RATE_LIMIT_CONTACT_POST, clientKey(request)))) {
+      if (!await checkRateLimit(env.RATE_LIMIT_CONTACT_POST, clientKey(request))) {
         return tooManyRequests(allowOrigin);
       }
-
       try {
-        const body: any = await request.json().catch(() => ({}));
+        const body = await request.json().catch(() => ({}));
         if (clean(body?._gotcha || body?.gotcha)) {
-          return new Response(JSON.stringify({ ok: true, at: new Date().toISOString() }), {
+          return new Response(JSON.stringify({ ok: true, at: (/* @__PURE__ */ new Date()).toISOString() }), {
             status: 200,
-            headers: jsonHeaders(allowOrigin),
+            headers: jsonHeaders(allowOrigin)
           });
         }
-
         const parsed = parseContactSubmission(body);
         if (!parsed.ok) {
-          return new Response(JSON.stringify({ error: parsed.error, at: new Date().toISOString() }), {
+          return new Response(JSON.stringify({ error: parsed.error, at: (/* @__PURE__ */ new Date()).toISOString() }), {
             status: 400,
-            headers: jsonHeaders(allowOrigin),
+            headers: jsonHeaders(allowOrigin)
           });
         }
-
         const turnstileSecret = resolveTurnstileSecret(env, request);
         if (!turnstileSecret) {
-          return new Response(JSON.stringify({ error: "turnstile_unconfigured", at: new Date().toISOString() }), {
+          return new Response(JSON.stringify({ error: "turnstile_unconfigured", at: (/* @__PURE__ */ new Date()).toISOString() }), {
             status: 503,
-            headers: jsonHeaders(allowOrigin),
+            headers: jsonHeaders(allowOrigin)
           });
         }
-
         const verification = await verifyTurnstileToken(
           parsed.data.turnstileToken,
           turnstileSecret,
@@ -3042,138 +2767,129 @@ export default {
             JSON.stringify({
               error: "turnstile_failed",
               details: verification.errorCodes,
-              at: new Date().toISOString(),
+              at: (/* @__PURE__ */ new Date()).toISOString()
             }),
             { status: 403, headers: jsonHeaders(allowOrigin) }
           );
         }
-
         const allowedHosts = allowedTurnstileHostnames(env);
         if (allowedHosts.size > 0 && !allowedHosts.has(verification.hostname)) {
           return new Response(
             JSON.stringify({
               error: "turnstile_bad_hostname",
               hostname: verification.hostname || null,
-              at: new Date().toISOString(),
+              at: (/* @__PURE__ */ new Date()).toISOString()
             }),
             { status: 403, headers: jsonHeaders(allowOrigin) }
           );
         }
-
         if (verification.action && verification.action !== CONTACT_TURNSTILE_ACTION) {
           return new Response(
             JSON.stringify({
               error: "turnstile_bad_action",
               action: verification.action,
-              at: new Date().toISOString(),
+              at: (/* @__PURE__ */ new Date()).toISOString()
             }),
             { status: 403, headers: jsonHeaders(allowOrigin) }
           );
         }
-
-        const at = new Date().toISOString();
+        const at = (/* @__PURE__ */ new Date()).toISOString();
         const delivered = await deliverContactEmail(env, parsed.data, at);
         if (!delivered.ok) {
           return new Response(
             JSON.stringify({
               error: "contact_delivery_failed",
               detail: delivered.error,
-              at,
+              at
             }),
             { status: 502, headers: jsonHeaders(allowOrigin) }
           );
         }
-
         return new Response(JSON.stringify({
           ok: true,
           relayed: true,
           messageId: delivered.messageId,
-          at,
+          at
         }), {
           status: 200,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
-      } catch (error: any) {
+      } catch (error) {
         return new Response(
-          JSON.stringify({ error: clean(error?.message || "contact_submit_failed"), at: new Date().toISOString() }),
+          JSON.stringify({ error: clean(error?.message || "contact_submit_failed"), at: (/* @__PURE__ */ new Date()).toISOString() }),
           { status: 502, headers: jsonHeaders(allowOrigin) }
         );
       }
     }
-
     if (url.pathname === "/api/contact-config") {
       if (request.method !== "GET") {
         return new Response(JSON.stringify({ error: "method_not_allowed" }), {
           status: 405,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
       }
-
       const siteKey = clean(env.TURNSTILE_SITE_KEY || "");
       return new Response(
         JSON.stringify({
           turnstileSiteKey: siteKey || null,
-          at: new Date().toISOString(),
+          at: (/* @__PURE__ */ new Date()).toISOString()
         }),
         { status: 200, headers: jsonHeaders(allowOrigin) }
       );
     }
-
     if (url.pathname === "/api/string/socket") {
       const upgrade = request.headers.get("upgrade") || "";
       if (upgrade.toLowerCase() !== "websocket") {
         return new Response(JSON.stringify({ error: "expected_websocket_upgrade" }), {
           status: 426,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
       }
       if (!env.STRING_ROOM) {
         return new Response(JSON.stringify({ error: "string_room_unconfigured" }), {
           status: 503,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
       }
-      if (!(await checkRateLimit(env.RATE_LIMIT_STRING_SOCKET, clientKey(request)))) {
+      if (!await checkRateLimit(env.RATE_LIMIT_STRING_SOCKET, clientKey(request))) {
         return tooManyRequests(allowOrigin);
       }
       const id = env.STRING_ROOM.idFromName(STRING_ROOM_NAME);
       const stub = env.STRING_ROOM.get(id);
       return stub.fetch(request);
     }
-
     if (url.pathname === "/api/coroom/socket") {
       const upgrade = request.headers.get("upgrade") || "";
       if (upgrade.toLowerCase() !== "websocket") {
         return new Response(JSON.stringify({ error: "expected_websocket_upgrade" }), {
           status: 426,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
       }
       if (!env.CO_ROOM) {
         return new Response(JSON.stringify({ error: "coroom_unconfigured" }), {
           status: 503,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
       }
-      if (!(await checkRateLimit(env.RATE_LIMIT_COROOM_SOCKET, clientKey(request)))) {
+      if (!await checkRateLimit(env.RATE_LIMIT_COROOM_SOCKET, clientKey(request))) {
         return tooManyRequests(allowOrigin);
       }
       const id = env.CO_ROOM.idFromName(COROOM_NAME);
       const stub = env.CO_ROOM.get(id);
       return stub.fetch(request);
     }
-
     if (url.pathname === "/api/coroom/snapshot") {
       if (request.method !== "GET") {
         return new Response(JSON.stringify({ error: "method_not_allowed" }), {
           status: 405,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
       }
       if (!env.CO_ROOM) {
         return new Response(JSON.stringify({ error: "coroom_unconfigured" }), {
           status: 503,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
       }
       const id = env.CO_ROOM.idFromName(COROOM_NAME);
@@ -3185,43 +2901,39 @@ export default {
       const body = await response.text();
       return new Response(body, {
         status: response.status,
-        headers: jsonHeaders(allowOrigin),
+        headers: jsonHeaders(allowOrigin)
       });
     }
-
     if (url.pathname === "/api/corpus/socket") {
       if ((request.headers.get("upgrade") || "").toLowerCase() !== "websocket") {
         return new Response(JSON.stringify({ error: "expected_websocket_upgrade" }), {
           status: 426,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
       }
       if (!env.BFV_ROOM) {
         return new Response(JSON.stringify({ error: "bfv_unconfigured" }), {
           status: 503,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
       }
-      if (!(await checkRateLimit(env.RATE_LIMIT_BFV_SOCKET, clientKey(request)))) {
+      if (!await checkRateLimit(env.RATE_LIMIT_BFV_SOCKET, clientKey(request))) {
         return tooManyRequests(allowOrigin);
       }
       const id = env.BFV_ROOM.idFromName(BFV_ROOM_NAME);
       const stub = env.BFV_ROOM.get(id);
       return stub.fetch(request);
     }
-
     if (url.pathname.startsWith("/api/corpus/")) {
       if (!env.BFV_ROOM) {
         return new Response(JSON.stringify({ error: "bfv_unconfigured" }), {
           status: 503,
-          headers: jsonHeaders(allowOrigin),
+          headers: jsonHeaders(allowOrigin)
         });
       }
       const sub = url.pathname.slice("/api/corpus/".length);
-
       const id = env.BFV_ROOM.idFromName(BFV_ROOM_NAME);
       const stub = env.BFV_ROOM.get(id);
-
       if (sub === "state" && request.method === "GET") {
         const inner = new URL(request.url);
         inner.pathname = "/state";
@@ -3229,9 +2941,8 @@ export default {
         const body = await resp.text();
         return new Response(body, { status: resp.status, headers: jsonHeaders(allowOrigin) });
       }
-
       if (sub === "qualify" && request.method === "POST") {
-        if (!(await checkRateLimit(env.RATE_LIMIT_BFV_QUALIFY, clientKey(request)))) {
+        if (!await checkRateLimit(env.RATE_LIMIT_BFV_QUALIFY, clientKey(request))) {
           return tooManyRequests(allowOrigin);
         }
         const bodyText = await request.text();
@@ -3242,15 +2953,14 @@ export default {
           headers: {
             "content-type": "application/json",
             "user-agent": request.headers.get("user-agent") || "",
-            "cf-connecting-ip": clientKey(request),
+            "cf-connecting-ip": clientKey(request)
           },
-          body: bodyText,
+          body: bodyText
         });
         const resp = await stub.fetch(forwarded);
         const body = await resp.text();
         return new Response(body, { status: resp.status, headers: jsonHeaders(allowOrigin) });
       }
-
       if (sub === "export.json" && request.method === "GET") {
         const inner = new URL(request.url);
         inner.pathname = "/export";
@@ -3258,7 +2968,6 @@ export default {
         const body = await resp.text();
         return new Response(body, { status: resp.status, headers: jsonHeaders(allowOrigin) });
       }
-
       if (sub === "snapshot.html" && request.method === "GET") {
         const inner = new URL(request.url);
         inner.pathname = "/snapshot";
@@ -3270,36 +2979,210 @@ export default {
             "content-type": "text/html; charset=utf-8",
             "cache-control": "public, max-age=60",
             "access-control-allow-origin": allowOrigin,
-            link: DISCOVERY_LINK_HEADER,
-          },
+            link: DISCOVERY_LINK_HEADER
+          }
         });
       }
-
       return new Response(JSON.stringify({ error: "method_not_allowed" }), {
         status: 405,
-        headers: jsonHeaders(allowOrigin),
+        headers: jsonHeaders(allowOrigin)
       });
     }
-
     if (url.pathname === "/api/health") {
-      return new Response(JSON.stringify({ ok: true, at: new Date().toISOString() }), {
+      return new Response(JSON.stringify({ ok: true, at: (/* @__PURE__ */ new Date()).toISOString() }), {
         status: 200,
-        headers: jsonHeaders(allowOrigin),
+        headers: jsonHeaders(allowOrigin)
       });
     }
-
     return new Response(JSON.stringify({ error: "not_found" }), {
       status: 404,
-      headers: jsonHeaders(allowOrigin),
+      headers: jsonHeaders(allowOrigin)
     });
   },
-
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(_event, env, ctx) {
     ctx.waitUntil(
       (async () => {
         const snapshot = await buildFeedSnapshot(env);
         await persistFeedSnapshot(env, snapshot);
       })()
     );
-  },
+  }
 };
+
+// ../../../.npm/_npx/32026684e21afda6/node_modules/wrangler/templates/middleware/middleware-ensure-req-body-drained.ts
+var drainBody = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx) => {
+  try {
+    return await middlewareCtx.next(request, env);
+  } finally {
+    try {
+      if (request.body !== null && !request.bodyUsed) {
+        const reader = request.body.getReader();
+        while (!(await reader.read()).done) {
+        }
+      }
+    } catch (e) {
+      console.error("Failed to drain the unused request body.", e);
+    }
+  }
+}, "drainBody");
+var middleware_ensure_req_body_drained_default = drainBody;
+
+// ../../../.npm/_npx/32026684e21afda6/node_modules/wrangler/templates/middleware/middleware-miniflare3-json-error.ts
+function reduceError(e) {
+  return {
+    name: e?.name,
+    message: e?.message ?? String(e),
+    stack: e?.stack,
+    cause: e?.cause === void 0 ? void 0 : reduceError(e.cause)
+  };
+}
+__name(reduceError, "reduceError");
+var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx) => {
+  try {
+    return await middlewareCtx.next(request, env);
+  } catch (e) {
+    const error = reduceError(e);
+    return Response.json(error, {
+      status: 500,
+      headers: { "MF-Experimental-Error-Stack": "true" }
+    });
+  }
+}, "jsonError");
+var middleware_miniflare3_json_error_default = jsonError;
+
+// .wrangler/tmp/bundle-mgSNJb/middleware-insertion-facade.js
+var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
+  middleware_ensure_req_body_drained_default,
+  middleware_miniflare3_json_error_default
+];
+var middleware_insertion_facade_default = src_default;
+
+// ../../../.npm/_npx/32026684e21afda6/node_modules/wrangler/templates/middleware/common.ts
+var __facade_middleware__ = [];
+function __facade_register__(...args) {
+  __facade_middleware__.push(...args.flat());
+}
+__name(__facade_register__, "__facade_register__");
+function __facade_invokeChain__(request, env, ctx, dispatch, middlewareChain) {
+  const [head, ...tail] = middlewareChain;
+  const middlewareCtx = {
+    dispatch,
+    next(newRequest, newEnv) {
+      return __facade_invokeChain__(newRequest, newEnv, ctx, dispatch, tail);
+    }
+  };
+  return head(request, env, ctx, middlewareCtx);
+}
+__name(__facade_invokeChain__, "__facade_invokeChain__");
+function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
+  return __facade_invokeChain__(request, env, ctx, dispatch, [
+    ...__facade_middleware__,
+    finalMiddleware
+  ]);
+}
+__name(__facade_invoke__, "__facade_invoke__");
+
+// .wrangler/tmp/bundle-mgSNJb/middleware-loader.entry.ts
+var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
+  constructor(scheduledTime, cron, noRetry) {
+    this.scheduledTime = scheduledTime;
+    this.cron = cron;
+    this.#noRetry = noRetry;
+  }
+  static {
+    __name(this, "__Facade_ScheduledController__");
+  }
+  #noRetry;
+  noRetry() {
+    if (!(this instanceof ___Facade_ScheduledController__)) {
+      throw new TypeError("Illegal invocation");
+    }
+    this.#noRetry();
+  }
+};
+function wrapExportedHandler(worker) {
+  if (__INTERNAL_WRANGLER_MIDDLEWARE__ === void 0 || __INTERNAL_WRANGLER_MIDDLEWARE__.length === 0) {
+    return worker;
+  }
+  for (const middleware of __INTERNAL_WRANGLER_MIDDLEWARE__) {
+    __facade_register__(middleware);
+  }
+  const fetchDispatcher = /* @__PURE__ */ __name(function(request, env, ctx) {
+    if (worker.fetch === void 0) {
+      throw new Error("Handler does not export a fetch() function.");
+    }
+    return worker.fetch(request, env, ctx);
+  }, "fetchDispatcher");
+  return {
+    ...worker,
+    fetch(request, env, ctx) {
+      const dispatcher = /* @__PURE__ */ __name(function(type, init) {
+        if (type === "scheduled" && worker.scheduled !== void 0) {
+          const controller = new __Facade_ScheduledController__(
+            Date.now(),
+            init.cron ?? "",
+            () => {
+            }
+          );
+          return worker.scheduled(controller, env, ctx);
+        }
+      }, "dispatcher");
+      return __facade_invoke__(request, env, ctx, dispatcher, fetchDispatcher);
+    }
+  };
+}
+__name(wrapExportedHandler, "wrapExportedHandler");
+function wrapWorkerEntrypoint(klass) {
+  if (__INTERNAL_WRANGLER_MIDDLEWARE__ === void 0 || __INTERNAL_WRANGLER_MIDDLEWARE__.length === 0) {
+    return klass;
+  }
+  for (const middleware of __INTERNAL_WRANGLER_MIDDLEWARE__) {
+    __facade_register__(middleware);
+  }
+  return class extends klass {
+    #fetchDispatcher = /* @__PURE__ */ __name((request, env, ctx) => {
+      this.env = env;
+      this.ctx = ctx;
+      if (super.fetch === void 0) {
+        throw new Error("Entrypoint class does not define a fetch() function.");
+      }
+      return super.fetch(request);
+    }, "#fetchDispatcher");
+    #dispatcher = /* @__PURE__ */ __name((type, init) => {
+      if (type === "scheduled" && super.scheduled !== void 0) {
+        const controller = new __Facade_ScheduledController__(
+          Date.now(),
+          init.cron ?? "",
+          () => {
+          }
+        );
+        return super.scheduled(controller);
+      }
+    }, "#dispatcher");
+    fetch(request) {
+      return __facade_invoke__(
+        request,
+        this.env,
+        this.ctx,
+        this.#dispatcher,
+        this.#fetchDispatcher
+      );
+    }
+  };
+}
+__name(wrapWorkerEntrypoint, "wrapWorkerEntrypoint");
+var WRAPPED_ENTRY;
+if (typeof middleware_insertion_facade_default === "object") {
+  WRAPPED_ENTRY = wrapExportedHandler(middleware_insertion_facade_default);
+} else if (typeof middleware_insertion_facade_default === "function") {
+  WRAPPED_ENTRY = wrapWorkerEntrypoint(middleware_insertion_facade_default);
+}
+var middleware_loader_entry_default = WRAPPED_ENTRY;
+export {
+  BodyForVisitsRoom,
+  CoRoom,
+  StringRoom,
+  __INTERNAL_WRANGLER_MIDDLEWARE__,
+  middleware_loader_entry_default as default
+};
+//# sourceMappingURL=index.js.map

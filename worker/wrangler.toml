@@ -97,3 +97,11 @@ namespace_id = "1009"
   [ratelimits.simple]
   limit = 6
   period = 60
+
+[[ratelimits]]
+name = "RATE_LIMIT_BFV_SOCKET"
+namespace_id = "1010"
+
+  [ratelimits.simple]
+  limit = 12
+  period = 60
