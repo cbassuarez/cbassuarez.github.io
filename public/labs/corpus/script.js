@@ -171,7 +171,7 @@
   try { attempted = sessionStorage.getItem(ATTEMPTED_KEY) === '1'; } catch (_) {}
   let cumulativeVisibleMs = 0;
   let lastVisibleStart = null;
-  let timer = null;
+  let frame = null;
   let dwellTimeout = null;
 
   function nowMs() { return performance.now(); }
@@ -183,9 +183,9 @@
   }
 
   function stopDwellTimer() {
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
+    if (frame !== null) {
+      cancelAnimationFrame(frame);
+      frame = null;
     }
     if (dwellTimeout) {
       clearTimeout(dwellTimeout);
@@ -218,6 +218,15 @@
     }
   }
 
+  function queueTick() {
+    if (frame !== null) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      tick();
+      if (!attempted && dwellTimeout) queueTick();
+    });
+  }
+
   function startVisibleDwell() {
     cumulativeVisibleMs = 0;
     lastVisibleStart = document.visibilityState === 'visible' ? nowMs() : null;
@@ -225,16 +234,15 @@
     setMotionPhase('accepting');
     setStatus('accepting visible visit');
     document.addEventListener('visibilitychange', onVisibilityChange);
-    timer = setInterval(tick, 250);
     // bound the dwell wait so we don't churn forever on a backgrounded tab
     dwellTimeout = setTimeout(() => {
-      if (timer && !attempted) {
+      if (!attempted) {
         stopDwellTimer();
         settleMotion(Math.min(visibleElapsedMs() / DWELL_MS, 1));
         setStatus('accepting paused · reload to try again');
       }
     }, 5 * 60 * 1000);
-    tick();
+    queueTick();
   }
 
   setMotionProgress(0);
