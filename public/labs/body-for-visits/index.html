@@ -60,12 +60,75 @@
   }
   .status a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink-faint); }
   .status a:hover { color: var(--ink-soft); border-bottom-color: var(--ink-soft); }
-  .colophon {
-    font: 11px/1.55 ui-monospace, "SF Mono", Menlo, monospace;
+  .affordances {
+    font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
     color: var(--ink-faint);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
     margin: 56px 0 0 0;
-    max-width: 56ch;
+    display: flex;
+    gap: 14px;
+    align-items: baseline;
   }
+  .affordance-link {
+    appearance: none;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+    border-bottom: 1px solid var(--ink-faint);
+    text-decoration: none;
+  }
+  .affordance-link:hover,
+  .affordance-link:focus-visible {
+    color: var(--ink-soft);
+    border-bottom-color: var(--ink-soft);
+    outline: none;
+  }
+  .affordances .sep { opacity: 0.6; }
+  dialog.colophon-dialog {
+    border: none;
+    padding: 0;
+    background: transparent;
+    color: var(--ink);
+    max-width: min(560px, calc(100vw - 32px));
+    width: 100%;
+    outline: none;
+  }
+  dialog.colophon-dialog::backdrop {
+    background: rgba(255, 255, 255, 0.92);
+  }
+  .colophon-dialog article {
+    padding: 56px 4px 8px;
+    font: 16.5px/1.62 ui-serif, "Iowan Old Style", "Hoefler Text", Garamond, "Times New Roman", serif;
+    text-wrap: pretty;
+    color: var(--ink);
+  }
+  .colophon-eyebrow {
+    font: 10.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 400;
+    margin: 28px 0 8px 0;
+  }
+  .colophon-eyebrow:first-child { margin-top: 0; }
+  .colophon-dialog article p {
+    margin: 0 0 4px 0;
+    color: var(--ink-soft);
+  }
+  .colophon-dialog article p a {
+    color: var(--ink);
+    border-bottom: 1px solid var(--ink-faint);
+    text-decoration: none;
+  }
+  .colophon-dialog article p a:hover { border-bottom-color: var(--ink); }
+  .colophon-dialog form { margin: 36px 0 0 0; text-align: right; }
   @media (prefers-reduced-motion: reduce) {
     .body-text .token-new { animation: none; background: transparent; }
   }
@@ -79,6 +142,9 @@
     .body-text .token-new {
       background: linear-gradient(transparent 60%, rgba(239, 239, 239, 0.14) 60%);
     }
+    dialog.colophon-dialog::backdrop {
+      background: rgba(10, 10, 10, 0.92);
+    }
   }
 </style>
 </head>
@@ -88,15 +154,29 @@
   <p class="body-text" id="bfv-body"><span class="fold-marker">⟨awaiting first visit⟩</span></p>
   <p class="fringe" id="bfv-fringe"></p>
   <p class="status" id="bfv-status">awaiting qualifying visit</p>
-  <p class="colophon">
-    a visible visit adds to the body. no form, no input. the page records only a hashed session token
-    and a hashed ip, both for the sole purpose of preventing accidental repeated contribution.
-    <br><br>
-    the event journal is open: <a href="https://seb-feed.cbassuarez.workers.dev/api/body-for-visits/export.json">export.json</a> ·
-    the static snapshot: <a href="https://seb-feed.cbassuarez.workers.dev/api/body-for-visits/snapshot.html">snapshot.html</a> ·
-    the snapshot is preservation, not the work.
+  <p class="affordances">
+    <button type="button" id="bfv-colophon-open" class="affordance-link">[ colophon ]</button>
+    <span class="sep" aria-hidden="true">·</span>
+    <a class="affordance-link" href="https://seb-feed.cbassuarez.workers.dev/api/body-for-visits/snapshot.html">snapshot.html</a>
   </p>
 </main>
+
+<dialog id="bfv-colophon" class="colophon-dialog" aria-labelledby="bfv-colophon-eyebrow">
+  <article>
+    <h2 class="colophon-eyebrow" id="bfv-colophon-eyebrow">the work</h2>
+    <p>A single shared body. A visible visit, after three seconds of foreground dwell, appends one grammar-aware token. There is no form. There is no input. The medium is the visited networked surface.</p>
+
+    <h2 class="colophon-eyebrow">privacy</h2>
+    <p>Only a hashed session token and a hashed address are retained — enough to prevent accidental repeated contribution and nothing more. No raw addresses. No full user-agents. No fingerprinting. No analytics.</p>
+
+    <h2 class="colophon-eyebrow">preservation</h2>
+    <p>The live work is what is in front of you. The <a href="https://seb-feed.cbassuarez.workers.dev/api/body-for-visits/export.json">event journal</a> is the work's append-only substrate. The <a href="https://seb-feed.cbassuarez.workers.dev/api/body-for-visits/snapshot.html">static snapshot</a> is documentation, not the work itself — useful for citation, not for experiencing the piece.</p>
+
+    <form method="dialog">
+      <button type="submit" class="affordance-link">[ ↵ return ]</button>
+    </form>
+  </article>
+</dialog>
 <script src="./script.js?v=20260519" defer></script>
 </body>
 </html>

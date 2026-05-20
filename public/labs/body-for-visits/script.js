@@ -15,6 +15,15 @@
   const fringeEl = document.getElementById('bfv-fringe');
   const statusEl = document.getElementById('bfv-status');
 
+  const colophonBtn = document.getElementById('bfv-colophon-open');
+  const colophonDlg = document.getElementById('bfv-colophon');
+  if (colophonBtn && colophonDlg && typeof colophonDlg.showModal === 'function') {
+    colophonBtn.addEventListener('click', () => colophonDlg.showModal());
+    colophonDlg.addEventListener('click', (e) => {
+      if (e.target === colophonDlg) colophonDlg.close();
+    });
+  }
+
   function setStatus(text) {
     if (statusEl) statusEl.textContent = text;
   }
