@@ -1728,11 +1728,23 @@ export class BodyForVisitsRoom {
       body,
       new_token_index: newTokenIndex,
       body_version: row.body_version,
+      accepted_count: this.acceptedCountSinceReset(),
       fold_count: row.fold_count,
       fold_generations: row.fold_generations,
       corruption_count: row.corruption_count,
       fringe: fringe.join(" "),
     };
+  }
+
+  private acceptedCountSinceReset(): number {
+    const resetId = this.lastAdminResetEventId();
+    const rows = this.state.storage.sql
+      .exec<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM events WHERE kind = 'human' AND id > ?`,
+        resetId
+      )
+      .toArray();
+    return Number(rows[0]?.n || 0);
   }
 
   private lastAdminResetEventId(): number {

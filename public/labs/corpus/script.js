@@ -15,7 +15,9 @@
   const statusEl = document.getElementById('bfv-status');
   const motionRoot = document.getElementById('bfv-motion-root');
   const readoutEl = document.getElementById('bfv-readout');
+  const countEl = document.getElementById('bfv-count');
   const presenceEl = document.getElementById('bfv-presence');
+  const continueBtn = document.getElementById('bfv-continue');
 
   const colophonBtn = document.getElementById('bfv-colophon-open');
   const colophonDlg = document.getElementById('bfv-colophon');
@@ -64,11 +66,29 @@
     if (readoutEl) readoutEl.textContent = text;
   }
 
+  function setAcceptedCount(count) {
+    if (!countEl) return;
+    const n = Math.floor(Number(count));
+    if (!Number.isFinite(n) || n < 0) {
+      countEl.hidden = true;
+      countEl.textContent = '';
+      return;
+    }
+    countEl.textContent = `${n.toLocaleString('en-US')} accepted`;
+    countEl.hidden = false;
+  }
+
   function setPresence(count) {
     if (!presenceEl) return;
     const n = Math.max(0, Math.floor(Number(count) || 0));
     // A quiet signal — shown only when you are not alone in the body.
     presenceEl.textContent = n >= 2 ? `${n} here now` : '';
+  }
+
+  function setContinueVisible(visible) {
+    if (!continueBtn) return;
+    continueBtn.hidden = !visible;
+    continueBtn.disabled = !visible;
   }
 
   function quotaText(quota) {
@@ -86,6 +106,18 @@
     if (!Number.isFinite(resetAt)) return '';
     const minutes = Math.max(1, Math.ceil((resetAt - Date.now()) / 60000));
     return ` · retry in ${minutes} min`;
+  }
+
+  let currentQuota = null;
+
+  function updateQuota(quota) {
+    currentQuota = quota && typeof quota === 'object' ? quota : currentQuota;
+    return currentQuota;
+  }
+
+  function quotaRemaining(quota = currentQuota) {
+    const remaining = Number(quota?.remaining);
+    return Number.isFinite(remaining) ? remaining : null;
   }
 
   // Every state source — initial fetch, qualify response, WebSocket push, and
@@ -112,6 +144,8 @@
       render(state, { newTokenIndex });
     }
     if (typeof state.presence === 'number') setPresence(state.presence);
+    if (typeof state.accepted_count === 'number') setAcceptedCount(state.accepted_count);
+    if (state.quota) updateQuota(state.quota);
   }
 
   function settleMotion(progress = 1) {
@@ -160,8 +194,8 @@
   }
 
   function quotaExhausted(state) {
-    const remaining = Number(state?.quota?.remaining);
-    return Number.isFinite(remaining) && remaining <= 0;
+    const remaining = quotaRemaining(state?.quota);
+    return remaining !== null && remaining <= 0;
   }
 
   async function fetchState(opts = {}) {
@@ -189,6 +223,8 @@
       }
       settleMotion(0);
       setStatus('upstream unreachable');
+      if (lastBodyVersion < 0) setAcceptedCount(null);
+      setContinueVisible(false);
       return null;
     }
   }
@@ -208,6 +244,7 @@
 
   async function qualify() {
     const sid = sessionId();
+    setContinueVisible(false);
     setMotionProgress(1);
     setMotionPhase('qualifying');
     setReadout('');
@@ -221,24 +258,29 @@
       if (resp.status === 429) {
         blockMotion();
         setStatus('rate-limited');
+        setContinueVisible(false);
         return;
       }
       if (!resp.ok) {
         blockMotion();
         setStatus('upstream silent');
+        setContinueVisible(false);
         return;
       }
       const json = await resp.json();
+      updateQuota(json.quota);
       if (json.skipped === 'cooldown') {
         blockMotion();
         setStatus(`visit withheld · hourly quota reached${quotaRetryText(json.quota)}`);
         applyState(json);
+        setContinueVisible(false);
         return;
       }
       if (json.skipped === 'bot') {
         blockMotion();
         setStatus('machine mark withheld · deposited to fringe');
         applyState(json);
+        setContinueVisible(false);
         return;
       }
       applyState(json, { newTokenIndex: json.new_token_index });
@@ -246,15 +288,18 @@
       const suffix = folded > 0 ? ` · ${folded} folded` : '';
       settleMotion();
       setStatus(`visible visit qualified${suffix}${quotaText(json.quota)}`);
+      const remaining = quotaRemaining(json.quota);
+      setContinueVisible(remaining === null || remaining > 0);
     } catch (err) {
-      settleMotion();
+      blockMotion();
       setStatus('upstream unreachable');
+      setContinueVisible(false);
     }
   }
 
   // Track cumulative *visible* time. We only count time while the page is the
   // visible foreground document; tab-switching pauses the dwell clock.
-  let attempted = false;
+  let accepting = false;
   let cumulativeVisibleMs = 0;
   let lastVisibleStart = null;
   let frame = null;
@@ -292,12 +337,12 @@
   }
 
   function tick() {
-    if (attempted) return;
+    if (!accepting) return;
     const visible = visibleElapsedMs();
     setMotionProgress(Math.min(visible / DWELL_MS, 1));
     setReadout((Math.min(visible, DWELL_MS) / 1000).toFixed(1) + ' s');
     if (visible >= DWELL_MS && document.visibilityState === 'visible') {
-      attempted = true;
+      accepting = false;
       stopDwellTimer();
       qualify();
       return;
@@ -309,11 +354,13 @@
     frame = requestAnimationFrame(() => {
       frame = null;
       tick();
-      if (!attempted && dwellTimeout) queueTick();
+      if (accepting && dwellTimeout) queueTick();
     });
   }
 
   function startVisibleDwell() {
+    setContinueVisible(false);
+    accepting = true;
     cumulativeVisibleMs = 0;
     lastVisibleStart = document.visibilityState === 'visible' ? nowMs() : null;
     setMotionProgress(0);
@@ -323,13 +370,36 @@
     document.addEventListener('visibilitychange', onVisibilityChange);
     // bound the dwell wait so we don't churn forever on a backgrounded tab
     dwellTimeout = setTimeout(() => {
-      if (!attempted) {
+      if (accepting) {
+        accepting = false;
         stopDwellTimer();
         settleMotion(Math.min(visibleElapsedMs() / DWELL_MS, 1));
-        setStatus('accepting paused · reload to try again');
+        setStatus('accepting paused');
+        setContinueVisible(true);
       }
     }, 5 * 60 * 1000);
     queueTick();
+  }
+
+  async function continueVisibleVisit() {
+    if (accepting) return;
+    setContinueVisible(false);
+    setMotionProgress(0);
+    setMotionPhase('loading');
+    setStatus('checking session');
+    const state = await fetchState({ sessionScoped: true });
+    if (!state) return;
+    if (quotaExhausted(state)) {
+      blockMotion();
+      setStatus(`visit withheld · hourly quota reached${quotaRetryText(state.quota)}`);
+      setContinueVisible(false);
+      return;
+    }
+    startVisibleDwell();
+  }
+
+  if (continueBtn) {
+    continueBtn.addEventListener('click', continueVisibleVisit);
   }
 
   // ── live updates ──────────────────────────────────────────────────────────
@@ -445,18 +515,15 @@
   setMotionProgress(0);
   setMotionPhase('loading');
   setStatus('loading body');
+  setAcceptedCount(null);
+  setContinueVisible(false);
   connectSocket();
   fetchState({ sessionScoped: true }).then((state) => {
     if (!state) return;
-    if (attempted) {
-      settleMotion();
-      setStatus('visit already counted on this page load');
-      return;
-    }
     if (quotaExhausted(state)) {
-      attempted = true;
       blockMotion();
       setStatus(`visit withheld · hourly quota reached${quotaRetryText(state.quota)}`);
+      setContinueVisible(false);
       return;
     }
     startVisibleDwell();

@@ -75,8 +75,8 @@ A single shared linguistic body, mutated only by qualifying human visits. Each
 visit that is *visible* (`document.visibilityState === "visible"`) for at least
 two seconds, and whose session still has quota in the rolling server-side
 window, appends one grammar-aware token to the body. The current quota is five
-accepted tokens per session per hour. There is no form, no input. The medium is
-the visited networked surface.
+accepted tokens per session per hour. There is no form, no text input. The
+medium is the visited networked surface.
 
 The artwork has three layers, only one of which is the work:
 
@@ -125,9 +125,9 @@ history to shape itself.
 
 1. Open `/labs/corpus/` in a fresh incognito window. After ~2s of
    foreground dwell, one new token fades in; status reads
-   `visible visit qualified`.
-2. Reload up to four more times in the same browser session; each fresh page
-   load can qualify one additional token.
+   `visible visit qualified`, and the accepted counter increments.
+2. Use `[ continue ]` up to four more times in the same browser session; each
+   re-armed visible dwell can qualify one additional token without reloading.
 3. After five accepted tokens within one hour, status reads
    `visit withheld · hourly quota reached`.
 4. Visit from a second device or browser; new mutation appears.

@@ -166,6 +166,36 @@
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.12em;
   }
+  .entry-count {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.12em;
+    opacity: 0.76;
+    white-space: nowrap;
+  }
+  .entry-count[hidden] { display: none; }
+  .status-action {
+    appearance: none;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--ink-faint);
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+    opacity: 0.72;
+  }
+  .status-action[hidden] { display: none; }
+  .status-action:hover,
+  .status-action:focus-visible {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    opacity: 1;
+    outline: none;
+  }
   .presence {
     font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
     color: var(--ink-faint);
@@ -298,11 +328,13 @@
     <p class="status">
       <span id="bfv-status" aria-live="polite">loading body</span>
       <span class="visit-readout" id="bfv-readout" aria-hidden="true"></span>
+      <span class="entry-count" id="bfv-count" aria-live="polite" hidden></span>
+      <button type="button" id="bfv-continue" class="status-action" hidden>[ continue ]</button>
     </p>
   </div>
   <p class="presence" id="bfv-presence" aria-live="polite"></p>
   <p class="colophon">
-    a visible visit adds to the body. no form, no input. the page records only a hashed session token
+    a visible visit adds to the body. no form, no text input. the page records only a hashed session token
     and a hashed ip, both for the sole purpose of preventing accidental repeated contribution.
     <br><br>
     the event journal is open: <a href="https://seb-feed.cbassuarez.workers.dev/api/corpus/export.json">export.json</a> ·
@@ -336,6 +368,6 @@
   </article>
 </dialog>
 <script src="./corpus-motion.bundle.js?v=20260521-blocked" defer></script>
-<script src="./script.js?v=20260521-blocked" defer></script>
+<script src="./script.js?v=20260521-counter" defer></script>
 </body>
 </html>
