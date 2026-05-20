@@ -24,6 +24,7 @@ import {
   base64ToFloats as bfvBase64ToFloats,
 } from "./body-for-visits/net.js";
 import { NET_MODEL as BFV_NET_MODEL } from "./body-for-visits/net-weights.generated.js";
+import { createVoiceSelector as bfvCreateVoiceSelector } from "./body-for-visits/voice.js";
 
 type FeedItem = {
   source: string;
@@ -111,6 +112,7 @@ type Env = {
   BFV_ROOM: DurableObjectNamespace;
   BFV_HASH_SALT?: string;
   BFV_ADMIN_TOKEN?: string;
+  AI?: { run: (model: string, input: unknown) => Promise<unknown> };
 };
 
 type FeedSnapshot = {
@@ -1667,6 +1669,7 @@ export class BodyForVisitsRoom {
   private net: any = null;
   private vctx: any = null;
   private netSelector: ((...args: any[]) => any) | null = null;
+  private voiceSelector: ((...args: any[]) => Promise<any>) | null = null;
   private netLoaded = false;
   private netSteps = 0;
   private netDirty = false;
@@ -1857,6 +1860,11 @@ export class BodyForVisitsRoom {
     this.net = net;
     this.vctx = bfvBuildVocabContext(BFV_NET_MODEL.vocab);
     this.netSelector = bfvCreateSelector(net, this.vctx);
+    // Primary voice is the LLM; the net selector above is its fallback.
+    this.voiceSelector = bfvCreateVoiceSelector({
+      ai: this.env.AI,
+      netSelector: this.netSelector,
+    });
     this.lastGoodWeights = bfvSnapshotWeights(net);
     this.netLoaded = true;
     if (!restored) this.checkpointNet();
@@ -2245,7 +2253,7 @@ export class BodyForVisitsRoom {
     await this.ensureCheckpointAlarm();
     const model = bfvInferModel(journal);
 
-    const decision = bfvDecide({
+    const decision = await bfvDecide({
       ua,
       sessionWindowCount: quota.used,
       prevRole: prev?.role ?? null,
@@ -2254,7 +2262,7 @@ export class BodyForVisitsRoom {
       seed,
       now,
       model,
-      selector: this.netSelector,
+      selector: this.voiceSelector ?? this.netSelector,
     });
 
     if (decision.action === "cooldown") {

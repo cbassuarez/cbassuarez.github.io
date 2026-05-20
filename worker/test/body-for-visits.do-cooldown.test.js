@@ -14,8 +14,8 @@ const browser =
 // selector standing in for the neural model is sufficient.
 const stubSelector = () => ({ token: "here we are,", role: "speech_unit" });
 
-test("first qualify from a fresh session appends", () => {
-  const d = decideQualify({
+test("first qualify from a fresh session appends", async () => {
+  const d = await decideQualify({
     ua: browser,
     sessionWindowCount: 0,
     prevRole: null,
@@ -31,9 +31,9 @@ test("first qualify from a fresh session appends", () => {
   assert.equal(d.role, "speech_unit");
 });
 
-test("same session can append below the rolling quota", () => {
+test("same session can append below the rolling quota", async () => {
   const t0 = 1_700_000_000_000;
-  const d = decideQualify({
+  const d = await decideQualify({
     ua: browser,
     sessionWindowCount: SESSION_QUOTA_LIMIT_DEFAULT - 1,
     prevRole: "openings",
@@ -46,8 +46,8 @@ test("same session can append below the rolling quota", () => {
   assert.equal(d.action, "append");
 });
 
-test("a missing selector withholds", () => {
-  const d = decideQualify({
+test("a missing selector withholds", async () => {
+  const d = await decideQualify({
     ua: browser,
     sessionWindowCount: 0,
     prevRole: null,
@@ -59,9 +59,9 @@ test("a missing selector withholds", () => {
   assert.equal(d.reason, "no_selector");
 });
 
-test("same session at the rolling quota is cooldown", () => {
+test("same session at the rolling quota is cooldown", async () => {
   const t0 = 1_700_000_000_000;
-  const d = decideQualify({
+  const d = await decideQualify({
     ua: browser,
     sessionWindowCount: SESSION_QUOTA_LIMIT_DEFAULT,
     prevRole: "openings",
@@ -73,8 +73,8 @@ test("same session at the rolling quota is cooldown", () => {
   assert.equal(d.action, "cooldown");
 });
 
-test("generator failure withholds without appending", () => {
-  const d = decideQualify({
+test("generator failure withholds without appending", async () => {
+  const d = await decideQualify({
     ua: browser,
     sessionWindowCount: 0,
     prevRole: "speech_unit",
@@ -87,8 +87,8 @@ test("generator failure withholds without appending", () => {
   assert.equal(d.reason, "generator");
 });
 
-test("bot UA never appends, regardless of session state", () => {
-  const d = decideQualify({
+test("bot UA never appends, regardless of session state", async () => {
+  const d = await decideQualify({
     ua: "GPTBot/1.0",
     lastSessionTs: null,
     prevRole: null,
@@ -100,8 +100,8 @@ test("bot UA never appends, regardless of session state", () => {
   assert.equal(d.bucket, "llm");
 });
 
-test("empty UA classifies as bot", () => {
-  const d = decideQualify({
+test("empty UA classifies as bot", async () => {
+  const d = await decideQualify({
     ua: "",
     lastSessionTs: null,
     prevRole: null,

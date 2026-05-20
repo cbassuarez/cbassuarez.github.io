@@ -176,7 +176,11 @@ function endsOpen(tokens) {
   return isWord(last);
 }
 
-export function validateSpeechUnit(unit, prevToken = null) {
+// opts.requireStyle (default true) keeps the conversational-style checks the
+// net path depends on. The LLM path passes requireStyle:false: the model is
+// trusted for grammar, so only the structural and safety checks apply.
+export function validateSpeechUnit(unit, prevToken = null, opts = {}) {
+  const requireStyle = opts.requireStyle !== false;
   const raw = String(unit || "");
   if (!raw.trim()) return { ok: false, reason: "empty" };
   if (/[\r\n]/.test(raw)) return { ok: false, reason: "multiline" };
@@ -216,13 +220,18 @@ export function validateSpeechUnit(unit, prevToken = null) {
     return { ok: true, token: normalized };
   }
 
-  if (BAD_STARTERS.has(first)) return { ok: false, reason: "bad_starter" };
-  if (!GOOD_STARTERS.has(first)) return { ok: false, reason: "weak_starter" };
-  if (wordsOnly.some((word) => NARRATION_WORDS.has(word))) return { ok: false, reason: "narration" };
-  const lastWord = wordsOnly[wordsOnly.length - 1];
-  if (BAD_ENDERS.has(lastWord)) return { ok: false, reason: "dangling_end" };
-  if (lastPrev && first && lastPrev === first) return { ok: false, reason: "join_repeat" };
-  if (!lastPrev && CONNECTORS.has(first)) return { ok: false, reason: "orphan_connector" };
+  if (requireStyle) {
+    if (BAD_STARTERS.has(first)) return { ok: false, reason: "bad_starter" };
+    if (!GOOD_STARTERS.has(first)) return { ok: false, reason: "weak_starter" };
+    if (wordsOnly.some((word) => NARRATION_WORDS.has(word)))
+      return { ok: false, reason: "narration" };
+    const lastWord = wordsOnly[wordsOnly.length - 1];
+    if (BAD_ENDERS.has(lastWord)) return { ok: false, reason: "dangling_end" };
+    if (lastPrev && first && lastPrev === first)
+      return { ok: false, reason: "join_repeat" };
+    if (!lastPrev && CONNECTORS.has(first))
+      return { ok: false, reason: "orphan_connector" };
+  }
 
   return { ok: true, token: normalized };
 }

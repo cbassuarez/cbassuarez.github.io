@@ -27,6 +27,9 @@ class_name = "CoRoom"
 name = "BFV_ROOM"
 class_name = "BodyForVisitsRoom"
 
+[ai]
+binding = "AI"
+
 [[migrations]]
 tag = "v1-string-room"
 new_sqlite_classes = ["StringRoom"]

@@ -19,15 +19,15 @@ export const SESSION_QUOTA_WINDOW_MS_DEFAULT = 60 * 60 * 1000; // 1h
 //   sessionQuotaLimit — max accepted human events per session quota window
 //   model         — rolling context from inferModel(); shapes selection
 //                   toward the corpus's own recent history.
-//   selector      — required generation function (the net-backed selector
-//                   built by the Durable Object).
+//   selector      — required generation function (may be async): the
+//                   LLM-backed selector with net fallback built by the DO.
 //
 // returns one of:
 //   { action: "cooldown" }
 //   { action: "bot", bucket }
 //   { action: "withhold", reason }
 //   { action: "append", token, role, ua_class: "browser" }
-export function decideQualify({
+export async function decideQualify({
   ua,
   sessionWindowCount = 0,
   prevRole,
@@ -49,7 +49,7 @@ export function decideQualify({
   if (typeof selector !== "function") {
     return { action: "withhold", reason: "no_selector" };
   }
-  const next = selector(
+  const next = await selector(
     prevRole,
     humanEventIndex,
     seed >>> 0,
