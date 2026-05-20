@@ -97,6 +97,11 @@
     outline: none;
   }
   .affordances .sep { opacity: 0.6; }
+  html.bfv-dialog-open,
+  body.bfv-dialog-open {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
   dialog.colophon-dialog {
     /* inverted palette — the colophon is the tonal negative of the work */
     --bg: #111111;
@@ -108,6 +113,10 @@
     background: var(--bg);
     color: var(--ink);
     max-width: min(560px, calc(100vw - 32px));
+    max-height: calc(100dvh - 32px);
+    overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     width: 100%;
     outline: none;
   }
@@ -185,13 +194,16 @@
 <dialog id="bfv-colophon" class="colophon-dialog" aria-labelledby="bfv-colophon-eyebrow">
   <article>
     <h2 class="colophon-eyebrow" id="bfv-colophon-eyebrow">the work</h2>
-    <p>A single shared body. A visible visit, after three seconds of foreground dwell, appends one grammar-aware token. There is no form. There is no input. The medium is the visited networked surface.</p>
+    <p>corpus, 2026</p>
+    <p>networked text, visitor-triggered web page</p>
+
+    <p>corpus is a live sentence written by the fact of being visited. When the page remains visible for three seconds, it adds one small unit of language to a shared body. There is nothing to type, click, or submit; attention is the only gesture the work accepts.</p>
 
     <h2 class="colophon-eyebrow">privacy</h2>
-    <p>Only a hashed session token and a hashed address are retained — enough to prevent accidental repeated contribution and nothing more. No raw addresses. No full user-agents. No fingerprinting. No analytics.</p>
+    <p>Each addition is recorded in an open <a href="https://seb-feed.cbassuarez.workers.dev/api/corpus/export.json">event journal</a>. To prevent accidental repeats, the system keeps only short hashed traces of the session and network address. It stores no raw addresses, full user agents, fingerprints, or analytics.</p>
 
     <h2 class="colophon-eyebrow">preservation</h2>
-    <p>The live work is what is in front of you. The <a href="https://seb-feed.cbassuarez.workers.dev/api/corpus/export.json">event journal</a> is the work's append-only substrate. The <a href="https://seb-feed.cbassuarez.workers.dev/api/corpus/snapshot.html">static snapshot</a> is documentation, not the work itself — useful for citation, not for experiencing the piece.</p>
+    <p>The page itself is the work. The journal records its history, and the <a href="https://seb-feed.cbassuarez.workers.dev/api/corpus/snapshot.html">static snapshot</a> preserves one view of it for citation. Neither replaces the live surface.</p>
 
     <form method="dialog">
       <button type="submit" class="affordance-link">[ ↵ return ]</button>

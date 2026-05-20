@@ -18,7 +18,16 @@
   const colophonBtn = document.getElementById('bfv-colophon-open');
   const colophonDlg = document.getElementById('bfv-colophon');
   if (colophonBtn && colophonDlg && typeof colophonDlg.showModal === 'function') {
-    colophonBtn.addEventListener('click', () => colophonDlg.showModal());
+    function setDialogScrollLock(locked) {
+      document.documentElement.classList.toggle('bfv-dialog-open', locked);
+      document.body.classList.toggle('bfv-dialog-open', locked);
+    }
+
+    colophonBtn.addEventListener('click', () => {
+      colophonDlg.showModal();
+      setDialogScrollLock(true);
+    });
+    colophonDlg.addEventListener('close', () => setDialogScrollLock(false));
     colophonDlg.addEventListener('click', (e) => {
       if (e.target === colophonDlg) colophonDlg.close();
     });
