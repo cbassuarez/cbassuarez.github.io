@@ -7,8 +7,11 @@ export const MODEL_VERSION = 5;
 export const SPEECH_ROLE = "speech_unit";
 export const RECENT_TOKEN_WINDOW = 48;
 const RECENT_UNIT_WINDOW = 12;
-export const MIN_WORDS = 2;
-export const MAX_WORDS = 12;
+// A unit is a human-sized gesture: one to three words, and/or a mark of
+// punctuation. Short fragments read as a person thinking, not a machine
+// run-on. A unit with zero words is a lone mark (a pause).
+export const MIN_WORDS = 1;
+export const MAX_WORDS = 3;
 
 const TOKEN_RE = /^[a-z]+(?:'[a-z]+)?$/;
 export const PUNCTUATION = new Set([",", ";", "—"]);
@@ -98,12 +101,12 @@ export function wordCount(tokens) {
   return tokens.filter(isWord).length;
 }
 
-// A rollout length target, mirroring the cadence the n-gram model used.
+// A rollout length target: most units are one or two words, a few reach three.
 export function targetWordCount(rng) {
   const r = rng();
-  if (r < 0.18) return 2 + Math.floor(rng() * 2);
-  if (r < 0.72) return 4 + Math.floor(rng() * 4);
-  return 8 + Math.floor(rng() * 5);
+  if (r < 0.5) return 1;
+  if (r < 0.85) return 2;
+  return MAX_WORDS;
 }
 
 export function tokenizeSpeech(text) {
@@ -189,8 +192,11 @@ export function validateSpeechUnit(unit, prevToken = null) {
 
   const tokens = tokenizeSpeech(normalized);
   const words = wordCount(tokens);
-  if (words < MIN_WORDS || words > MAX_WORDS) return { ok: false, reason: "length" };
-  if (!isWord(tokens[0])) return { ok: false, reason: "bad_start" };
+  // A unit is one to three words, optionally with punctuation — or a lone mark.
+  const punctOnly = words === 0;
+  if (tokens.length === 0) return { ok: false, reason: "length" };
+  if (words > MAX_WORDS) return { ok: false, reason: "length" };
+  if (!punctOnly && !isWord(tokens[0])) return { ok: false, reason: "bad_start" };
   if (!endsOpen(tokens)) return { ok: false, reason: "closed" };
   if (hasBlockedTerm(tokens)) return { ok: false, reason: "source_term" };
   if (hasRepeatedAdjacentWord(tokens)) return { ok: false, reason: "repeat" };
@@ -200,6 +206,16 @@ export function validateSpeechUnit(unit, prevToken = null) {
   const first = tokens.find(isWord);
   const wordsOnly = tokens.filter(isWord);
   const lastPrev = prevWords[prevWords.length - 1];
+
+  // A lone mark stands on its own — but never opens the body, and never
+  // lands directly after another mark (which would read as ",;" / ", —").
+  if (punctOnly) {
+    if (!previous.length) return { ok: false, reason: "orphan_punct" };
+    const prevLast = previous[previous.length - 1];
+    if (PUNCTUATION.has(prevLast)) return { ok: false, reason: "double_punct" };
+    return { ok: true, token: normalized };
+  }
+
   if (BAD_STARTERS.has(first)) return { ok: false, reason: "bad_starter" };
   if (!GOOD_STARTERS.has(first)) return { ok: false, reason: "weak_starter" };
   if (wordsOnly.some((word) => NARRATION_WORDS.has(word))) return { ok: false, reason: "narration" };

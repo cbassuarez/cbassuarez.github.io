@@ -50,9 +50,30 @@ test("tokenizeSpeech preserves open punctuation without terminal periods", () =>
 });
 
 test("validator accepts short open speech units", () => {
-  const result = validateSpeechUnit("and then I guess the room,", "someone remembers");
+  const result = validateSpeechUnit("We wonder,", "someone remembers");
   assert.equal(result.ok, true);
-  assert.equal(result.token, "and then i guess the room,");
+  assert.equal(result.token, "we wonder,");
+});
+
+test("validator accepts a one-word unit", () => {
+  const result = validateSpeechUnit("well", "the quiet room");
+  assert.equal(result.ok, true);
+  assert.equal(result.token, "well");
+});
+
+test("validator accepts a lone mark after a word", () => {
+  const result = validateSpeechUnit("—", "the quiet room");
+  assert.equal(result.ok, true);
+  assert.equal(result.token, "—");
+});
+
+test("validator rejects a lone mark that opens or doubles punctuation", () => {
+  assert.equal(validateSpeechUnit("—", null).ok, false);
+  assert.equal(validateSpeechUnit(";", "the room,").ok, false);
+});
+
+test("validator rejects units longer than three words", () => {
+  assert.equal(validateSpeechUnit("we wonder where it goes", "someone remembers").ok, false);
 });
 
 test("validator rejects closed, unsafe, or source-identifying units", () => {

@@ -38,8 +38,10 @@ const REP_PENALTY = 1.6;
 const REP_WINDOW = 24;
 const ENTROPY_FLOOR = 2.0; // nats
 const MIX_CAP = 0.5;
-const MAX_ROLLOUT_STEPS = 22;
+const MAX_ROLLOUT_STEPS = 8;
 const MAX_ATTEMPTS = 24;
+// How often a unit is a lone mark of punctuation rather than words.
+const PUNCT_ONLY_RATE = 0.1;
 const SEED_A = 0x9e3779b1;
 const SEED_B = 0x85ebca6b;
 
@@ -415,6 +417,8 @@ export function rolloutIds(net, vctx, ctxIds, rng, recentIds = []) {
   const out = [];
   const target = targetWordCount(rng);
   const recent = new Set(recentIds);
+  // Now and then a unit is a single mark of punctuation — a human pause.
+  const punctOnly = rng() < PUNCT_ONLY_RATE;
   let words = 0;
 
   for (let step = 0; step < MAX_ROLLOUT_STEPS && words < MAX_WORDS; step++) {
@@ -427,8 +431,11 @@ export function rolloutIds(net, vctx, ctxIds, rng, recentIds = []) {
 
     const prevId = out.length > 0 ? out[out.length - 1] : ctx[K - 1];
     if (out.length === 0) {
+      // The first token opens with a good-starter word — or, in
+      // punctuation-only mode, stands alone as a lone mark.
       for (let id = 0; id < V; id++) {
-        if (!vctx.goodStart[id]) adj[id] = -Infinity;
+        const allow = punctOnly ? vctx.isPunct[id] : vctx.goodStart[id];
+        if (!allow) adj[id] = -Infinity;
       }
     } else {
       adj[prevId] = -Infinity;
@@ -464,8 +471,10 @@ export function rolloutIds(net, vctx, ctxIds, rng, recentIds = []) {
     ctx[K - 1] = id;
 
     if (vctx.isWord[id]) words++;
-    if (vctx.isPunct[id] && words >= MIN_WORDS) break;
-    // Prefer to stop on a word that can legally end a unit, or on punctuation.
+    // A mark closes the unit: a lone mark in punctuation-only mode, otherwise
+    // the trailing mark after the first word.
+    if (vctx.isPunct[id] && (punctOnly || words >= MIN_WORDS)) break;
+    // Prefer to stop on a word that can legally end a unit.
     if (words >= target && vctx.isWord[id] && !vctx.badEnder[id] && rng() < 0.7) break;
   }
 
