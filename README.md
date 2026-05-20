@@ -63,13 +63,13 @@ Switch layouts during performance:
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
-For the body-for-visits pure modules (lexicon, grammar, fold, bot, decision):
+For the corpus pure modules (lexicon, grammar, fold, bot, decision):
 
 ```bash
 node --test worker/test/body-for-visits.*.test.js
 ```
 
-## /labs/body-for-visits
+## /labs/corpus
 
 A single shared linguistic body, mutated only by qualifying human visits. Each
 visit that is *visible* (`document.visibilityState === "visible"`) for at least
@@ -79,15 +79,15 @@ input. The medium is the visited networked surface.
 
 The artwork has three layers, only one of which is the work:
 
-- **The live work** — `https://cbassuarez.com/labs/body-for-visits/`. The page
+- **The live work** — `https://cbassuarez.com/labs/corpus/`. The page
   served right now, with whatever the body holds at this moment, whatever folds
   beneath it, whatever corruption fringe the bots have deposited today. This is
   the only layer that is the work; the others document it.
-- **The event journal** — `GET /api/body-for-visits/export.json`. Append-only.
+- **The event journal** — `GET /api/corpus/export.json`. Append-only.
   Never pruned. Every qualifying visit since launch, in order. The journal is
   the work's substrate; folding only compresses what is *shown*, not what is
   recorded.
-- **The static snapshot** — `GET /api/body-for-visits/snapshot.html`. A frozen,
+- **The static snapshot** — `GET /api/corpus/snapshot.html`. A frozen,
   self-contained HTML rendering of the current visible body. Useful for
   citation and preservation. Documentation, not the work.
 
@@ -104,7 +104,7 @@ The DO and rate-limit binding live on the existing `seb-feed` worker:
 
 ### Manual test checklist
 
-1. Open `/labs/body-for-visits/` in a fresh incognito window. After ~3s of
+1. Open `/labs/corpus/` in a fresh incognito window. After ~3s of
    foreground dwell, one new token fades in; status reads
    `visible visit qualified`.
 2. Reload. Status reads `visit withheld · session already recorded`;
@@ -112,10 +112,10 @@ The DO and rate-limit binding live on the existing `seb-feed` worker:
 3. Visit from a second device or browser; new mutation appears.
 4. `curl -A 'GPTBot/1.0' -H 'content-type: application/json' \
      -d '{"session_id":"00000000-0000-0000-0000-000000000001"}' \
-     https://seb-feed.cbassuarez.workers.dev/api/body-for-visits/qualify`
+     https://seb-feed.cbassuarez.workers.dev/api/corpus/qualify`
    → body unchanged; `corruption_count` and `fringe` grow.
-5. `curl https://seb-feed.cbassuarez.workers.dev/api/body-for-visits/snapshot.html`
+5. `curl https://seb-feed.cbassuarez.workers.dev/api/corpus/snapshot.html`
    returns a standalone HTML document with the current ISO timestamp in a
    `static snapshot taken at …` line.
-6. `curl https://seb-feed.cbassuarez.workers.dev/api/body-for-visits/export.json | jq '.events | length'`
+6. `curl https://seb-feed.cbassuarez.workers.dev/api/corpus/export.json | jq '.events | length'`
    increases monotonically across visits.
