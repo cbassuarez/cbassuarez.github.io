@@ -8,14 +8,13 @@
   const API_BASE = (params.get('api') || PROD_API).replace(/\/+$/, '');
 
   const DWELL_MS = 2000;
-  const PULSE_INTERVAL_MS = 450;
-  const PULSE_FRAMES = ['', ' ·', ' ··', ' ···'];
   const SESSION_KEY = 'bfv:session-v1';
   const ATTEMPTED_KEY = 'bfv:attempted-v1';
 
   const bodyEl = document.getElementById('bfv-body');
   const fringeEl = document.getElementById('bfv-fringe');
   const statusEl = document.getElementById('bfv-status');
+  const motionRoot = document.getElementById('bfv-motion-root');
 
   const colophonBtn = document.getElementById('bfv-colophon-open');
   const colophonDlg = document.getElementById('bfv-colophon');
@@ -35,33 +34,34 @@
     });
   }
 
-  let statusPulseTimer = null;
-  let statusPulseFrame = 0;
+  const motionController = (() => {
+    try {
+      if (!motionRoot || !window.CorpusAcceptanceMotion) return null;
+      return window.CorpusAcceptanceMotion.mount(motionRoot);
+    } catch (_) {
+      return null;
+    }
+  })();
 
-  function writeStatus(text) {
-    if (statusEl) statusEl.textContent = text;
+  function setMotionPhase(phase) {
+    if (motionController && typeof motionController.setPhase === 'function') {
+      motionController.setPhase(phase);
+    }
   }
 
-  function stopStatusPulse() {
-    if (statusPulseTimer) {
-      clearInterval(statusPulseTimer);
-      statusPulseTimer = null;
+  function setMotionProgress(progress) {
+    if (motionController && typeof motionController.setProgress === 'function') {
+      motionController.setProgress(progress);
     }
-    statusPulseFrame = 0;
   }
 
   function setStatus(text) {
-    stopStatusPulse();
-    writeStatus(text);
+    if (statusEl) statusEl.textContent = text;
   }
 
-  function startStatusPulse(text) {
-    stopStatusPulse();
-    writeStatus(text);
-    statusPulseTimer = setInterval(() => {
-      statusPulseFrame = (statusPulseFrame + 1) % PULSE_FRAMES.length;
-      writeStatus(`${text}${PULSE_FRAMES[statusPulseFrame]}`);
-    }, PULSE_INTERVAL_MS);
+  function settleMotion(progress = 1) {
+    setMotionProgress(progress);
+    setMotionPhase('settled');
   }
 
   function render(state, opts = {}) {
@@ -101,6 +101,7 @@
       render(json);
       return json;
     } catch (err) {
+      settleMotion(0);
       setStatus('upstream unreachable');
       return null;
     }
@@ -121,6 +122,8 @@
 
   async function qualify() {
     const sid = sessionId();
+    setMotionProgress(1);
+    setMotionPhase('qualifying');
     try {
       const resp = await fetch(`${API_BASE}/api/corpus/qualify`, {
         method: 'POST',
@@ -129,20 +132,24 @@
         body: JSON.stringify({ session_id: sid }),
       });
       if (resp.status === 429) {
+        settleMotion();
         setStatus('rate-limited');
         return;
       }
       if (!resp.ok) {
+        settleMotion();
         setStatus('upstream silent');
         return;
       }
       const json = await resp.json();
       if (json.skipped === 'cooldown') {
+        settleMotion();
         setStatus('visit withheld · session already recorded');
         render(json);
         return;
       }
       if (json.skipped === 'bot') {
+        settleMotion();
         setStatus('machine mark withheld · deposited to fringe');
         render(json);
         return;
@@ -150,8 +157,10 @@
       render(json, { newTokenIndex: json.new_token_index });
       const folded = Number(json.fold_count || 0);
       const suffix = folded > 0 ? ` · ${folded} folded` : '';
+      settleMotion();
       setStatus(`visible visit qualified${suffix}`);
     } catch (err) {
+      settleMotion();
       setStatus('upstream unreachable');
     }
   }
@@ -166,6 +175,12 @@
   let dwellTimeout = null;
 
   function nowMs() { return performance.now(); }
+
+  function visibleElapsedMs() {
+    let visible = cumulativeVisibleMs;
+    if (lastVisibleStart !== null) visible += nowMs() - lastVisibleStart;
+    return visible;
+  }
 
   function stopDwellTimer() {
     if (timer) {
@@ -192,8 +207,8 @@
 
   function tick() {
     if (attempted) return;
-    let visible = cumulativeVisibleMs;
-    if (lastVisibleStart !== null) visible += nowMs() - lastVisibleStart;
+    const visible = visibleElapsedMs();
+    setMotionProgress(Math.min(visible / DWELL_MS, 1));
     if (visible >= DWELL_MS && document.visibilityState === 'visible') {
       attempted = true;
       try { sessionStorage.setItem(ATTEMPTED_KEY, '1'); } catch (_) {}
@@ -206,23 +221,29 @@
   function startVisibleDwell() {
     cumulativeVisibleMs = 0;
     lastVisibleStart = document.visibilityState === 'visible' ? nowMs() : null;
-    startStatusPulse('accepting visible visit');
+    setMotionProgress(0);
+    setMotionPhase('accepting');
+    setStatus('accepting visible visit');
     document.addEventListener('visibilitychange', onVisibilityChange);
     timer = setInterval(tick, 250);
     // bound the dwell wait so we don't churn forever on a backgrounded tab
     dwellTimeout = setTimeout(() => {
       if (timer && !attempted) {
         stopDwellTimer();
+        settleMotion(Math.min(visibleElapsedMs() / DWELL_MS, 1));
         setStatus('accepting paused · reload to try again');
       }
     }, 5 * 60 * 1000);
     tick();
   }
 
-  startStatusPulse('loading body');
+  setMotionProgress(0);
+  setMotionPhase('loading');
+  setStatus('loading body');
   fetchState().then((state) => {
     if (!state) return;
     if (attempted) {
+      settleMotion();
       setStatus('visit withheld · session already recorded');
       return;
     }

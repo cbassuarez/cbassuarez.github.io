@@ -45,11 +45,16 @@
     animation: bfv-fade 6s ease-out forwards;
   }
   @keyframes bfv-fade { to { background: transparent; } }
+  .motion-root {
+    height: 34px;
+    margin: 28px 0 0 0;
+    color: var(--ink-faint);
+  }
   .fringe {
     font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
     color: var(--ink-faint);
     letter-spacing: 0.4em;
-    margin: 48px 0 0 0;
+    margin: 24px 0 0 0;
     min-height: 1em;
   }
   .status {
@@ -176,6 +181,7 @@
 <main>
   <p class="preamble">corpus · one shared sentence · mutated by visitation</p>
   <p class="body-text" id="bfv-body"><span class="fold-marker">⟨loading body⟩</span></p>
+  <div class="motion-root" id="bfv-motion-root" aria-hidden="true"></div>
   <p class="fringe" id="bfv-fringe"></p>
   <p class="status" id="bfv-status">loading body</p>
   <p class="colophon">
@@ -210,6 +216,7 @@
     </form>
   </article>
 </dialog>
-<script src="./script.js?v=20260521-corpus" defer></script>
+<script src="./corpus-motion.bundle.js?v=20260520-corpus-motion" defer></script>
+<script src="./script.js?v=20260520-corpus-motion" defer></script>
 </body>
 </html>
