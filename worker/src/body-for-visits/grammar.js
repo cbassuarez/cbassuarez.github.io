@@ -14,7 +14,7 @@ export const MIN_WORDS = 1;
 export const MAX_WORDS = 3;
 
 const TOKEN_RE = /^[a-z]+(?:'[a-z]+)?$/;
-export const PUNCTUATION = new Set([",", ";", "—"]);
+export const PUNCTUATION = new Set([",", ";", ":", "—", "…"]);
 const HARD_TERMINAL_RE = /[.!?]\s*$/;
 export const CONNECTORS = new Set(["and", "but", "or", "yet", "so", "then"]);
 export const BAD_STARTERS = new Set([
@@ -116,11 +116,13 @@ export function tokenizeSpeech(text) {
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     .replace(/--+|[—–]/g, " — ")
-    .replace(/[:]/g, ",")
+    .replace(/…/g, " … ")
+    .replace(/\.\.\.+/g, " … ")
+    .replace(/[:]+/g, " : ")
     .replace(/[,]+/g, " , ")
     .replace(/[;]+/g, " ; ")
     .replace(/[.!?]+/g, " ")
-    .replace(/[^a-zA-Z',;—\s-]/g, " ")
+    .replace(/[^a-zA-Z',;:—…\s-]/g, " ")
     .toLowerCase();
   const tokens = [];
   for (const raw of normalized.split(/\s+/)) {
@@ -139,15 +141,15 @@ export function detokenize(tokens) {
   let out = "";
   for (const token of tokens) {
     if (!token) continue;
-    if (token === "," || token === ";") {
+    if (token === "," || token === ";" || token === ":") {
       out = out.replace(/\s+$/g, "") + token;
-    } else if (token === "—") {
-      out = `${out.replace(/\s+$/g, "")} — `;
+    } else if (token === "—" || token === "…") {
+      out = `${out.replace(/\s+$/g, "")} ${token} `;
     } else {
       out += `${out && !out.endsWith(" ") ? " " : ""}${token}`;
     }
   }
-  return out.replace(/\s+/g, " ").replace(/\s+([,;])/g, "$1").trim();
+  return out.replace(/\s+/g, " ").replace(/\s+([,;:])/g, "$1").trim();
 }
 
 function normalizeUnit(unit) {

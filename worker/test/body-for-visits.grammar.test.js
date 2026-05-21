@@ -49,6 +49,13 @@ test("tokenizeSpeech preserves open punctuation without terminal periods", () =>
   );
 });
 
+test("tokenizeSpeech keeps colons and ellipses as their own marks", () => {
+  assert.deepEqual(
+    tokenizeSpeech("wait: really... and then…"),
+    ["wait", ":", "really", "…", "and", "then", "…"]
+  );
+});
+
 test("validator accepts short open speech units", () => {
   const result = validateSpeechUnit("We wonder,", "someone remembers");
   assert.equal(result.ok, true);
@@ -65,6 +72,21 @@ test("validator accepts a lone mark after a word", () => {
   const result = validateSpeechUnit("—", "the quiet room");
   assert.equal(result.ok, true);
   assert.equal(result.token, "—");
+});
+
+test("validator accepts a lone colon or ellipsis after a word", () => {
+  const colon = validateSpeechUnit(":", "the quiet room");
+  assert.equal(colon.ok, true);
+  assert.equal(colon.token, ":");
+  const ellipsis = validateSpeechUnit("…", "the quiet room");
+  assert.equal(ellipsis.ok, true);
+  assert.equal(ellipsis.token, "…");
+});
+
+test("validator accepts a word unit ending in a colon", () => {
+  const result = validateSpeechUnit("no one knows:", "the quiet room");
+  assert.equal(result.ok, true);
+  assert.equal(result.token, "no one knows:");
 });
 
 test("validator rejects a lone mark that opens or doubles punctuation", () => {

@@ -161,7 +161,8 @@
   }
 
   // Punctuation glyphs that hug the preceding word — no space before them.
-  const HUG_LEFT = new Set(['.', ',', ';']);
+  // "—" and "…" are space-joined instead.
+  const HUG_LEFT = new Set([',', ';', ':']);
 
   function render(state, opts = {}) {
     if (!state || !Array.isArray(state.body)) return;
