@@ -24,7 +24,7 @@ import {
   base64ToFloats as bfvBase64ToFloats,
 } from "./body-for-visits/net.js";
 import { NET_MODEL as BFV_NET_MODEL } from "./body-for-visits/net-weights.generated.js";
-import { createVoiceSelector as bfvCreateVoiceSelector } from "./body-for-visits/voice.js";
+import { createBufferedSelector as bfvCreateBufferedSelector } from "./body-for-visits/voice.js";
 
 type FeedItem = {
   source: string;
@@ -1633,6 +1633,7 @@ type BfvStateRow = {
   fold_generations: number;
   corruption_count: number;
   fringe_json: string;
+  pending_json: string;
 };
 
 type BfvQuota = {
@@ -1669,7 +1670,6 @@ export class BodyForVisitsRoom {
   private net: any = null;
   private vctx: any = null;
   private netSelector: ((...args: any[]) => any) | null = null;
-  private voiceSelector: ((...args: any[]) => Promise<any>) | null = null;
   private netLoaded = false;
   private netSteps = 0;
   private netDirty = false;
@@ -1736,6 +1736,12 @@ export class BodyForVisitsRoom {
       sql.exec(`ALTER TABLE events ADD COLUMN dwell_ms INTEGER NOT NULL DEFAULT 0`);
     }
 
+    // The body buffers a generated span; each visit reveals 1-3 tokens of it.
+    const bodyCols = sql.exec(`PRAGMA table_info(body_state)`).toArray();
+    if (!bodyCols.some((col: any) => col.name === "pending_json")) {
+      sql.exec(`ALTER TABLE body_state ADD COLUMN pending_json TEXT NOT NULL DEFAULT '[]'`);
+    }
+
     // Persisted online-model weights — one row, overwritten on checkpoint.
     sql.exec(
       `CREATE TABLE IF NOT EXISTS net_state (
@@ -1751,7 +1757,7 @@ export class BodyForVisitsRoom {
 
   private readState(): BfvStateRow {
     const rows = this.state.storage.sql
-      .exec<BfvStateRow>(`SELECT body_json, body_version, fold_count, fold_generations, corruption_count, fringe_json FROM body_state WHERE id = 1`)
+      .exec<BfvStateRow>(`SELECT body_json, body_version, fold_count, fold_generations, corruption_count, fringe_json, pending_json FROM body_state WHERE id = 1`)
       .toArray();
     return (
       rows[0] || {
@@ -1761,6 +1767,7 @@ export class BodyForVisitsRoom {
         fold_generations: 0,
         corruption_count: 0,
         fringe_json: "[]",
+        pending_json: "[]",
       }
     );
   }
@@ -1860,11 +1867,6 @@ export class BodyForVisitsRoom {
     this.net = net;
     this.vctx = bfvBuildVocabContext(BFV_NET_MODEL.vocab);
     this.netSelector = bfvCreateSelector(net, this.vctx);
-    // Primary voice is the LLM; the net selector above is its fallback.
-    this.voiceSelector = bfvCreateVoiceSelector({
-      ai: this.env.AI,
-      netSelector: this.netSelector,
-    });
     this.lastGoodWeights = bfvSnapshotWeights(net);
     this.netLoaded = true;
     if (!restored) this.checkpointNet();
@@ -2192,6 +2194,7 @@ export class BodyForVisitsRoom {
              fold_generations = 0,
              corruption_count = 0,
              fringe_json = '[]',
+             pending_json = '[]',
              updated_at = ?
        WHERE id = 1`,
       now
@@ -2240,6 +2243,18 @@ export class BodyForVisitsRoom {
     // For grammar, ignore the fold marker if it's at index 0.
     const realBody = body[0]?.role === "fold_marker" ? body.slice(1) : body;
     const prev = realBody.length > 0 ? realBody[realBody.length - 1] : null;
+    let pending: string[];
+    try {
+      const parsedPending = JSON.parse(stateRow.pending_json || "[]");
+      pending = Array.isArray(parsedPending) ? parsedPending.map(String) : [];
+    } catch {
+      pending = [];
+    }
+    // The model is shown the body so far; it continues from there.
+    const contextText = body
+      .filter((t) => t.role !== "fold_marker")
+      .map((t) => t.token)
+      .join(" ");
     const humanCountRows = sql
       .exec<{ n: number }>(`SELECT COUNT(*) AS n FROM events WHERE kind = 'human'`)
       .toArray();
@@ -2253,6 +2268,17 @@ export class BodyForVisitsRoom {
     await this.ensureCheckpointAlarm();
     const model = bfvInferModel(journal);
 
+    // Reveal-gradual: the selector reveals 1-3 tokens of a buffered span,
+    // generating the next span (Workers AI) when the buffer runs dry.
+    const selector = bfvCreateBufferedSelector({
+      ai: this.env.AI,
+      netSelector: this.netSelector,
+      getPending: () => pending,
+      setPending: (next: string[]) => {
+        pending = next;
+      },
+      getContext: () => contextText,
+    });
     const decision = await bfvDecide({
       ua,
       sessionWindowCount: quota.used,
@@ -2262,7 +2288,7 @@ export class BodyForVisitsRoom {
       seed,
       now,
       model,
-      selector: this.voiceSelector ?? this.netSelector,
+      selector,
     });
 
     if (decision.action === "cooldown") {
@@ -2334,12 +2360,13 @@ export class BodyForVisitsRoom {
 
     sql.exec(
       `UPDATE body_state
-         SET body_json = ?, body_version = ?, fold_count = ?, fold_generations = ?, updated_at = ?
+         SET body_json = ?, body_version = ?, fold_count = ?, fold_generations = ?, pending_json = ?, updated_at = ?
        WHERE id = 1`,
       JSON.stringify(folded.body),
       nextVersion,
       folded.fold_count,
       folded.fold_generations,
+      JSON.stringify(pending),
       now
     );
 
@@ -2350,6 +2377,7 @@ export class BodyForVisitsRoom {
       fold_generations: folded.fold_generations,
       corruption_count: stateRow.corruption_count,
       fringe_json: stateRow.fringe_json,
+      pending_json: JSON.stringify(pending),
     };
     this.broadcast(this.snapshotMessage(updated, newTokenIndex));
     const data = this.buildResponseBody(updated, newTokenIndex);

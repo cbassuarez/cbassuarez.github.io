@@ -116,18 +116,21 @@ export function tokenizeSpeech(text) {
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     .replace(/--+|[—–]/g, " — ")
+    .replace(/ +- +/g, " — ")
     .replace(/…/g, " … ")
     .replace(/\.\.\.+/g, " … ")
     .replace(/[:]+/g, " : ")
     .replace(/[,]+/g, " , ")
     .replace(/[;]+/g, " ; ")
+    .replace(/\(/g, " ( ")
+    .replace(/\)/g, " ) ")
     .replace(/[.!?]+/g, " ")
-    .replace(/[^a-zA-Z',;:—…\s-]/g, " ")
+    .replace(/[^a-zA-Z',;:—…()\s-]/g, " ")
     .toLowerCase();
   const tokens = [];
   for (const raw of normalized.split(/\s+/)) {
     if (!raw) continue;
-    if (PUNCTUATION.has(raw)) {
+    if (PUNCTUATION.has(raw) || raw === "(" || raw === ")") {
       tokens.push(raw);
       continue;
     }
@@ -141,15 +144,20 @@ export function detokenize(tokens) {
   let out = "";
   for (const token of tokens) {
     if (!token) continue;
-    if (token === "," || token === ";" || token === ":") {
+    if (token === "," || token === ";" || token === ":" || token === ")") {
+      // marks that hug the preceding word — no space before
       out = out.replace(/\s+$/g, "") + token;
     } else if (token === "—" || token === "…") {
       out = `${out.replace(/\s+$/g, "")} ${token} `;
+    } else if (token === "(") {
+      // an opening paren hugs the following word — space before, none after
+      out += `${out && !out.endsWith(" ") ? " " : ""}(`;
     } else {
-      out += `${out && !out.endsWith(" ") ? " " : ""}${token}`;
+      const lead = out && !out.endsWith(" ") && !out.endsWith("(") ? " " : "";
+      out += `${lead}${token}`;
     }
   }
-  return out.replace(/\s+/g, " ").replace(/\s+([,;:])/g, "$1").trim();
+  return out.replace(/\s+/g, " ").replace(/\s+([,;:)])/g, "$1").trim();
 }
 
 function normalizeUnit(unit) {

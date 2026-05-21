@@ -4,6 +4,7 @@ import {
   allowedNext,
   inferModel,
   tokenizeSpeech,
+  detokenize,
   validateSpeechUnit,
   _internals,
 } from "../src/body-for-visits/grammar.js";
@@ -54,6 +55,28 @@ test("tokenizeSpeech keeps colons and ellipses as their own marks", () => {
     tokenizeSpeech("wait: really... and then…"),
     ["wait", ":", "really", "…", "and", "then", "…"]
   );
+});
+
+test("tokenizeSpeech reads a spaced hyphen as a dash", () => {
+  assert.deepEqual(
+    tokenizeSpeech("he paused - a clerk - and left"),
+    ["he", "paused", "—", "a", "clerk", "—", "and", "left"]
+  );
+});
+
+test("tokenizeSpeech keeps parentheses as their own tokens", () => {
+  assert.deepEqual(
+    tokenizeSpeech("a clerk (probably) left"),
+    ["a", "clerk", "(", "probably", ")", "left"]
+  );
+});
+
+test("detokenize hugs parentheses to their contents", () => {
+  assert.equal(
+    detokenize(["the", "door", "(", "a", "clerk", ")", "left"]),
+    "the door (a clerk) left"
+  );
+  assert.equal(detokenize(["(", "or", "so", ")"]), "(or so)");
 });
 
 test("validator accepts short open speech units", () => {
