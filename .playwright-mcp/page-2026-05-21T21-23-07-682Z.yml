@@ -1,0 +1,29 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "cbassuarez.com" [level=1] [ref=e5]
+      - paragraph [ref=e6]: 404 // not found
+    - separator [ref=e7]
+    - paragraph [ref=e8]: the page you asked for does not exist.
+    - paragraph [ref=e9]:
+      - text: "["
+      - link "home" [ref=e10] [cursor=pointer]:
+        - /url: /
+      - text: "] ["
+      - link "seb feed" [ref=e11] [cursor=pointer]:
+        - /url: /labs/feed
+      - text: "] ["
+      - link "works" [ref=e12] [cursor=pointer]:
+        - /url: /works
+      - text: "] ["
+      - link "about" [ref=e13] [cursor=pointer]:
+        - /url: /about
+      - text: "] ["
+      - link "contact" [ref=e14] [cursor=pointer]:
+        - /url: /contact
+      - text: "]"
+    - paragraph [ref=e15]:
+      - generic [ref=e16]:
+        - text: "build:"
+        - code [ref=e17]: dev
+  - generic [ref=e19]: build · dev

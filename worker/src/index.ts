@@ -25,6 +25,11 @@ import {
 } from "./body-for-visits/net.js";
 import { NET_MODEL as BFV_NET_MODEL } from "./body-for-visits/net-weights.generated.js";
 import { createBufferedSelector as bfvCreateBufferedSelector } from "./body-for-visits/voice.js";
+import {
+  duplicateQualifyResponse as bfvDuplicateQualifyResponse,
+  normalizeVisitId as bfvNormalizeVisitId,
+  SerialQueue as BfvSerialQueue,
+} from "./body-for-visits/idempotency.js";
 
 type FeedItem = {
   source: string;
@@ -1624,7 +1629,16 @@ const BFV_NET_DECAY_HALFLIFE = 64;
 const BFV_NET_MAX_DWELL_MS = 600000;
 const BFV_NET_COLLAPSE_RATIO = 0.34;
 
-type BfvToken = { token: string; role: string; event_id: number | null; ts: number };
+type BfvSpan = { text: string; italic: boolean };
+type BfvPendingToken = string | { text: string; italic?: boolean };
+
+type BfvToken = {
+  token: string;
+  role: string;
+  event_id: number | null;
+  ts: number;
+  spans?: BfvSpan[];
+};
 
 type BfvStateRow = {
   body_json: string;
@@ -1661,6 +1675,19 @@ async function bfvHashSession(sessionId: string): Promise<string> {
     .join("");
 }
 
+function bfvNormalizeSpans(value: unknown, token: string): BfvSpan[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const spans = value
+    .map((span: any) => ({
+      text: String(span?.text || ""),
+      italic: span?.italic === true,
+    }))
+    .filter((span) => span.text.length > 0);
+  if (!spans.some((span) => span.italic)) return undefined;
+  if (spans.map((span) => span.text).join("") !== token) return undefined;
+  return spans;
+}
+
 export class BodyForVisitsRoom {
   private readonly state: DurableObjectState;
   private readonly env: Env;
@@ -1675,6 +1702,7 @@ export class BodyForVisitsRoom {
   private netDirty = false;
   private lastGoodWeights: Float32Array | null = null;
   private pretrainedWeights: Float32Array | null = null;
+  private qualifyQueue = new BfvSerialQueue();
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -1734,6 +1762,12 @@ export class BodyForVisitsRoom {
     const eventCols = sql.exec(`PRAGMA table_info(events)`).toArray();
     if (!eventCols.some((col: any) => col.name === "dwell_ms")) {
       sql.exec(`ALTER TABLE events ADD COLUMN dwell_ms INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!eventCols.some((col: any) => col.name === "style_json")) {
+      sql.exec(`ALTER TABLE events ADD COLUMN style_json TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!eventCols.some((col: any) => col.name === "visit_id")) {
+      sql.exec(`ALTER TABLE events ADD COLUMN visit_id TEXT NOT NULL DEFAULT ''`);
     }
 
     // The body buffers a generated span; each visit reveals 1-3 tokens of it.
@@ -1814,6 +1848,25 @@ export class BodyForVisitsRoom {
       )
       .toArray();
     return Number(rows[0]?.n || 0);
+  }
+
+  private hasAcceptedVisit(sessionHash: string, visitId: string): boolean {
+    if (!visitId) return false;
+    const resetId = this.lastAdminResetEventId();
+    const rows = this.state.storage.sql
+      .exec<{ id: number }>(
+        `SELECT id FROM events
+          WHERE kind = 'human'
+            AND session_hash = ?
+            AND visit_id = ?
+            AND id > ?
+          LIMIT 1`,
+        sessionHash,
+        visitId,
+        resetId
+      )
+      .toArray();
+    return rows.length > 0;
   }
 
   private lastAdminResetEventId(): number {
@@ -2130,7 +2183,7 @@ export class BodyForVisitsRoom {
       return this.stateResponse(request);
     }
     if (request.method === "POST" && path === "/qualify") {
-      return this.qualify(request);
+      return this.enqueueQualify(request);
     }
     if (request.method === "GET" && path === "/export") {
       return this.export();
@@ -2147,6 +2200,10 @@ export class BodyForVisitsRoom {
       return this.adminReset(request);
     }
     return this.responseJson({ error: "not_found" }, 404);
+  }
+
+  private enqueueQualify(request: Request): Promise<Response> {
+    return this.qualifyQueue.run(() => this.qualify(request));
   }
 
   private async stateResponse(request: Request): Promise<Response> {
@@ -2220,6 +2277,10 @@ export class BodyForVisitsRoom {
     if (!/^[0-9a-f-]{8,64}$/i.test(sessionId)) {
       return this.responseJson({ error: "bad_session" }, 400);
     }
+    const visitId = bfvNormalizeVisitId(payload?.visit_id);
+    if (visitId === null) {
+      return this.responseJson({ error: "bad_visit_id" }, 400);
+    }
     // Visitor dwell time — the attention signal that weights model training.
     const visibleMs = Math.max(
       0,
@@ -2237,16 +2298,20 @@ export class BodyForVisitsRoom {
 
     const sql = this.state.storage.sql;
     const quota = this.sessionQuota(sessionHash, now);
+    if (visitId && this.hasAcceptedVisit(sessionHash, visitId)) {
+      const data = this.buildResponseBody(this.readState(), null);
+      return this.responseJson(bfvDuplicateQualifyResponse(data, quota));
+    }
 
     const stateRow = this.readState();
     const body = this.parseBody(stateRow);
     // For grammar, ignore the fold marker if it's at index 0.
     const realBody = body[0]?.role === "fold_marker" ? body.slice(1) : body;
     const prev = realBody.length > 0 ? realBody[realBody.length - 1] : null;
-    let pending: string[];
+    let pending: BfvPendingToken[];
     try {
       const parsedPending = JSON.parse(stateRow.pending_json || "[]");
-      pending = Array.isArray(parsedPending) ? parsedPending.map(String) : [];
+      pending = Array.isArray(parsedPending) ? parsedPending : [];
     } catch {
       pending = [];
     }
@@ -2274,7 +2339,7 @@ export class BodyForVisitsRoom {
       ai: this.env.AI,
       netSelector: this.netSelector,
       getPending: () => pending,
-      setPending: (next: string[]) => {
+      setPending: (next: BfvPendingToken[]) => {
         pending = next;
       },
       getContext: () => contextText,
@@ -2334,26 +2399,37 @@ export class BodyForVisitsRoom {
       }, 503);
     }
 
-    // append
-    sql.exec(
-      `INSERT INTO events (ts, kind, ip_hash, session_hash, ua_class, token, role, dwell_ms)
-       VALUES (?, 'human', ?, ?, 'browser', ?, ?, ?)`,
-      now,
-      ipHash,
-      sessionHash,
-      decision.token,
-      decision.role,
-      visibleMs
-    );
-    const eventIdRow = sql.exec<{ id: number }>(`SELECT last_insert_rowid() AS id`).toArray();
-    const eventId = eventIdRow[0]?.id ?? null;
-
     // The work never ends with a terminal period. If the new token is "." and
     // would land at the body's tail, swap to a comma so the sentence stays open.
     let nextToken = decision.token;
     if (nextToken === "." ) nextToken = ",";
+    const nextSpans = bfvNormalizeSpans((decision as any).spans, nextToken);
+    const styleJson = nextSpans ? JSON.stringify(nextSpans) : "";
 
-    const nextBody: BfvToken[] = [...body, { token: nextToken, role: decision.role, event_id: eventId, ts: now }];
+    // append
+    sql.exec(
+      `INSERT INTO events (ts, kind, ip_hash, session_hash, ua_class, token, role, dwell_ms, style_json, visit_id)
+       VALUES (?, 'human', ?, ?, 'browser', ?, ?, ?, ?, ?)`,
+      now,
+      ipHash,
+      sessionHash,
+      nextToken,
+      decision.role,
+      visibleMs,
+      styleJson,
+      visitId || ""
+    );
+    const eventIdRow = sql.exec<{ id: number }>(`SELECT last_insert_rowid() AS id`).toArray();
+    const eventId = eventIdRow[0]?.id ?? null;
+
+    const nextEntry: BfvToken = {
+      token: nextToken,
+      role: decision.role,
+      event_id: eventId,
+      ts: now,
+      ...(nextSpans ? { spans: nextSpans } : {}),
+    };
+    const nextBody: BfvToken[] = [...body, nextEntry];
     const folded = bfvFold(nextBody, stateRow.fold_count, stateRow.fold_generations, now);
     const newTokenIndex = folded.body.length - 1;
     const nextVersion = stateRow.body_version + 1;
@@ -2404,8 +2480,23 @@ export class BodyForVisitsRoom {
         token: string;
         role: string;
         dwell_ms: number;
-      }>(`SELECT id, ts, kind, session_hash, ua_class, token, role, dwell_ms FROM events ORDER BY id ASC`)
+        style_json: string;
+      }>(`SELECT id, ts, kind, session_hash, ua_class, token, role, dwell_ms, style_json FROM events ORDER BY id ASC`)
       .toArray();
+    const events = rows.map((r) => {
+      const out: any = {
+        id: r.id,
+        ts: r.ts,
+        kind: r.kind,
+        session_hash: r.session_hash,
+        ua_class: r.ua_class,
+        token: r.token,
+        role: r.role,
+        dwell_ms: r.dwell_ms,
+      };
+      if (r.style_json) out.style_json = r.style_json;
+      return out;
+    });
     const stateRow = this.readState();
     // The model the corpus has inferred about its own syntax and word habits.
     const resetId = this.lastAdminResetEventId();
@@ -2419,7 +2510,7 @@ export class BodyForVisitsRoom {
       fold_generations: stateRow.fold_generations,
       corruption_count: stateRow.corruption_count,
       model: bfvInferModel(humanSeq),
-      events: rows,
+      events,
     };
     return new Response(JSON.stringify(body), {
       status: 200,

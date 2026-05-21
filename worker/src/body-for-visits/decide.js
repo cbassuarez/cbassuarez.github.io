@@ -59,6 +59,8 @@ export async function decideQualify({
   if (!next || !next.token || !next.role) {
     return { action: "withhold", reason: "generator" };
   }
-  const { token, role } = next;
-  return { action: "append", token, role, ua_class: "browser" };
+  const { token, role, spans } = next;
+  return spans
+    ? { action: "append", token, role, spans, ua_class: "browser" }
+    : { action: "append", token, role, ua_class: "browser" };
 }

@@ -43,6 +43,22 @@ test("inferModel ignores fold markers and corruption events", () => {
   assert.deepEqual(model.recentUnits, ["the room keeps", "going somewhere"]);
 });
 
+test("inferModel uses plain token text when styled spans are present", () => {
+  const seq = [
+    {
+      role: "speech_unit",
+      token: "the small office",
+      spans: [
+        { text: "the ", italic: false },
+        { text: "small office", italic: true },
+      ],
+    },
+  ];
+  const model = inferModel(seq);
+  assert.deepEqual(model.recentTokens, ["the", "small", "office"]);
+  assert.deepEqual(model.recentUnits, ["the small office"]);
+});
+
 test("tokenizeSpeech preserves open punctuation without terminal periods", () => {
   assert.deepEqual(
     tokenizeSpeech("Then--well, the room thinks; no."),

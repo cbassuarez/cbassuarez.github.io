@@ -40,6 +40,21 @@ test("revealUnit takes words and pulls a trailing mark", () => {
   assert.deepEqual(c.rest, []);
 });
 
+test("revealUnit preserves styled spans while keeping plain unit text", () => {
+  const r = revealUnit([
+    "the",
+    { text: "small", italic: true },
+    { text: "office", italic: true },
+    "counted",
+  ], 3);
+  assert.equal(r.unit, "the small office");
+  assert.deepEqual(r.spans, [
+    { text: "the ", italic: false },
+    { text: "small office", italic: true },
+  ]);
+  assert.deepEqual(r.rest, ["counted"]);
+});
+
 test("revealUnit keeps a parenthetical aside whole", () => {
   const r = revealUnit(["(", "a", "clerk", ")", "and", "then"], 2);
   assert.equal(r.unit, "(a clerk)");
@@ -56,6 +71,102 @@ test("generateSpan returns a token array from the model reply", async () => {
   const ai = { run: async () => ({ response: "she was walking down the street" }) };
   const tokens = await generateSpan(ai, { contextText: "the room" });
   assert.deepEqual(tokens, ["she", "was", "walking", "down", "the", "street"]);
+});
+
+test("generateSpan extracts and italicizes a named thing on a naming span", async () => {
+  const ai = {
+    run: async (_model, input) => {
+      const content = input.messages[input.messages.length - 1].content;
+      if (/copied word for word/.test(content)) {
+        return { response: "operation black wing" };
+      }
+      return { response: "the agency ran operation black wing for years" };
+    },
+  };
+  const tokens = await generateSpan(ai, { contextText: "x", nameSpan: true });
+  assert.deepEqual(tokens, [
+    "the",
+    "agency",
+    "ran",
+    { text: "operation", italic: true },
+    { text: "black", italic: true },
+    { text: "wing", italic: true },
+    "for",
+    "years",
+  ]);
+});
+
+test("generateSpan italicizes two named things on a naming span", async () => {
+  const ai = {
+    run: async (_model, input) => {
+      const content = input.messages[input.messages.length - 1].content;
+      if (/copied word for word/.test(content)) {
+        return { response: "operation black wing\ndirective lighthouse" };
+      }
+      return {
+        response: "they ran operation black wing and directive lighthouse",
+      };
+    },
+  };
+  const tokens = await generateSpan(ai, { contextText: "x", nameSpan: true });
+  assert.deepEqual(tokens, [
+    "they",
+    "ran",
+    { text: "operation", italic: true },
+    { text: "black", italic: true },
+    { text: "wing", italic: true },
+    "and",
+    { text: "directive", italic: true },
+    { text: "lighthouse", italic: true },
+  ]);
+});
+
+test("generateSpan leaves a naming span plain when no name is extracted", async () => {
+  const ai = {
+    run: async (_model, input) => {
+      const content = input.messages[input.messages.length - 1].content;
+      if (/copied word for word/.test(content)) return { response: "none" };
+      return { response: "the agency shuffled its papers again" };
+    },
+  };
+  const tokens = await generateSpan(ai, { contextText: "x", nameSpan: true });
+  assert.deepEqual(tokens, ["the", "agency", "shuffled", "its", "papers", "again"]);
+});
+
+test("generateSpan makes no extraction call on a non-naming span", async () => {
+  let calls = 0;
+  const ai = {
+    run: async () => {
+      calls += 1;
+      return { response: "the agency shuffled papers" };
+    },
+  };
+  const tokens = await generateSpan(ai, { contextText: "x" });
+  assert.equal(calls, 1);
+  assert.deepEqual(tokens, ["the", "agency", "shuffled", "papers"]);
+});
+
+test("generateSpan strips stray markdown markers", async () => {
+  const ai = { run: async () => ({ response: "the _little_ machine *counted*" }) };
+  const tokens = await generateSpan(ai, { contextText: "x" });
+  assert.deepEqual(tokens, ["the", "little", "machine", "counted"]);
+});
+
+test("generateSpan trims a dangling tail back to a safe word", async () => {
+  // A span ending on "to the" leaves the next span nothing to attach to.
+  const ai = {
+    run: async () => ({ response: "the report was forwarded straight to the" }),
+  };
+  assert.deepEqual(await generateSpan(ai, { contextText: "x" }), [
+    "the", "report", "was", "forwarded", "straight",
+  ]);
+});
+
+test("generateSpan trims a trailing naming participle", async () => {
+  const ai = { run: async () => ({ response: "she found a dossier titled" }) };
+  assert.deepEqual(await generateSpan(ai, { contextText: "x" }), [
+    "she", "found", "a", "dossier",
+  ]);
 });
 
 test("generateSpan returns [] on an empty reply", async () => {
@@ -115,6 +226,49 @@ test("generateSpan retries when the model echoes the body", async () => {
   });
   assert.deepEqual(tokens, ["into", "the", "bright", "morning", "light"]);
   assert.equal(n, 2);
+});
+
+test("generateSpan rejects a span repeating a phrase from earlier in the body", async () => {
+  let n = 0;
+  const ai = {
+    run: async () => {
+      n += 1;
+      return {
+        response:
+          n === 1
+            ? "filing the forms in triplicate once again"
+            : "stamping each crate with a dull thud",
+      };
+    },
+  };
+  // "forms ... triplicate" sits far back in the body, outside the prompt tail,
+  // but the whole-body echo check still catches the reused phrase.
+  const tokens = await generateSpan(ai, {
+    contextText: "the clerk went on",
+    bodyText:
+      "long ago the office demanded the forms in triplicate so the clerk went on",
+  });
+  assert.deepEqual(tokens, ["stamping", "each", "crate", "with", "a", "dull", "thud"]);
+  assert.equal(n, 2);
+});
+
+test("generateSpan keeps intentional repetition within one span", async () => {
+  // A litany repeats a frame on purpose; echo detection is span-against-body,
+  // so the in-span repetition is never mistaken for an echo.
+  const ai = {
+    run: async () => ({
+      response: "the clerk filed; the clerk stamped; the clerk sealed",
+    }),
+  };
+  const tokens = await generateSpan(ai, {
+    contextText: "morning came",
+    bodyText: "morning came over the wide rooftops",
+  });
+  assert.deepEqual(tokens, [
+    "the", "clerk", "filed", ";",
+    "the", "clerk", "stamped", ";",
+    "the", "clerk", "sealed",
+  ]);
 });
 
 test("buffered selector reveals from the buffer without calling the model", async () => {
@@ -263,4 +417,15 @@ test("pickMode is deterministic and spans every structural mode", () => {
     seen.add(mode.brief);
   }
   assert.ok(seen.size >= 4, `expected varied modes, got ${seen.size}`);
+});
+
+test("pickMode includes a naming mode that allows italics", () => {
+  const seen = new Set();
+  let italicModes = 0;
+  for (let i = 0; i < 400; i += 1) {
+    const mode = pickMode(Math.imul(i, 0x85ebca6b) >>> 0, i);
+    seen.add(mode.brief);
+    if (mode.italic === true) italicModes += 1;
+  }
+  assert.ok(italicModes > 40, `expected a steady naming mode, got ${italicModes}/400`);
 });

@@ -4,6 +4,30 @@
 const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ESC[c]);
 
+function renderTokenHTML(token) {
+  if (token?.role === "fold_marker") {
+    return `<span class="fold-marker">${esc(token.token)}</span>`;
+  }
+  const spans = Array.isArray(token?.spans) ? token.spans : null;
+  if (!spans) return esc(token?.token || "");
+
+  const normalized = spans
+    .map((span) => ({
+      text: String(span?.text || ""),
+      italic: span?.italic === true,
+    }))
+    .filter((span) => span.text.length > 0);
+  if (
+    !normalized.some((span) => span.italic) ||
+    normalized.map((span) => span.text).join("") !== String(token?.token || "")
+  ) {
+    return esc(token?.token || "");
+  }
+  return normalized
+    .map((span) => span.italic ? `<em>${esc(span.text)}</em>` : esc(span.text))
+    .join("");
+}
+
 // state shape mirrors the live /api/body-for-visits/state response.
 export function renderSnapshotHTML(state, takenAt = new Date().toISOString()) {
   const body = Array.isArray(state?.body) ? state.body : [];
@@ -18,9 +42,7 @@ export function renderSnapshotHTML(state, takenAt = new Date().toISOString()) {
   let bodyHTML = "";
   body.forEach((t, i) => {
     if (i > 0 && !HUG_LEFT.has(t.token)) bodyHTML += " ";
-    bodyHTML += t.role === "fold_marker"
-      ? `<span class="fold-marker">${esc(t.token)}</span>`
-      : esc(t.token);
+    bodyHTML += renderTokenHTML(t);
   });
 
   return `<!doctype html>

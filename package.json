@@ -9,11 +9,13 @@
     "preview": "vite preview",
     "build:repl-cm": "node scripts/build-repl-cm.mjs",
     "build:corpus-motion": "node scripts/build-corpus-motion.mjs",
+    "build:corpus-text-flow": "node scripts/build-corpus-text-flow.mjs",
     "build:corpus-speech-model": "node scripts/build-corpus-speech-model.mjs",
     "build:corpus-net": "node scripts/build-corpus-net.mjs",
     "build:corpus-lexicon": "node scripts/build-corpus-word-priors.mjs"
   },
   "dependencies": {
+    "@chenglou/pretext": "^0.0.7",
     "framer-motion": "^12.39.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

@@ -1,0 +1,19 @@
+- main [ref=e2]:
+  - paragraph [ref=e3]: (to)complete · one shared sentence · mutated by visitation
+  - paragraph [ref=e4]: ⟨body unavailable⟩
+  - paragraph [ref=e5]
+  - paragraph [ref=e13]:
+    - generic [ref=e14]: upstream unreachable
+    - generic [ref=e15]: 0 accepted
+  - paragraph [ref=e16]
+  - paragraph [ref=e17]:
+    - text: a visible visit adds to the body. no form, no text input. the page records only a hashed session token and a hashed ip, both for the sole purpose of preventing accidental repeated contribution.
+    - text: "the event journal is open:"
+    - link "export.json" [ref=e18] [cursor=pointer]:
+      - /url: https://seb-feed.cbassuarez.workers.dev/api/corpus/export.json
+    - text: "· the static snapshot:"
+    - link "snapshot.html" [ref=e19] [cursor=pointer]:
+      - /url: https://seb-feed.cbassuarez.workers.dev/api/corpus/snapshot.html
+    - text: · the snapshot is preservation, not the work.
+  - paragraph [ref=e20]:
+    - button "[ learn more ]" [ref=e21] [cursor=pointer]

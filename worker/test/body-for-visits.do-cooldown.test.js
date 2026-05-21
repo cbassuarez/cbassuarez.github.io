@@ -31,6 +31,25 @@ test("first qualify from a fresh session appends", async () => {
   assert.equal(d.role, "speech_unit");
 });
 
+test("append decisions preserve optional styled spans", async () => {
+  const spans = [
+    { text: "here ", italic: false },
+    { text: "we are", italic: true },
+  ];
+  const d = await decideQualify({
+    ua: browser,
+    sessionWindowCount: 0,
+    prevRole: null,
+    prevToken: null,
+    humanEventIndex: 1,
+    seed: 42,
+    now: 1_700_000_000_000,
+    selector: () => ({ token: "here we are", role: "speech_unit", spans }),
+  });
+  assert.equal(d.action, "append");
+  assert.deepEqual(d.spans, spans);
+});
+
 test("same session can append below the rolling quota", async () => {
   const t0 = 1_700_000_000_000;
   const d = await decideQualify({

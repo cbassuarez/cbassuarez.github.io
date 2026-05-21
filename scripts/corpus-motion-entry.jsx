@@ -9,6 +9,22 @@ import {
 
 const PIP_COUNT = 5;
 const PIPS = Array.from({ length: PIP_COUNT }, (_, index) => index);
+const PIP_COLOR = {
+  loading: 'var(--pip-loading)',
+  accepting: 'var(--pip-accepting)',
+  qualifying: 'var(--pip-qualifying)',
+  blocked: 'var(--pip-blocked)',
+  warning: 'var(--pip-warning)',
+  settled: 'var(--pip-settled)',
+};
+const PIP_GLOW = {
+  loading: 'rgba(58, 128, 255, 0.46)',
+  accepting: 'rgba(28, 236, 154, 0.58)',
+  qualifying: 'rgba(244, 255, 214, 0.64)',
+  blocked: 'rgba(255, 76, 48, 0.58)',
+  warning: 'rgba(255, 174, 54, 0.52)',
+  settled: 'rgba(58, 188, 112, 0.36)',
+};
 
 function clamp01(value) {
   const n = Number(value);
@@ -29,13 +45,19 @@ function VisitPip({ index, phase, progress, prefersReduced }) {
   const progressOpacity = useTransform(
     progress,
     [Math.max(0, threshold - 0.18), threshold],
-    [0.2, 0.9],
+    [0.18, 1],
   );
   const progressScale = useTransform(
     progress,
     [Math.max(0, threshold - 0.18), threshold],
-    [0.82, 1.12],
+    [0.72, 1.18],
   );
+  const progressColor = useTransform(progress, (value) => (
+    value >= threshold ? PIP_COLOR.accepting : PIP_COLOR.loading
+  ));
+  const progressGlow = useTransform(progress, (value) => (
+    value >= threshold ? PIP_GLOW.accepting : PIP_GLOW.loading
+  ));
 
   const idle = phase === 'idle';
   const loading = phase === 'loading';
@@ -48,7 +70,12 @@ function VisitPip({ index, phase, progress, prefersReduced }) {
     return (
       <motion.span
         className="visit-pip"
-        style={{ opacity: progressOpacity, scale: progressScale }}
+        style={{
+          opacity: progressOpacity,
+          scale: progressScale,
+          '--pip-color': progressColor,
+          '--pip-glow': progressGlow,
+        }}
       />
     );
   }
@@ -57,7 +84,11 @@ function VisitPip({ index, phase, progress, prefersReduced }) {
     return (
       <motion.span
         className="visit-pip"
-        animate={{ opacity: [0.18, 0.85, 0.18], scale: [0.82, 1.2, 0.82] }}
+        style={{
+          '--pip-color': PIP_COLOR.loading,
+          '--pip-glow': PIP_GLOW.loading,
+        }}
+        animate={{ opacity: [0.14, 0.92, 0.14], scale: [0.72, 1.24, 0.72] }}
         transition={{
           duration: 0.9,
           repeat: Infinity,
@@ -70,27 +101,52 @@ function VisitPip({ index, phase, progress, prefersReduced }) {
   }
 
   if (qualifying && !prefersReduced) {
+    const color = index % 2 === 0 ? PIP_COLOR.qualifying : PIP_COLOR.accepting;
+    const glow = index % 2 === 0 ? PIP_GLOW.qualifying : PIP_GLOW.accepting;
+
     return (
       <motion.span
         className="visit-pip"
-        animate={{ opacity: [0.82, 0.46, 0.82], scale: [1.08, 0.94, 1.08] }}
+        style={{
+          '--pip-color': color,
+          '--pip-glow': glow,
+        }}
+        animate={{ opacity: [0.72, 1, 0.72], scale: [1.02, 1.26, 1.02] }}
         transition={{
-          duration: 0.72,
+          duration: 0.78,
           repeat: Infinity,
           ease: 'easeInOut',
-          delay: index * 0.025,
+          delay: index * 0.035,
         }}
       />
     );
   }
 
   const broken = blocked && index % 2 === 1;
-  const opacity = idle ? 0 : blocked ? (broken ? 0.12 : 0.62) : settled ? 0.34 : 0.68;
+  const color = blocked
+    ? (broken ? PIP_COLOR.warning : PIP_COLOR.blocked)
+    : settled
+      ? PIP_COLOR.settled
+      : qualifying
+        ? (index % 2 === 0 ? PIP_COLOR.qualifying : PIP_COLOR.accepting)
+        : PIP_COLOR.loading;
+  const glow = blocked
+    ? (broken ? PIP_GLOW.warning : PIP_GLOW.blocked)
+    : settled
+      ? PIP_GLOW.settled
+      : qualifying
+        ? (index % 2 === 0 ? PIP_GLOW.qualifying : PIP_GLOW.accepting)
+        : PIP_GLOW.loading;
+  const opacity = idle ? 0 : blocked ? (broken ? 0.18 : 0.74) : settled ? 0.36 : qualifying ? 0.86 : 0.68;
   const scale = blocked ? (broken ? 0.72 : 1) : settled ? 0.86 : 1;
 
   return (
     <motion.span
       className="visit-pip"
+      style={{
+        '--pip-color': color,
+        '--pip-glow': glow,
+      }}
       animate={{ opacity, scale }}
       transition={{ duration: prefersReduced ? 0 : 0.24, ease: 'easeOut' }}
     />
