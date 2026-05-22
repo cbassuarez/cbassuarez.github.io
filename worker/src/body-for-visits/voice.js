@@ -42,7 +42,7 @@ const LENGTHS = Object.freeze([
 // clause here, a staccato burst there, a colon pivot, a parenthetical aside.
 const MODES = Object.freeze([
   {
-    weight: 17,
+    weight: 19,
     min: 15,
     max: 22,
     brief:
@@ -63,14 +63,14 @@ const MODES = Object.freeze([
       "file moved; no file found' — repeat only that opening, no other word.",
   },
   {
-    weight: 13,
+    weight: 14,
     min: 7,
     max: 13,
     brief:
       "For this stretch, set something up, then deliver it across a colon.",
   },
   {
-    weight: 13,
+    weight: 14,
     min: 8,
     max: 15,
     brief:
@@ -78,7 +78,7 @@ const MODES = Object.freeze([
       "dashes — like this — and then resume.",
   },
   {
-    weight: 12,
+    weight: 13,
     min: 8,
     max: 18,
     brief:
@@ -87,7 +87,7 @@ const MODES = Object.freeze([
       "swerving digression.",
   },
   {
-    weight: 24,
+    weight: 18,
     min: 12,
     max: 18,
     italic: true,
@@ -98,7 +98,7 @@ const MODES = Object.freeze([
       "around those two names.",
   },
   {
-    weight: 10,
+    weight: 11,
     min: 6,
     max: 12,
     brief: "For this stretch, simply continue, a clause or two.",
@@ -155,6 +155,12 @@ function responseText(out) {
 function tailWords(text, n) {
   const parts = String(text || "").trim().split(/\s+/).filter(Boolean);
   return parts.slice(-n).join(" ");
+}
+
+// The last actual word of a stretch of text — punctuation ignored.
+function lastWord(text) {
+  const words = tokenizeSpeech(text).filter(isWord);
+  return words[words.length - 1] || "";
 }
 
 // The shared texture brief — voice and tone. The per-span structural job
@@ -330,10 +336,11 @@ function cleanSpan(raw) {
     out.push(token);
   }
   // Drop a dangling tail so the next span has a complete phrase to attach to.
-  // Trailing marks stay: a span may end cleanly on punctuation.
+  // A trailing possessive or contraction ("...the bureau's") dangles just as
+  // a preposition does. Trailing marks stay: a span may end on punctuation.
   while (out.length > 0) {
     const last = pendingText(out[out.length - 1]);
-    if (isWord(last) && UNSAFE_ENDERS.has(last)) {
+    if (isWord(last) && (UNSAFE_ENDERS.has(last) || last.includes("'"))) {
       out.pop();
     } else {
       break;
@@ -528,6 +535,26 @@ export async function generateSpan(
     }
   }
   if (!result) result = best;
+  // Drop a leading word that merely repeats the body's last word — a
+  // cross-span stutter ("...workflow that somehow" + "somehow yielded...")
+  // that the within-span doubling check cannot see.
+  const tail = lastWord(contextText);
+  if (
+    tail &&
+    result.length > 1 &&
+    isWord(pendingText(result[0])) &&
+    pendingText(result[0]) === tail
+  ) {
+    let lead = 1;
+    while (
+      lead < result.length &&
+      !isWord(pendingText(result[lead])) &&
+      pendingText(result[lead]) !== "("
+    ) {
+      lead += 1;
+    }
+    result = result.slice(lead);
+  }
   if (result.length > 0 && nameSpan) {
     const names = await extractNames(
       ai,

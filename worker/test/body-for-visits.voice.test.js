@@ -169,6 +169,25 @@ test("generateSpan trims a trailing naming participle", async () => {
   ]);
 });
 
+test("generateSpan trims a trailing possessive so the next span can attach", async () => {
+  const ai = {
+    run: async () => ({ response: "they reviewed everything the auditor's" }),
+  };
+  assert.deepEqual(await generateSpan(ai, { contextText: "x" }), [
+    "they", "reviewed", "everything",
+  ]);
+});
+
+test("generateSpan drops a leading word that repeats the body's last word", async () => {
+  const ai = {
+    run: async () => ({ response: "somehow yielded a tangled result" }),
+  };
+  const tokens = await generateSpan(ai, {
+    contextText: "the workflow that somehow",
+  });
+  assert.deepEqual(tokens, ["yielded", "a", "tangled", "result"]);
+});
+
 test("generateSpan returns [] on an empty reply", async () => {
   const ai = { run: async () => ({ response: "" }) };
   assert.deepEqual(await generateSpan(ai, { contextText: "x" }), []);
