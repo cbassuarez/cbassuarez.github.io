@@ -41,16 +41,85 @@ const WEBSAFE_LINK_COLORS = [
   '#CC3300'
 ];
 const VISITED_LINK_COLOR = '#551A8B';
-const RANDOM_LABS_ROUTES = [
-  '/labs/feed',
-  '/labs/guestbook',
-  '/labs/chunk-surfer',
-  '/labs/string',
-  '/labs/corpus',
-  '/labs/repl',
-  '/room',
-  '/labs/tell-me-about-your-day'
+
+const LAB_ENTRIES = [
+  {
+    key: 'works-list',
+    label: 'works list',
+    href: '/labs/works-list',
+    still: '/labs/stills/works-list.webp',
+    description: 'curated three-work Praetorius page'
+  },
+  {
+    key: 'feed',
+    label: 'seb feed',
+    href: '/labs/feed',
+    still: '/labs/stills/feed.webp',
+    description: 'live operator activity timeline'
+  },
+  {
+    key: 'guestbook',
+    label: 'guestbook',
+    href: '/labs/guestbook',
+    still: '/labs/stills/guestbook.webp',
+    description: 'signed public guestbook stream'
+  },
+  {
+    key: 'chunk-surfer',
+    label: 'chunk surfer',
+    href: '/labs/chunk-surfer',
+    still: '/labs/stills/chunk-surfer.webp',
+    description: 'navigable chunk-field lab surface'
+  },
+  {
+    key: 'string',
+    label: 'string',
+    href: '/labs/string',
+    still: '/labs/stills/string.webp',
+    description: 'shared live string instrument'
+  },
+  {
+    key: 'to-complete',
+    label: '(to)complete',
+    href: '/labs/corpus',
+    still: '/labs/stills/to-complete.webp',
+    description: 'one shared sentence, mutated by visitation'
+  },
+  {
+    key: 'repl',
+    label: 'repl',
+    href: '/labs/repl',
+    still: '/labs/stills/repl.webp',
+    description: 'live-coding score-grid REPL'
+  },
+  {
+    key: 'tell-me-about-your-day',
+    label: 'tell me about your day',
+    href: '/labs/tell-me-about-your-day',
+    still: '/labs/stills/tell-me-about-your-day.webp',
+    description: 'daily submission and reels route'
+  },
+  {
+    key: 'this-person',
+    label: 'this person',
+    href: '/labs/this-person',
+    still: '/labs/stills/this-person.webp',
+    description: 'advertising-profile extraction and return loop'
+  },
+  {
+    key: 'anteroom',
+    label: 'anteroom',
+    href: '/room',
+    note: 'usually closed',
+    description: 'usually closed',
+    directory: false,
+    footer: false
+  }
 ];
+const LAB_DIRECTORY_ENTRIES = LAB_ENTRIES.filter((entry) => entry.directory !== false);
+const LAB_NAV_ENTRIES = LAB_ENTRIES.filter((entry) => entry.navigation !== false);
+const LAB_FOOTER_ENTRIES = LAB_NAV_ENTRIES.filter((entry) => entry.footer !== false);
+const RANDOM_LABS_ROUTES = LAB_NAV_ENTRIES.map((entry) => entry.href);
 
 function pickRandomLabsRoute() {
   const index = Math.floor(Math.random() * RANDOM_LABS_ROUTES.length);
@@ -767,7 +836,7 @@ function RecentWorksPage() {
             <td>let go / letting go</td>
             <td>Premiered; the performance film is now in the cutting room.</td>
             <td>
-              [ <a href="/labs/works-list">labs works list</a> ] [ <a href="https://www.youtube.com/watch?v=fV3o2fRln8A" target="_blank" rel="noreferrer">video</a> ]
+              [ <a href="/labs/works-list">works list</a> ] [ <a href="https://www.youtube.com/watch?v=fV3o2fRln8A" target="_blank" rel="noreferrer">video</a> ]
             </td>
           </tr>
           <tr>
@@ -781,7 +850,7 @@ function RecentWorksPage() {
             <td>Praetorius update</td>
             <td>v0.3 next: completed Builder (CLI-in-web), full skin reskin, expanded themes, CDN-centered runtime, YouTube support, and Clean Mode for PDFs.</td>
             <td>
-              [ <a href="/labs/works-list">labs works list</a> ] [ <a href="https://www.npmjs.com/package/praetorius" target="_blank" rel="noreferrer">npm</a> ] [ <a href="https://github.com/cbassuarez/praetorius" target="_blank" rel="noreferrer">github</a> ]
+              [ <a href="/labs/works-list">works list</a> ] [ <a href="https://www.npmjs.com/package/praetorius" target="_blank" rel="noreferrer">npm</a> ] [ <a href="https://github.com/cbassuarez/praetorius" target="_blank" rel="noreferrer">github</a> ]
             </td>
           </tr>
           <tr>
@@ -797,7 +866,7 @@ function RecentWorksPage() {
       <h3>Where To Enter First</h3>
       <ul>
         <li>
-          start with [ <a href="/labs/works-list">labs works list</a> ] for the quickest representative route through listening + score context.
+          start with [ <a href="/labs/works-list">works list</a> ] for the quickest representative route through listening + score context.
         </li>
         <li>
           move to [ <a href="/works">works archive</a> ] for deeper score/media coverage across the full catalog.
@@ -816,13 +885,127 @@ function RecentWorksPage() {
   );
 }
 
+function LabTextLink({ entry, showNote = true }) {
+  return (
+    <>
+      <a href={entry.href}>{entry.label}</a>
+      {showNote && entry.note ? <> <small>({entry.note})</small></> : null}
+    </>
+  );
+}
+
+function LabNavigationList({ entries = LAB_NAV_ENTRIES }) {
+  return (
+    <ul>
+      {entries.map((entry) => (
+        <li key={entry.key}>
+          <LabTextLink entry={entry} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function InlineLabLinks({ entries = LAB_NAV_ENTRIES }) {
+  return entries.map((entry, index) => (
+    <span key={entry.key}>
+      {index > 0 ? ' ' : ''}
+      [ <LabTextLink entry={entry} /> ]
+    </span>
+  ));
+}
+
+function SlashLabLinks({ entries = LAB_FOOTER_ENTRIES }) {
+  return entries.map((entry, index) => (
+    <span key={entry.key}>
+      {index > 0 ? ' / ' : ''}
+      <LabTextLink entry={entry} showNote={false} />
+    </span>
+  ));
+}
+
+function LabStill({ entry }) {
+  const [failed, setFailed] = useState(false);
+  const frameStyle = {
+    aspectRatio: '16 / 9',
+    background: '#eee',
+    border: '1px solid #000',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: '0.55em',
+    overflow: 'hidden',
+    width: '100%'
+  };
+
+  if (!entry.still || failed) {
+    return (
+      <div style={frameStyle}>
+        <small>{entry.label}</small>
+      </div>
+    );
+  }
+
+  return (
+    <div style={frameStyle}>
+      <img
+        src={entry.still}
+        alt={`${entry.label} still`}
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(true)}
+        style={{ display: 'block', height: '100%', objectFit: 'cover', width: '100%' }}
+      />
+    </div>
+  );
+}
+
 function LabsDirectoryPage() {
   return (
-    <MarkdownRoutePage
-      title="Labs Directory"
-      subtitle="labs"
-      sourcePath="/content/labs.md"
-    />
+    <>
+      <center>
+        <h1>{SITE_DOMAIN}</h1>
+        <p>
+          <i>labs</i>
+        </p>
+        <p>
+          [ <a href="/">home</a> ] [ <a href="/works">works</a> ] [ <a href="/recent">recent</a> ] [ <a href="/about">about</a> ] [ <a href="/press">press</a> ] [ <a href="/contact">contact</a> ]
+        </p>
+      </center>
+
+      <hr />
+
+      <h2>labs</h2>
+      <p>live and experimental routes.</p>
+
+      <div
+        style={{
+          display: 'grid',
+          gap: '1.25em',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))'
+        }}
+      >
+        {LAB_DIRECTORY_ENTRIES.map((entry) => (
+          <a
+            key={entry.key}
+            href={entry.href}
+            style={{ color: 'inherit', display: 'block', textDecoration: 'none' }}
+          >
+            <LabStill entry={entry} />
+            <strong style={{ textDecoration: 'underline' }}>{entry.label}</strong>
+            <br />
+            <small>{entry.description}</small>
+          </a>
+        ))}
+      </div>
+
+      <hr />
+      <p>
+        <small>
+          text links: <InlineLabLinks entries={LAB_DIRECTORY_ENTRIES} />
+        </small>
+      </p>
+    </>
   );
 }
 
@@ -1025,6 +1208,39 @@ function LabsWorksListPage() {
   );
 }
 
+function currentSearchAndHash() {
+  if (typeof window === 'undefined') return '';
+  return `${window.location.search || ''}${window.location.hash || ''}`;
+}
+
+function CorpusLabPage() {
+  return (
+    <iframe
+      title="(to)complete"
+      src={`/labs/corpus/index.html${currentSearchAndHash()}`}
+      onLoad={(event) => wireIframeTopNavigation(event.currentTarget)}
+      style={{ width: '100%', height: '100vh', border: 0, display: 'block' }}
+    />
+  );
+}
+
+function thisPersonStaticSrc(pathname) {
+  const rawSuffix = String(pathname || '').replace(/^\/labs\/this-person/i, '').replace(/\/+$/g, '');
+  const staticPath = rawSuffix ? `/labs/this-person${rawSuffix}/index.html` : '/labs/this-person/index.html';
+  return `${staticPath}${currentSearchAndHash()}`;
+}
+
+function ThisPersonLabPage({ pathname }) {
+  return (
+    <iframe
+      title="this person"
+      src={thisPersonStaticSrc(pathname)}
+      onLoad={(event) => wireIframeTopNavigation(event.currentTarget)}
+      style={{ width: '100%', height: '100vh', border: 0, display: 'block' }}
+    />
+  );
+}
+
 function StringLabPage() {
   const isMobile = useIsMobile();
 
@@ -1155,29 +1371,7 @@ function SiteLeftPane() {
       </ul>
 
       <h3>labs</h3>
-        <ul>
-          <li>
-            <a href="/labs/feed">seb feed</a>
-          </li>
-          <li>
-            <a href="/labs/guestbook">guestbook</a>
-          </li>
-          <li>
-            <a href="/labs/chunk-surfer">chunk surfer</a>
-          </li>
-          <li>
-            <a href="/labs/string">string</a>
-          </li>
-          <li>
-            <a href="/labs/corpus">corpus</a>
-          </li>
-          <li>
-            <a href="/labs/repl">repl</a>
-          </li>
-          <li>
-            <a href="/room">anteroom</a> <small>(usually closed)</small>
-          </li>
-        </ul>
+      <LabNavigationList />
 
       <h3>operator</h3>
       <p>
@@ -1275,7 +1469,7 @@ function GlobalFooter() {
               ]
             </span>
           ))}{' '}
-          [ <a href="/works">works</a> ] [ <a href="/recent">recent</a> ] [ <a href="/labs">labs</a> ] [ <a href="/about">about</a> ] [ <a href="/press">press</a> ] [ <a href="/contact">contact</a> ] [ labs: <a href="/labs/feed">seb feed</a> / <a href="/labs/guestbook">guestbook</a> / <a href="/labs/chunk-surfer">chunk surfer</a> / <a href="/labs/string">string</a> / <a href="/labs/corpus">corpus</a> / <a href="/labs/repl">repl</a> ] [ <a href="/colophon">colophon</a> ] [ <a href="/access">access</a> ]
+          [ <a href="/works">works</a> ] [ <a href="/recent">recent</a> ] [ <a href="/labs">labs</a> ] [ <a href="/about">about</a> ] [ <a href="/press">press</a> ] [ <a href="/contact">contact</a> ] [ labs: <SlashLabLinks /> ] [ <a href="/colophon">colophon</a> ] [ <a href="/access">access</a> ]
         </small>
       </center>
     </>
@@ -1414,7 +1608,7 @@ function HomePage({ shellMode = false }) {
       )}
       <p>
         <button type="button" onClick={() => { window.location.href = '/labs/corpus'; }}>
-          corpus
+          (to)complete
         </button>
         <br />
         <small>one shared sentence, mutated by visitation.</small>
@@ -1564,8 +1758,8 @@ function HomePage({ shellMode = false }) {
           </p>
           <h3>labs</h3>
           <p>
-          [ <a href="/labs/feed">seb feed</a> ] [ <a href="/labs/guestbook">guestbook</a> ] [ <a href="/labs/chunk-surfer">chunk surfer</a> ] [ <a href="/labs/string">string</a> ] [ <a href="/labs/corpus">corpus</a> ] [ <a href="/room">anteroom</a> <small>(usually closed)</small> ]
-        </p>
+            <InlineLabLinks />
+          </p>
 
           <h3>operator</h3>
           <p>
@@ -1656,26 +1850,7 @@ function HomePage({ shellMode = false }) {
                 </li>
                 </ul>
                 <h3>labs</h3>
-                <ul>
-                  <li>
-                    <a href="/labs/feed">seb feed</a>
-                  </li>
-                  <li>
-                    <a href="/labs/guestbook">guestbook</a>
-                  </li>
-                  <li>
-                    <a href="/labs/chunk-surfer">chunk surfer</a>
-                  </li>
-                  <li>
-                    <a href="/labs/string">string</a>
-                  </li>
-                  <li>
-                    <a href="/labs/corpus">corpus</a>
-                  </li>
-                  <li>
-                    <a href="/room">anteroom</a> <small>(usually closed)</small>
-                  </li>
-                </ul>
+                <LabNavigationList />
 
                 <h3>operator</h3>
                 <p>
@@ -2593,7 +2768,7 @@ function TalkRecapPage() {
       </p>
       <p>
         Walk the site:{' '}
-        [ <a href="/">home</a> ] [ <a href="/works">works</a> ] [ <a href="/labs/chunk-surfer">chunk surfer</a> ] [ <a href="/labs/string">string</a> ] [ <a href="/labs/corpus">corpus</a> ] [ <a href="/labs/feed">seb feed</a> ] [ <a href="/labs/guestbook">guestbook</a> ]
+        [ <a href="/">home</a> ] [ <a href="/works">works</a> ] <InlineLabLinks entries={LAB_FOOTER_ENTRIES} />
       </p>
 
       <hr />
@@ -3388,8 +3563,10 @@ export default function App() {
   const isChunkSurferPage = /^\/labs\/chunk-surfer\/?$/i.test(pathname);
   const isLabsDirectoryPage = /^\/labs\/?$/i.test(pathname);
   const isLabsChildRoute = /^\/labs\/.+/i.test(pathname);
+  const isCorpusLabPage = /^\/labs\/corpus\/?$/i.test(pathname);
   const isStringPage = /^\/labs\/string\/?$/i.test(pathname);
   const isReplPage = /^\/labs\/repl\/?$/i.test(pathname);
+  const isThisPersonLabsPage = /^\/labs\/this-person(?:\/.*)?$/i.test(pathname);
   const isTmaydLabsPage = pathname.startsWith('/labs/tell-me-about-your-day');
   const isRoomPage = /^\/room\/?$/i.test(pathname);
   const isLegacyFeedHash = pathname === '/' && /^#seb-feed$/i.test(hash);
@@ -3409,8 +3586,10 @@ export default function App() {
   isLabsWorksListPage ||
   isChunkSurferPage ||
   isLabsDirectoryPage ||
+  isCorpusLabPage ||
   isStringPage ||
   isReplPage ||
+  isThisPersonLabsPage ||
   isTmaydLabsPage ||
   isLegacyFeedHash;
 
@@ -3423,6 +3602,8 @@ const isNotFoundRoute = !isKnownRoute;
     page = <LabsWorksListPage />;
   } else if (isChunkSurferPage) {
     page = <ChunkSurferLabPage />;
+  } else if (isCorpusLabPage) {
+    page = <CorpusLabPage />;
   } else if (isLabsDirectoryPage) {
     page = <LabsDirectoryPage />;
   } else if (isRecentPage) {
@@ -3431,6 +3612,8 @@ const isNotFoundRoute = !isKnownRoute;
     page = <StringLabPage />;
   } else if (isReplPage) {
     page = <ReplLabPage />;
+  } else if (isThisPersonLabsPage) {
+    page = <ThisPersonLabPage pathname={pathname} />;
   } else if (isLegacyFeedHash) {
     page = <LegacyFeedHashRedirect />;
     } else if (isRoomPage) {

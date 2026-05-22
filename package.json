@@ -12,11 +12,15 @@
     "build:corpus-text-flow": "node scripts/build-corpus-text-flow.mjs",
     "build:corpus-speech-model": "node scripts/build-corpus-speech-model.mjs",
     "build:corpus-net": "node scripts/build-corpus-net.mjs",
-    "build:corpus-lexicon": "node scripts/build-corpus-word-priors.mjs"
+    "build:corpus-lexicon": "node scripts/build-corpus-word-priors.mjs",
+    "build:this-person": "node scripts/build-this-person.mjs",
+    "test:this-person": "node scripts/test-this-person.mjs"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.7",
     "framer-motion": "^12.39.0",
+    "jszip": "^3.10.1",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

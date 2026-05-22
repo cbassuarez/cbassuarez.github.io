@@ -30,6 +30,34 @@ import {
   normalizeVisitId as bfvNormalizeVisitId,
   SerialQueue as BfvSerialQueue,
 } from "./body-for-visits/idempotency.js";
+import { ThisPersonRoom } from "./this-person/room";
+import {
+  parsePreviewRequest as tpParsePreview,
+  parseAppendRequest as tpParseAppend,
+  LIMITS as TP_LIMITS,
+  type ExtractedFragment as TpFragment,
+  type ExtractedPerson as TpPerson,
+} from "./this-person/types";
+import { generateClaims as tpGenerateClaims } from "./this-person/extraction/generateClaims";
+import {
+  redactText as tpRedactText,
+  isRedactedEmpty as tpIsRedactedEmpty,
+} from "./this-person/extraction/redactIdentifiers";
+
+// Re-exported so the Cloudflare runtime registers the Durable Object class.
+export { ThisPersonRoom };
+
+// Defence in depth: identifier redaction also runs server-side. Fragments that
+// reduce to nothing but placeholders are dropped.
+function tpRedactFragments(fragments: TpFragment[]): TpFragment[] {
+  const out: TpFragment[] = [];
+  for (const fragment of fragments) {
+    const { text } = tpRedactText(fragment.value);
+    if (!text || tpIsRedactedEmpty(text)) continue;
+    out.push({ ...fragment, value: text });
+  }
+  return out;
+}
 
 type FeedItem = {
   source: string;
@@ -118,6 +146,16 @@ type Env = {
   BFV_HASH_SALT?: string;
   BFV_ADMIN_TOKEN?: string;
   AI?: { run: (model: string, input: unknown) => Promise<unknown> };
+  THIS_PERSON_ROOM?: DurableObjectNamespace;
+  RATE_LIMIT_THIS_PERSON?: RateLimitBinding;
+  THIS_PERSON_ADMIN_TOKEN?: string;
+  THIS_PERSON_SHOW_TIME?: string;
+  ENABLE_ADTECH?: string;
+  ENABLE_GOOGLE_ADS?: string;
+  GOOGLE_ADS_ID?: string;
+  GOOGLE_ADS_REMARKETING_LABEL?: string;
+  ENABLE_META_PIXEL?: string;
+  META_PIXEL_ID?: string;
 };
 
 type FeedSnapshot = {
@@ -129,6 +167,9 @@ type FeedSnapshot = {
 const FEED_SNAPSHOT_KEY = "feed:snapshot-v1";
 const FEED_MAX_ITEMS = 500;
 const FEED_EDGE_CACHE_SECONDS = 60;
+
+// this person — the wall lives in a single Durable Object instance.
+const THIS_PERSON_ROOM_NAME = "this-person:wall-v1";
 
 // Surfaces the same site is reachable from. Emitted as a Link header on every
 // worker response so anyone watching the network tab (or running `curl -i`)
@@ -3846,6 +3887,274 @@ export default {
         const resp = await stub.fetch(forwarded);
         const body = await resp.text();
         return new Response(body, { status: resp.status, headers: jsonHeaders(allowOrigin) });
+      }
+
+      return new Response(JSON.stringify({ error: "method_not_allowed" }), {
+        status: 405,
+        headers: jsonHeaders(allowOrigin),
+      });
+    }
+
+    // ─── this person ────────────────────────────────────────────────────────
+    // A consented extraction repository: only successful extracted portraits.
+    // The only data accepted is the final, participant-approved person.
+    if (url.pathname.startsWith("/api/this-person/")) {
+      const sub = url.pathname.slice("/api/this-person/".length);
+
+      if (sub === "health" && request.method === "GET") {
+        return new Response(
+          JSON.stringify({ ok: true, at: new Date().toISOString() }),
+          { status: 200, headers: jsonHeaders(allowOrigin) }
+        );
+      }
+
+      if (sub === "config" && request.method === "GET") {
+        const adtechEnabled = clean(env.ENABLE_ADTECH) === "true";
+        const googleAdsId = clean(env.GOOGLE_ADS_ID);
+        const metaPixelId = clean(env.META_PIXEL_ID);
+        return new Response(
+          JSON.stringify({
+            adminEnabled: !!clean(env.THIS_PERSON_ADMIN_TOKEN),
+            persistence: "durable_object_sqlite",
+            adtech: {
+              enabled: adtechEnabled,
+              googleAds: {
+                enabled:
+                  adtechEnabled &&
+                  clean(env.ENABLE_GOOGLE_ADS) === "true" &&
+                  googleAdsId.length > 0,
+                id: googleAdsId || null,
+                label: clean(env.GOOGLE_ADS_REMARKETING_LABEL) || null,
+              },
+              metaPixel: {
+                enabled:
+                  adtechEnabled &&
+                  clean(env.ENABLE_META_PIXEL) === "true" &&
+                  metaPixelId.length > 0,
+                id: metaPixelId || null,
+              },
+            },
+            at: new Date().toISOString(),
+          }),
+          { status: 200, headers: jsonHeaders(allowOrigin) }
+        );
+      }
+
+      // Preview is pure: validate, redact, generate deterministic claims, and
+      // return a seed. Nothing is persisted and the Durable Object is untouched.
+      if (sub === "preview" && request.method === "POST") {
+        if (!(await checkRateLimit(env.RATE_LIMIT_THIS_PERSON, "this-person:preview"))) {
+          return tooManyRequests(allowOrigin);
+        }
+        const text = await request.text();
+        if (text.length > TP_LIMITS.MAX_BODY_BYTES) {
+          return new Response(JSON.stringify({ error: "payload_too_large" }), {
+            status: 413,
+            headers: jsonHeaders(allowOrigin),
+          });
+        }
+        let parsedBody: unknown;
+        try {
+          parsedBody = JSON.parse(text || "{}");
+        } catch {
+          parsedBody = null;
+        }
+        const parsed = tpParsePreview(parsedBody);
+        if (!parsed.ok) {
+          return new Response(JSON.stringify({ error: parsed.error }), {
+            status: 400,
+            headers: jsonHeaders(allowOrigin),
+          });
+        }
+        const fragments = tpRedactFragments(parsed.data.fragments);
+        if (fragments.length === 0) {
+          return new Response(JSON.stringify({ error: "no_fragments" }), {
+            status: 400,
+            headers: jsonHeaders(allowOrigin),
+          });
+        }
+        const seed = Math.floor(Math.random() * 0xffffffff) >>> 0;
+        const generated = tpGenerateClaims({
+          source: parsed.data.source,
+          platformHints: parsed.data.platformHints,
+          fragments,
+          seed,
+        });
+        return new Response(
+          JSON.stringify({
+            source: parsed.data.source,
+            platformHints: parsed.data.platformHints,
+            fragments,
+            claims: generated.claims,
+            generatedText: generated.generatedText,
+            extractionSummary: generated.extractionSummary,
+            seed,
+          }),
+          { status: 200, headers: jsonHeaders(allowOrigin) }
+        );
+      }
+
+      if (!env.THIS_PERSON_ROOM) {
+        return new Response(JSON.stringify({ error: "this_person_unconfigured" }), {
+          status: 503,
+          headers: jsonHeaders(allowOrigin),
+        });
+      }
+      const tpId = env.THIS_PERSON_ROOM.idFromName(THIS_PERSON_ROOM_NAME);
+      const tpStub = env.THIS_PERSON_ROOM.get(tpId);
+
+      if (sub === "socket") {
+        if ((request.headers.get("upgrade") || "").toLowerCase() !== "websocket") {
+          return new Response(JSON.stringify({ error: "expected_websocket_upgrade" }), {
+            status: 426,
+            headers: jsonHeaders(allowOrigin),
+          });
+        }
+        return tpStub.fetch(request);
+      }
+
+      if (sub === "state" && request.method === "GET") {
+        const inner = new URL(request.url);
+        inner.pathname = "/state";
+        const resp = await tpStub.fetch(new Request(inner.toString(), { method: "GET" }));
+        return new Response(await resp.text(), {
+          status: resp.status,
+          headers: jsonHeaders(allowOrigin),
+        });
+      }
+
+      if (sub === "append" && request.method === "POST") {
+        if (!(await checkRateLimit(env.RATE_LIMIT_THIS_PERSON, "this-person:append"))) {
+          return tooManyRequests(allowOrigin);
+        }
+        const text = await request.text();
+        if (text.length > TP_LIMITS.MAX_BODY_BYTES) {
+          return new Response(JSON.stringify({ error: "payload_too_large" }), {
+            status: 413,
+            headers: jsonHeaders(allowOrigin),
+          });
+        }
+        let parsedBody: unknown;
+        try {
+          parsedBody = JSON.parse(text || "{}");
+        } catch {
+          parsedBody = null;
+        }
+        const parsed = tpParseAppend(parsedBody);
+        if (!parsed.ok) {
+          return new Response(JSON.stringify({ error: parsed.error }), {
+            status: 400,
+            headers: jsonHeaders(allowOrigin),
+          });
+        }
+        const fragments = tpRedactFragments(parsed.data.fragments);
+        if (fragments.length === 0) {
+          return new Response(JSON.stringify({ error: "no_fragments" }), {
+            status: 400,
+            headers: jsonHeaders(allowOrigin),
+          });
+        }
+        // The server regenerates claims from the seed; the participant may only
+        // subtract claims by index, never supply display text.
+        const generated = tpGenerateClaims({
+          source: parsed.data.source,
+          platformHints: parsed.data.platformHints,
+          fragments,
+          seed: parsed.data.seed,
+        });
+        let claims = generated.claims;
+        if (parsed.data.keptClaimIndices) {
+          const kept = new Set(parsed.data.keptClaimIndices);
+          const filtered = claims.filter((_, index) => kept.has(index));
+          if (filtered.length > 0) claims = filtered;
+        }
+        const generatedText = claims
+          .map((claim) => claim.sentence + "\nsource: " + claim.sourceNote)
+          .join("\n\n");
+        const person: TpPerson = {
+          id: "0000",
+          publicNumber: 0,
+          source: parsed.data.source,
+          status: "extracted_and_appended",
+          platformHints: parsed.data.platformHints,
+          fragments,
+          claims,
+          generatedText,
+          extractionSummary: generated.extractionSummary,
+          appendedAtOrder: 0,
+        };
+        const inner = new URL(request.url);
+        inner.pathname = "/append";
+        const resp = await tpStub.fetch(
+          new Request(inner.toString(), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ person }),
+          })
+        );
+        return new Response(await resp.text(), {
+          status: resp.status,
+          headers: jsonHeaders(allowOrigin),
+        });
+      }
+
+      if (sub === "enroll" && request.method === "POST") {
+        if (!(await checkRateLimit(env.RATE_LIMIT_THIS_PERSON, "this-person:enroll"))) {
+          return tooManyRequests(allowOrigin);
+        }
+        let enrollBody: any = null;
+        try {
+          enrollBody = JSON.parse((await request.text()) || "{}");
+        } catch {
+          enrollBody = null;
+        }
+        const inner = new URL(request.url);
+        inner.pathname = "/enroll";
+        const resp = await tpStub.fetch(
+          new Request(inner.toString(), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ id: Number(enrollBody?.id) }),
+          })
+        );
+        return new Response(await resp.text(), {
+          status: resp.status,
+          headers: jsonHeaders(allowOrigin),
+        });
+      }
+
+      if (sub === "admin/clear" || sub === "admin/export") {
+        const adminToken = clean(env.THIS_PERSON_ADMIN_TOKEN);
+        const auth = clean(request.headers.get("authorization") || "");
+        const bearer = auth.match(/^Bearer\s+(.+)$/i);
+        const provided = clean(bearer?.[1] || "");
+        if (!adminToken || !constantTimeEqual(provided, adminToken)) {
+          return new Response(JSON.stringify({ error: "forbidden" }), {
+            status: 403,
+            headers: jsonHeaders(allowOrigin),
+          });
+        }
+        if (sub === "admin/clear" && request.method === "POST") {
+          const inner = new URL(request.url);
+          inner.pathname = "/clear";
+          const resp = await tpStub.fetch(new Request(inner.toString(), { method: "POST" }));
+          return new Response(await resp.text(), {
+            status: resp.status,
+            headers: jsonHeaders(allowOrigin),
+          });
+        }
+        if (sub === "admin/export" && request.method === "GET") {
+          const inner = new URL(request.url);
+          inner.pathname = "/export";
+          const resp = await tpStub.fetch(new Request(inner.toString(), { method: "GET" }));
+          return new Response(await resp.text(), {
+            status: resp.status,
+            headers: {
+              ...jsonHeaders(allowOrigin),
+              "content-disposition": 'attachment; filename="this-person-repository.json"',
+            },
+          });
+        }
       }
 
       return new Response(JSON.stringify({ error: "method_not_allowed" }), {

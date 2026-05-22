@@ -10,6 +10,15 @@ TURNSTILE_ALLOWED_HOSTNAMES = "cbassuarez.com,www.cbassuarez.com"
 CONTACT_FORMSPREE_ENDPOINT = "https://formspree.io/f/mjkepaeo"
 SITE_VERSION_URL = "https://cbassuarez.com/version.json"
 SITE_REPO_URL = "https://github.com/cbassuarez/site"
+# this person — SHOW_TIME stamps entries with a coarse hour. The admin token is
+# a secret: `wrangler secret put THIS_PERSON_ADMIN_TOKEN`. The adtech return
+# loop is off by default; when enabled it loads third-party ad tags only after a
+# participant explicitly opts in. Set GOOGLE_ADS_ID / GOOGLE_ADS_REMARKETING_LABEL
+# / META_PIXEL_ID as secrets (`wrangler secret put ...`) when enabling the loop.
+THIS_PERSON_SHOW_TIME = "false"
+ENABLE_ADTECH = "false"
+ENABLE_GOOGLE_ADS = "false"
+ENABLE_META_PIXEL = "false"
 
 [[kv_namespaces]]
 binding = "HITS_KV"
@@ -27,6 +36,10 @@ class_name = "CoRoom"
 name = "BFV_ROOM"
 class_name = "BodyForVisitsRoom"
 
+[[durable_objects.bindings]]
+name = "THIS_PERSON_ROOM"
+class_name = "ThisPersonRoom"
+
 [ai]
 binding = "AI"
 
@@ -41,6 +54,10 @@ new_sqlite_classes = ["CoRoom"]
 [[migrations]]
 tag = "v3-bfv-room"
 new_sqlite_classes = ["BodyForVisitsRoom"]
+
+[[migrations]]
+tag = "v4-this-person-room"
+new_sqlite_classes = ["ThisPersonRoom"]
 
 [triggers]
 crons = ["*/5 * * * *"]
@@ -107,4 +124,16 @@ namespace_id = "1010"
 
   [ratelimits.simple]
   limit = 120
+  period = 60
+
+# this person — a single global cap on writes (preview + entries), keyed by a
+# constant rather than the visitor IP. A gallery's phones share one NAT egress
+# IP, so per-IP limiting would punish them collectively; a global cap protects
+# the worker from floods while retaining no identifier.
+[[ratelimits]]
+name = "RATE_LIMIT_THIS_PERSON"
+namespace_id = "1011"
+
+  [ratelimits.simple]
+  limit = 30
   period = 60

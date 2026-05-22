@@ -7,13 +7,13 @@ This page tracks what is most active right now: current artistic work, active to
 ## Current Highlights
 
 - let go / letting go
-Live in the [Labs Works List](/labs/works-list). This is the active public-facing stream for the piece: current description, listening context, and immediate access point.
+Live in the [works list](/labs/works-list). This is the active public-facing stream for the piece: current description, listening context, and immediate access point.
 
 - THE TUB
 Documented in the [DMA recap](/dma-2026). The project remains central as a performance system where routing, failure conditions, and maintenance behavior are compositional material.
 
 - Praetorius update
-Praetorius is now shipping through a cleaner representative works surface at [Labs Works List](/labs/works-list), with package and source references on [npm](https://www.npmjs.com/package/praetorius) and [GitHub](https://github.com/cbassuarez/praetorius).
+Praetorius is now shipping through a cleaner representative works surface at [works list](/labs/works-list), with package and source references on [npm](https://www.npmjs.com/package/praetorius) and [GitHub](https://github.com/cbassuarez/praetorius).
 
 - organum quadruplum "lux nova"
 Available in the [Works Archive](/works). This is one of the clearest anchors for the score-centric side of the practice and belongs in current rotation.
@@ -22,7 +22,7 @@ Available in the [Works Archive](/works). This is one of the clearest anchors fo
 
 If you want the fastest path into what is active now:
 
-- Start with [Labs Works List](/labs/works-list) for the three-piece representative listen/read path.
+- Start with [works list](/labs/works-list) for the three-piece representative listen/read path.
 - Use [Works Archive](/works) for deeper score and recording context.
 - Use [Concerning Human Understanding (DMA recap)](/dma-2026) for project-level framing and references.
 - Visit [String](/labs/string) for the live multi-visitor instrument layer.
