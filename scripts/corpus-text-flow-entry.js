@@ -1,3 +1,5 @@
+import { layoutWithLines, prepareWithSegments } from '@chenglou/pretext';
+
 // Corpus layout transitions for /labs/corpus — the "Pretext" reflow.
 //
 // A transition freezes the OUTGOING layout as a clone in a fixed overlay,
@@ -30,9 +32,27 @@ function lineHeight(bodyEl) {
   return px(style.lineHeight, px(style.fontSize, 19) * 1.62);
 }
 
-function targetTopForFrame(frameRect) {
-  if (frameRect.top >= 20 && frameRect.top <= window.innerHeight * 0.55) return frameRect.top;
-  return Math.max(32, Math.min(132, window.innerHeight * 0.14));
+function canvasFont(style) {
+  if (style.font && style.font !== '') return style.font;
+  return `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+}
+
+function normalizedText(el) {
+  return (el?.textContent || '').replace(/\s+/g, ' ').trim();
+}
+
+export function measureText(bodyEl, width) {
+  if (!bodyEl || !Number.isFinite(width) || width <= 0) return null;
+  const style = getComputedStyle(bodyEl);
+  const measuredLineHeight = lineHeight(bodyEl);
+  const letterSpacing = style.letterSpacing === 'normal' ? 0 : px(style.letterSpacing, 0);
+  const prepared = prepareWithSegments(normalizedText(bodyEl), canvasFont(style), { letterSpacing });
+  const lines = layoutWithLines(prepared, Math.max(1, Math.floor(width)), measuredLineHeight).lines;
+  return {
+    lineCount: lines.length,
+    lineHeight: measuredLineHeight,
+    height: lines.length * measuredLineHeight,
+  };
 }
 
 function removeIds(el) {
@@ -132,7 +152,6 @@ export async function transition(opts = {}) {
     bodyEl,
     fromMode,
     toMode,
-    pageIndex = 0,
     pageHeight: requestedPageHeight = 0,
     reducedMotion = false,
     changeLayout,
@@ -149,15 +168,7 @@ export async function transition(opts = {}) {
 
   const sourceRect = bodyFrameEl.getBoundingClientRect();
   const pageHeight = Math.max(1, Math.floor(requestedPageHeight || sourceRect.height));
-  const bodyFrameDocumentTop = sourceRect.top + window.scrollY;
-  const sourceTop = fromMode === 'flow'
-    ? sourceRect.top + Math.max(0, pageIndex) * pageHeight
-    : sourceRect.top;
-  const targetTop = toMode === 'flow' ? sourceTop : targetTopForFrame({ top: sourceTop });
-  const targetScrollY = toMode === 'flow'
-    ? bodyFrameDocumentTop + Math.max(0, pageIndex) * pageHeight - targetTop
-    : bodyFrameDocumentTop - targetTop;
-  const settle = Math.min(pageHeight * 0.14, lineHeight(bodyEl) * 3);
+  const settle = Math.min(pageHeight * 0.035, lineHeight(bodyEl) * 0.65);
 
   const overlay = createOverlay();
   const sourceClone = freezeFrame(bodyFrameEl, bodyEl);
@@ -165,7 +176,7 @@ export async function transition(opts = {}) {
 
   return withMorph(bodyFrameEl, overlay, async () => {
     await raf();
-    changeLayout({ scrollY: targetScrollY });
+    changeLayout();
     await raf();
     await revealRealFrame(bodyFrameEl, sourceClone, settle, MODE_DURATION, MODE_EASING);
     return true;

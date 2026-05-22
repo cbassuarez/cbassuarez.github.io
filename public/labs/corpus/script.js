@@ -35,13 +35,56 @@
 
   const colophonBtn = document.getElementById('bfv-colophon-open');
   const colophonDlg = document.getElementById('bfv-colophon');
+  const colophonPages = Array.from(document.querySelectorAll('.colophon-page'));
+  const colophonPrevBtn = document.getElementById('bfv-colophon-prev');
+  const colophonNextBtn = document.getElementById('bfv-colophon-next');
+  const colophonReadoutEl = document.getElementById('bfv-colophon-readout');
+  const SCROLL_KEYS = new Set([' ', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End']);
+  let colophonPageIndex = 0;
+
+  function editableKeyTarget(target) {
+    if (!(target instanceof Element)) return false;
+    const tag = target.tagName.toLowerCase();
+    return target.isContentEditable || tag === 'input' || tag === 'textarea' || tag === 'select';
+  }
+
+  function lockDocumentScroll() {
+    if (window.scrollX !== 0 || window.scrollY !== 0) {
+      window.scrollTo(0, 0);
+    }
+  }
+
+  document.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
+  document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+  window.addEventListener('scroll', lockDocumentScroll, { passive: true });
+
+  function setColophonPage(index) {
+    if (colophonPages.length === 0) return;
+    colophonPageIndex = Math.max(0, Math.min(colophonPages.length - 1, Math.floor(Number(index) || 0)));
+    colophonPages.forEach((page, i) => {
+      page.hidden = i !== colophonPageIndex;
+    });
+    if (colophonPrevBtn) colophonPrevBtn.disabled = colophonPageIndex <= 0;
+    if (colophonNextBtn) colophonNextBtn.disabled = colophonPageIndex >= colophonPages.length - 1;
+    if (colophonReadoutEl) colophonReadoutEl.textContent = `${colophonPageIndex + 1} / ${colophonPages.length}`;
+  }
+
+  function pageColophon(delta) {
+    setColophonPage(colophonPageIndex + delta);
+  }
+
+  setColophonPage(0);
+  if (colophonPrevBtn) colophonPrevBtn.addEventListener('click', () => pageColophon(-1));
+  if (colophonNextBtn) colophonNextBtn.addEventListener('click', () => pageColophon(1));
   if (colophonBtn && colophonDlg && typeof colophonDlg.showModal === 'function') {
     function setDialogScrollLock(locked) {
       document.documentElement.classList.toggle('bfv-dialog-open', locked);
       document.body.classList.toggle('bfv-dialog-open', locked);
+      lockDocumentScroll();
     }
 
     colophonBtn.addEventListener('click', () => {
+      setColophonPage(0);
       colophonDlg.showModal();
       setDialogScrollLock(true);
     });
@@ -143,6 +186,7 @@
       bodyEl.style.removeProperty('--bfv-page-width');
       bodyEl.style.removeProperty('--bfv-page-gap');
       bodyEl.style.removeProperty('--bfv-page-offset');
+      bodyEl.style.removeProperty('--bfv-flow-offset');
     }
   }
 
@@ -164,16 +208,16 @@
     const paged = viewMode === 'paged';
     if (pageControlsEl) pageControlsEl.hidden = false;
     if (pagePrevBtn) {
-      pagePrevBtn.hidden = !paged;
-      pagePrevBtn.disabled = !paged || pageIndex <= 0;
+      pagePrevBtn.hidden = false;
+      pagePrevBtn.disabled = pageIndex <= 0;
     }
     if (pageNextBtn) {
-      pageNextBtn.hidden = !paged;
-      pageNextBtn.disabled = !paged || pageIndex >= pageCount - 1;
+      pageNextBtn.hidden = false;
+      pageNextBtn.disabled = pageIndex >= pageCount - 1;
     }
     if (pageReadoutEl) {
       pageReadoutEl.hidden = false;
-      pageReadoutEl.textContent = paged ? `page ${Math.min(pageIndex + 1, pageCount)} / ${pageCount}` : 'flow';
+      pageReadoutEl.textContent = `${paged ? 'page' : 'flow'} ${Math.min(pageIndex + 1, pageCount)} / ${pageCount}`;
     }
     if (viewToggleBtn) {
       const label = paged ? 'flow' : 'paged';
@@ -184,8 +228,15 @@
   }
 
   function applyPageOffset() {
-    if (!bodyEl || viewMode !== 'paged') return;
-    bodyEl.style.setProperty('--bfv-page-offset', `${Math.max(0, pageIndex * pageStride)}px`);
+    if (!bodyEl) return;
+    const offset = Math.max(0, pageIndex * pageStride);
+    if (viewMode === 'paged') {
+      bodyEl.style.setProperty('--bfv-page-offset', `${offset}px`);
+      bodyEl.style.removeProperty('--bfv-flow-offset');
+    } else {
+      bodyEl.style.setProperty('--bfv-flow-offset', `${offset}px`);
+      bodyEl.style.removeProperty('--bfv-page-offset');
+    }
     updatePageControls();
   }
 
@@ -201,7 +252,7 @@
   }
 
   async function animatePageTo(index) {
-    if (viewMode !== 'paged') return;
+    if (viewMode !== 'paged' && viewMode !== 'flow') return;
     const target = clampPageIndex(index);
     if (target === pageIndex && !pageTransitioning) return;
     if (viewTransitioning) return;
@@ -259,22 +310,29 @@
   }
 
   function pageBy(delta) {
-    if (viewMode !== 'paged') return;
+    if (viewMode !== 'paged' && viewMode !== 'flow') return;
     animatePageTo(pageIndex + delta);
+  }
+
+  function measureCorpusText(pageWidth) {
+    try {
+      if (!window.CorpusTextFlow || typeof window.CorpusTextFlow.measureText !== 'function') return null;
+      return window.CorpusTextFlow.measureText(bodyEl, pageWidth);
+    } catch (_) {
+      return null;
+    }
   }
 
   function readablePageHeight() {
     if (!bodyFrameEl || !bodyEl) return 420;
     const rect = bodyFrameEl.getBoundingClientRect();
-    const viewportHeight = window.visualViewport?.height || window.innerHeight || 720;
     const lineHeight = parseFloat(getComputedStyle(bodyEl).lineHeight) || 31;
-    const reserved = Math.min(260, Math.max(190, viewportHeight * 0.28));
-    const raw = Math.max(lineHeight * 7, Math.min(640, viewportHeight - rect.top - reserved));
-    return Math.max(lineHeight * 7, Math.floor(raw / lineHeight) * lineHeight);
+    const raw = Math.max(lineHeight, rect.height || bodyFrameEl.clientHeight || 420);
+    return Math.max(lineHeight, Math.floor(raw / lineHeight) * lineHeight);
   }
 
   function syncPageLayout(opts = {}) {
-    if (viewMode !== 'paged' || !bodyFrameEl || !bodyEl) {
+    if ((viewMode !== 'paged' && viewMode !== 'flow') || !bodyFrameEl || !bodyEl) {
       clearPageLayoutStyles();
       pageIndex = 0;
       pageCount = 1;
@@ -291,7 +349,6 @@
     const shouldFollowLatest = !!opts.forceLatest || followLatestPage || wasAtEnd;
     const pageWidth = Math.max(1, Math.floor(bodyFrameEl.clientWidth));
     const pageHeight = readablePageHeight();
-    pageStride = pageWidth + PAGE_GAP_PX;
 
     bodyFrameEl.style.setProperty('--bfv-page-height', `${pageHeight}px`);
     bodyFrameEl.style.setProperty('--bfv-page-width', `${pageWidth}px`);
@@ -300,8 +357,18 @@
     bodyEl.style.setProperty('--bfv-page-width', `${pageWidth}px`);
     bodyEl.style.setProperty('--bfv-page-gap', `${PAGE_GAP_PX}px`);
 
-    const scrollWidth = Math.max(pageWidth, bodyEl.scrollWidth);
-    pageCount = Math.max(1, Math.ceil(scrollWidth / pageStride));
+    if (viewMode === 'paged') {
+      pageStride = pageWidth + PAGE_GAP_PX;
+      const scrollWidth = Math.max(pageWidth, bodyEl.scrollWidth);
+      pageCount = Math.max(1, Math.ceil(scrollWidth / pageStride));
+    } else {
+      pageStride = pageHeight;
+      const measured = measureCorpusText(pageWidth);
+      const measuredHeight = Number.isFinite(measured?.height) ? measured.height : 0;
+      const contentHeight = Math.max(pageHeight, bodyEl.scrollHeight, measuredHeight);
+      pageCount = Math.max(1, Math.ceil(contentHeight / pageStride));
+    }
+
     pageIndex = shouldFollowLatest ? pageCount - 1 : Math.min(pageIndex, pageCount - 1);
     followLatestPage = pageIndex >= pageCount - 1;
     lastPagedPageIndex = pageIndex;
@@ -323,34 +390,31 @@
     viewMode = normalizeViewMode(mode) || 'paged';
     document.body.classList.toggle('bfv-view-paged', viewMode === 'paged');
     document.body.classList.toggle('bfv-view-flow', viewMode === 'flow');
+    const requestedPageIndex = Number.isFinite(Number(opts.pageIndex))
+      ? Math.max(0, Math.floor(Number(opts.pageIndex)))
+      : pageIndex;
     if (opts.persist) {
       try { localStorage.setItem(VIEW_KEY, viewMode); } catch (_) {}
     }
     if (viewMode === 'paged') {
+      pageIndex = requestedPageIndex;
       followLatestPage = opts.forceLatest !== false;
       updatePageControls({ animate: opts.animate });
       queuePageSync({ forceLatest: opts.forceLatest !== false });
     } else {
       clearPageLayoutStyles();
-      pageIndex = 0;
+      pageIndex = requestedPageIndex;
       pageCount = 1;
       pageStride = 0;
-      followLatestPage = true;
+      followLatestPage = opts.forceLatest !== false;
       updatePageControls({ animate: opts.animate });
+      queuePageSync({ forceLatest: opts.forceLatest !== false });
     }
     if (opts.animate) animateViewControls();
   }
 
   function estimatedFlowPageIndex() {
-    if (!bodyFrameEl || !bodyEl) return lastPagedPageIndex;
-    const rect = bodyFrameEl.getBoundingClientRect();
-    const lineHeight = parseFloat(getComputedStyle(bodyEl).lineHeight) || 31;
-    const viewportHeight = window.visualViewport?.height || window.innerHeight || 720;
-    const anchorTop = Math.max(32, Math.min(132, viewportHeight * 0.14));
-    const bodyTop = rect.top + window.scrollY;
-    const visibleLine = Math.max(0, Math.floor((window.scrollY + anchorTop - bodyTop) / lineHeight));
-    const linesPerPage = Math.max(1, Math.floor(readablePageHeight() / lineHeight));
-    return Math.max(0, Math.floor(visibleLine / linesPerPage));
+    return pageIndex || lastPagedPageIndex;
   }
 
   async function switchViewMode(nextMode, opts = {}) {
@@ -389,16 +453,12 @@
           if (normalized === 'paged') {
             pageIndex = lockedPageIndex;
             lastPagedPageIndex = lockedPageIndex;
-            setViewMode(normalized, { ...opts, animate: false, forceLatest: false });
+            setViewMode(normalized, { ...opts, animate: false, forceLatest: opts.forceLatest, pageIndex: lockedPageIndex });
           } else {
-            setViewMode(normalized, { ...opts, animate: false });
+            setViewMode(normalized, { ...opts, animate: false, pageIndex: lockedPageIndex });
           }
           if (Number.isFinite(layout.scrollY)) {
-            window.scrollTo({
-              top: Math.max(0, layout.scrollY),
-              left: window.scrollX,
-              behavior: 'auto',
-            });
+            lockDocumentScroll();
           }
         },
       });
@@ -943,33 +1003,42 @@
     viewToggleBtn.addEventListener('click', () => {
       switchViewMode(viewMode === 'paged' ? 'flow' : 'paged', {
         persist: true,
-        forceLatest: true,
+        forceLatest: followLatestPage,
         animate: true,
       });
     });
   }
 
-  function editableKeyTarget(target) {
-    if (!(target instanceof Element)) return false;
-    const tag = target.tagName.toLowerCase();
-    return target.isContentEditable || tag === 'input' || tag === 'textarea' || tag === 'select';
-  }
-
   document.addEventListener('keydown', (e) => {
-    if (viewMode !== 'paged' || colophonDlg?.open || editableKeyTarget(e.target)) return;
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    if (e.key === 'ArrowLeft') {
+    if (editableKeyTarget(e.target)) return;
+    if (SCROLL_KEYS.has(e.key) || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();
+    }
+    if (colophonDlg?.open) {
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        pageColophon(-1);
+      } else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+        pageColophon(1);
+      }
+      return;
+    }
+    if (e.key === 'ArrowLeft') {
       pageBy(-1);
     } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
       pageBy(1);
     }
   });
 
-  window.addEventListener('resize', () => queuePageSync());
+  window.addEventListener('resize', () => {
+    lockDocumentScroll();
+    queuePageSync();
+  });
   if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', () => queuePageSync());
+    window.visualViewport.addEventListener('resize', () => {
+      lockDocumentScroll();
+      queuePageSync();
+    });
   }
   if (bodyFrameEl && 'ResizeObserver' in window) {
     const resizeObserver = new ResizeObserver(() => queuePageSync());
