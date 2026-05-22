@@ -284,7 +284,10 @@
       return;
     }
 
-    const wasAtEnd = pageIndex >= pageCount - 1;
+    // Only trust "at the last page" when pageCount is a real measurement.
+    // On the first sync after entering paged mode it is still the stale 1,
+    // which would otherwise force every flow->paged switch to the last page.
+    const wasAtEnd = pageCount > 1 && pageIndex >= pageCount - 1;
     const shouldFollowLatest = !!opts.forceLatest || followLatestPage || wasAtEnd;
     const pageWidth = Math.max(1, Math.floor(bodyFrameEl.clientWidth));
     const pageHeight = readablePageHeight();

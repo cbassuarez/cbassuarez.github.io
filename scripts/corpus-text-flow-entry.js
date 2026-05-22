@@ -1,7 +1,20 @@
-const MODE_DURATION = 1040;
-const PAGE_DURATION = 680;
+// Corpus layout transitions for /labs/corpus — the "Pretext" reflow.
+//
+// A transition freezes the OUTGOING layout as a clone in a fixed overlay,
+// applies the real layout change underneath, then reveals the REAL frame —
+// never a second clone. Because the incoming element is the live one, its
+// end state is its own resting style: there is nothing to flash to when the
+// overlay lifts.
+//
+//   mode change (flow <-> paged): new layout fades in, easing down a few
+//     lines into place, while the old layout dissolves.
+//   page change (<- / ->):        old page dissolves into the new one, in
+//     place — the column layout already carries the sense of paging.
+
+const MODE_DURATION = 720;
+const PAGE_DURATION = 520;
 const MODE_EASING = 'cubic-bezier(0.2, 0.82, 0.18, 1)';
-const PAGE_EASING = 'cubic-bezier(0.22, 0.74, 0.22, 1)';
+const PAGE_EASING = 'cubic-bezier(0.33, 0, 0.2, 1)';
 
 function raf() {
   return new Promise((resolve) => requestAnimationFrame(resolve));
@@ -55,6 +68,8 @@ function freezeBodyText(source, clone) {
   clone.style.color = style.color;
 }
 
+// A detached, absolutely-positioned copy of the frame exactly as it looks
+// now. Only ever used for the OUTGOING layout, which merely dissolves away.
 function freezeFrame(bodyFrameEl, bodyEl) {
   const rect = bodyFrameEl.getBoundingClientRect();
   const frameStyle = getComputedStyle(bodyFrameEl);
@@ -69,7 +84,7 @@ function freezeFrame(bodyFrameEl, bodyEl) {
   clone.style.margin = '0';
   clone.style.overflow = frameStyle.overflow;
   clone.style.opacity = '1';
-  clone.style.willChange = 'transform, opacity';
+  clone.style.willChange = 'opacity';
   clone.style.transform = 'translate3d(0, 0, 0)';
 
   const clonedBody = clone.querySelector('.body-text');
@@ -77,35 +92,7 @@ function freezeFrame(bodyFrameEl, bodyEl) {
   return clone;
 }
 
-async function animateClones(sourceClone, targetClone, sourceToY, targetFromY, duration, easing) {
-  sourceClone.style.opacity = '1';
-  sourceClone.style.transform = 'translate3d(0, 0, 0)';
-  targetClone.style.opacity = '0';
-  targetClone.style.transform = `translate3d(0, ${targetFromY}px, 0)`;
-
-  const animations = [
-    sourceClone.animate([
-      { opacity: 1, transform: 'translate3d(0, 0, 0)' },
-      { opacity: 0, transform: `translate3d(0, ${sourceToY}px, 0)` },
-    ], {
-      duration,
-      easing,
-      fill: 'forwards',
-    }),
-    targetClone.animate([
-      { opacity: 0, transform: `translate3d(0, ${targetFromY}px, 0)` },
-      { opacity: 1, transform: 'translate3d(0, 0, 0)' },
-    ], {
-      duration,
-      easing,
-      fill: 'forwards',
-    }),
-  ];
-
-  await Promise.allSettled(animations.map((animation) => animation.finished));
-}
-
-async function withOverlay(bodyFrameEl, overlay, work) {
+async function withMorph(bodyFrameEl, overlay, work) {
   bodyFrameEl.classList.add('bfv-morph-source');
   document.body.appendChild(overlay);
   try {
@@ -116,6 +103,29 @@ async function withOverlay(bodyFrameEl, overlay, work) {
   }
 }
 
+// Reveal the real frame: the outgoing clone dissolves while the live frame
+// itself fades — and, for a mode change, eases down `settle`px — into place.
+// The frame ends at its own resting style, so the overlay can lift without a
+// flash. The hide class is dropped and the animation created in one tick so
+// the frame never paints a frame at full opacity before the fade begins.
+async function revealRealFrame(bodyFrameEl, sourceClone, settle, duration, easing) {
+  bodyFrameEl.classList.remove('bfv-morph-source');
+  const revealFrames = settle > 0
+    ? [
+        { opacity: 0, transform: `translate3d(0, ${-settle}px, 0)` },
+        { opacity: 1, transform: 'translate3d(0, 0, 0)' },
+      ]
+    : [{ opacity: 0 }, { opacity: 1 }];
+  const reveal = bodyFrameEl.animate(revealFrames, { duration, easing });
+  const dissolve = sourceClone.animate(
+    [{ opacity: 1 }, { opacity: 0 }],
+    { duration, easing, fill: 'forwards' },
+  );
+  await Promise.allSettled([reveal.finished, dissolve.finished]);
+}
+
+// Mode change (flow <-> paged). The old layout dissolves; the real new
+// layout fades in and eases down a few lines into place.
 export async function transition(opts = {}) {
   const {
     bodyFrameEl,
@@ -147,29 +157,29 @@ export async function transition(opts = {}) {
   const targetScrollY = toMode === 'flow'
     ? bodyFrameDocumentTop + Math.max(0, pageIndex) * pageHeight - targetTop
     : bodyFrameDocumentTop - targetTop;
-  const move = Math.min(pageHeight * 0.16, lineHeight(bodyEl) * 4);
+  const settle = Math.min(pageHeight * 0.14, lineHeight(bodyEl) * 3);
+
   const overlay = createOverlay();
   const sourceClone = freezeFrame(bodyFrameEl, bodyEl);
   overlay.appendChild(sourceClone);
 
-  return withOverlay(bodyFrameEl, overlay, async () => {
+  return withMorph(bodyFrameEl, overlay, async () => {
     await raf();
     changeLayout({ scrollY: targetScrollY });
     await raf();
-    const targetClone = freezeFrame(bodyFrameEl, bodyEl);
-    overlay.appendChild(targetClone);
-    await animateClones(sourceClone, targetClone, -move, move, MODE_DURATION, MODE_EASING);
+    await revealRealFrame(bodyFrameEl, sourceClone, settle, MODE_DURATION, MODE_EASING);
     return true;
   });
 }
 
+// Page change. The old page dissolves into the new one, in place — no
+// travel; next and previous read the same on purpose.
 export async function transitionPage(opts = {}) {
   const {
     bodyFrameEl,
     bodyEl,
     fromPageIndex = 0,
     toPageIndex = 0,
-    pageHeight: requestedPageHeight = 0,
     reducedMotion = false,
     changePage,
   } = opts;
@@ -182,21 +192,15 @@ export async function transitionPage(opts = {}) {
     return false;
   }
 
-  const sourceRect = bodyFrameEl.getBoundingClientRect();
-  const pageHeight = Math.max(1, Math.floor(requestedPageHeight || sourceRect.height));
-  const move = Math.min(pageHeight * 0.18, lineHeight(bodyEl) * 5);
-  const direction = toPageIndex > fromPageIndex ? 1 : -1;
   const overlay = createOverlay();
   const sourceClone = freezeFrame(bodyFrameEl, bodyEl);
   overlay.appendChild(sourceClone);
 
-  return withOverlay(bodyFrameEl, overlay, async () => {
+  return withMorph(bodyFrameEl, overlay, async () => {
     await raf();
     changePage();
     await raf();
-    const targetClone = freezeFrame(bodyFrameEl, bodyEl);
-    overlay.appendChild(targetClone);
-    await animateClones(sourceClone, targetClone, -direction * move, direction * move, PAGE_DURATION, PAGE_EASING);
+    await revealRealFrame(bodyFrameEl, sourceClone, 0, PAGE_DURATION, PAGE_EASING);
     return true;
   });
 }
