@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://seb-feed.cbassuarez.workers.dev wss://seb-feed.cbassuarez.workers.dev http://localhost:8787 ws://localhost:8787; font-src 'self'; object-src 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://seb-feed.cbassuarez.workers.dev wss://seb-feed.cbassuarez.workers.dev http://localhost:8787 ws://localhost:8787; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
   <title>this person</title>
+  <link rel="stylesheet" href="../this-person.css">
 </head>
-<body>
-  <header><a href="../">this person</a></header>
-  <main id="root">
+<body class="page-return">
+  <header class="topbar"><a class="wordmark" href="../">this person</a></header>
+  <main id="root" class="stage">
     <noscript>this route requires JavaScript.</noscript>
   </main>
   <script src="../return.bundle.js" defer></script>

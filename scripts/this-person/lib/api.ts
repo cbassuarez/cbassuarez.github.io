@@ -30,11 +30,26 @@ export interface AdtechConfig {
   metaPixel: AdNetworkConfig;
 }
 
+export interface GamConfig {
+  enabled: boolean;
+  networkCode: string | null;
+  adUnitPath: string | null;
+  sizes: [number, number][];
+}
+
 export interface Config {
   adminEnabled: boolean;
   persistence: string;
   adtech: AdtechConfig;
+  gam: GamConfig;
 }
+
+const DEFAULT_GAM: GamConfig = {
+  enabled: false,
+  networkCode: null,
+  adUnitPath: null,
+  sizes: [[300, 250]],
+};
 
 const DEFAULT_CONFIG: Config = {
   adminEnabled: false,
@@ -44,6 +59,7 @@ const DEFAULT_CONFIG: Config = {
     googleAds: { enabled: false, id: null, label: null },
     metaPixel: { enabled: false, id: null },
   },
+  gam: DEFAULT_GAM,
 };
 
 function readAdNetwork(value: any): AdNetworkConfig {
@@ -53,6 +69,29 @@ function readAdNetwork(value: any): AdNetworkConfig {
     enabled: !!value.enabled && !!id,
     id,
     label: typeof value.label === "string" && value.label ? value.label : null,
+  };
+}
+
+function readGam(value: any): GamConfig {
+  if (!value || typeof value !== "object") return DEFAULT_GAM;
+  const networkCode = typeof value.networkCode === "string" && value.networkCode ? value.networkCode : null;
+  const adUnitPath = typeof value.adUnitPath === "string" && value.adUnitPath ? value.adUnitPath : null;
+  let sizes: [number, number][] = [];
+  if (Array.isArray(value.sizes)) {
+    for (const pair of value.sizes) {
+      if (Array.isArray(pair) && pair.length === 2) {
+        const w = Number(pair[0]);
+        const h = Number(pair[1]);
+        if (Number.isFinite(w) && Number.isFinite(h)) sizes.push([w, h]);
+      }
+    }
+  }
+  if (sizes.length === 0) sizes = [[300, 250]];
+  return {
+    enabled: !!value.enabled && !!networkCode && !!adUnitPath,
+    networkCode,
+    adUnitPath,
+    sizes,
   };
 }
 
@@ -71,10 +110,33 @@ export async function fetchConfig(): Promise<Config> {
         googleAds,
         metaPixel,
       },
+      gam: readGam(j?.googleAdManager),
     };
   } catch {
     return DEFAULT_CONFIG;
   }
+}
+
+export interface AdRenderRecord {
+  advertiserId: string | null;
+  campaignId: string | null;
+  creativeId: string | null;
+  lineItemId: string | null;
+  orderId: string | null;
+  yieldGroupIds: string[];
+  companyIds: string[];
+  size: [number, number] | null;
+  iframeUrl: string | null;
+  thirdPartyHosts: string[];
+  isEmpty: boolean;
+  serviceName: string | null;
+}
+
+export interface ResolvedAdNames {
+  advertisers: Record<string, string>;
+  lineItems: Record<string, string>;
+  orders: Record<string, string>;
+  creatives: Record<string, string>;
 }
 
 export interface WebSignalsAppendInput {
@@ -82,6 +144,7 @@ export interface WebSignalsAppendInput {
   platformHints: string[];
   fragments: ExtractedFragment[];
   seed: number;
+  adRender?: AdRenderRecord;
 }
 
 export async function appendWebSignals(payload: WebSignalsAppendInput): Promise<ExtractedPerson> {
@@ -102,6 +165,32 @@ export async function appendWebSignals(payload: WebSignalsAppendInput): Promise<
   }
   const j: any = await r.json();
   return j.person as ExtractedPerson;
+}
+
+// Resolves GAM advertiser/order/lineItem/creative IDs to display names.
+// Used so the review screen can preview "this person was just shown an ad
+// from Patagonia" before the visitor presses append.
+export async function resolveAdRender(record: AdRenderRecord): Promise<ResolvedAdNames> {
+  const empty: ResolvedAdNames = { advertisers: {}, lineItems: {}, orders: {}, creatives: {} };
+  try {
+    const r = await fetch(apiBase() + "/api/this-person/gam/resolve", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ adRender: record }),
+    });
+    if (!r.ok) return empty;
+    const j: any = await r.json();
+    const resolved = j?.resolved;
+    if (!resolved || typeof resolved !== "object") return empty;
+    return {
+      advertisers: resolved.advertisers && typeof resolved.advertisers === "object" ? resolved.advertisers : {},
+      lineItems: resolved.lineItems && typeof resolved.lineItems === "object" ? resolved.lineItems : {},
+      orders: resolved.orders && typeof resolved.orders === "object" ? resolved.orders : {},
+      creatives: resolved.creatives && typeof resolved.creatives === "object" ? resolved.creatives : {},
+    };
+  } catch {
+    return empty;
+  }
 }
 
 export async function fetchState(): Promise<ExtractedPerson[]> {

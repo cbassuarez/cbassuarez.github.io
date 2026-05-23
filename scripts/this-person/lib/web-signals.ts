@@ -21,6 +21,7 @@
 //     against the configured Pixel ID.
 
 import { topicLabel, topicPath } from "./topics-taxonomy";
+import type { WebSignalsAppendInput } from "./api";
 
 // ── public surface ──────────────────────────────────────────────────────────
 
@@ -583,12 +584,7 @@ function platformLabelFromHints(hints: ClientHintsReading): string {
   return "";
 }
 
-export function buildAppendPayload(reading: SignalsReading): {
-  source: "ad_preferences_surface";
-  platformHints: string[];
-  fragments: ExtractedFragment[];
-  seed: number;
-} {
+export function buildAppendPayload(reading: SignalsReading): WebSignalsAppendInput {
   const fragments: ExtractedFragment[] = [];
   for (const t of reading.topics) {
     fragments.push({

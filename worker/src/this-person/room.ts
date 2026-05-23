@@ -15,8 +15,22 @@ interface PersonRow {
   person_json: string;
 }
 
+interface GamCacheRow {
+  kind: string;
+  external_id: string;
+  display_name: string;
+}
+
 interface RoomEnv {
   THIS_PERSON_SHOW_TIME?: string;
+}
+
+export type GamCacheKind = "advertiser" | "lineItem" | "order" | "creative";
+
+export interface GamCacheEntry {
+  kind: GamCacheKind;
+  id: string;
+  name: string;
 }
 
 export class ThisPersonRoom {
@@ -36,6 +50,15 @@ export class ThisPersonRoom {
            person_json TEXT NOT NULL
          )`
       );
+      this.state.storage.sql.exec(
+        `CREATE TABLE IF NOT EXISTS gam_cache (
+           kind TEXT NOT NULL,
+           external_id TEXT NOT NULL,
+           display_name TEXT NOT NULL,
+           cached_at INTEGER NOT NULL,
+           PRIMARY KEY (kind, external_id)
+         )`
+      );
     });
   }
 
@@ -46,6 +69,9 @@ export class ThisPersonRoom {
     if (path.endsWith("/append")) return this.handleAppend(request);
     if (path.endsWith("/enroll")) return this.handleEnroll(request);
     if (path.endsWith("/clear")) return this.handleClear();
+    if (path.endsWith("/gam-cache-read")) return this.handleGamCacheRead(request);
+    if (path.endsWith("/gam-cache-write")) return this.handleGamCacheWrite(request);
+    if (path.endsWith("/gam-cache-list")) return this.handleGamCacheList();
     if (path.endsWith("/export")) {
       return this.json({ persons: this.readAll(), exportedAt: new Date().toISOString() });
     }
@@ -168,6 +194,85 @@ export class ThisPersonRoom {
     }
     this.broadcast(JSON.stringify({ type: "cleared" }));
     return this.json({ ok: true });
+  }
+
+  // ── GAM name cache ────────────────────────────────────────────────────────
+  // Looks up which (kind, id) pairs we already have display names for. The
+  // worker resolves only the misses against the GAM REST API, then writes them
+  // back here. Keys never expire — advertiser names are durable, and a stale
+  // entry is much better than a Google quota hit per visitor.
+
+  private async handleGamCacheRead(request: Request): Promise<Response> {
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return this.json({ error: "bad_body" }, 400);
+    }
+    const requested = Array.isArray(body?.keys) ? body.keys : [];
+    if (requested.length === 0) return this.json({ entries: [] });
+    const entries: GamCacheEntry[] = [];
+    for (const raw of requested) {
+      const kind = raw?.kind as GamCacheKind;
+      const id = String(raw?.id || "").trim();
+      if (!kind || !id) continue;
+      const rows = this.state.storage.sql
+        .exec<GamCacheRow>(
+          `SELECT kind, external_id, display_name FROM gam_cache WHERE kind = ? AND external_id = ?`,
+          kind,
+          id
+        )
+        .toArray();
+      if (rows.length > 0 && rows[0].display_name) {
+        entries.push({ kind, id, name: rows[0].display_name });
+      }
+    }
+    return this.json({ entries });
+  }
+
+  private async handleGamCacheWrite(request: Request): Promise<Response> {
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return this.json({ error: "bad_body" }, 400);
+    }
+    const entries = Array.isArray(body?.entries) ? body.entries : [];
+    const cachedAt = Date.now();
+    let written = 0;
+    for (const raw of entries) {
+      const kind = raw?.kind as GamCacheKind;
+      const id = String(raw?.id || "").trim();
+      const name = String(raw?.name || "").trim();
+      if (!kind || !id || !name) continue;
+      this.state.storage.sql.exec(
+        `INSERT INTO gam_cache (kind, external_id, display_name, cached_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(kind, external_id) DO UPDATE SET
+           display_name = excluded.display_name,
+           cached_at = excluded.cached_at`,
+        kind,
+        id,
+        name.slice(0, 200),
+        cachedAt
+      );
+      written++;
+    }
+    return this.json({ written });
+  }
+
+  private handleGamCacheList(): Response {
+    const rows = this.state.storage.sql
+      .exec<GamCacheRow>(
+        `SELECT kind, external_id, display_name FROM gam_cache ORDER BY kind, display_name`
+      )
+      .toArray();
+    const entries = rows.map((row) => ({
+      kind: row.kind as GamCacheKind,
+      id: row.external_id,
+      name: row.display_name,
+    }));
+    return this.json({ entries });
   }
 
   private readAll(): ExtractedPerson[] {

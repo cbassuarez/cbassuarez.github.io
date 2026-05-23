@@ -21,6 +21,12 @@ import {
   buildGoogleDataPortabilityEntry,
   extractGoogleAdInterestCandidatesFromText,
 } from "../googleDataPortability";
+import {
+  buildGamFragments,
+  gamConfigured,
+  type GamRenderRecord,
+  type GamResolution,
+} from "../gamApi";
 
 function frag(value: string, kind: ExtractedFragment["kind"]): ExtractedFragment {
   return { value, kind, confidence: 0.85, includeInWall: true };
@@ -274,3 +280,143 @@ test("generateClaims on a web-signals payload reads as the consented industry so
     result.claims.some((c) => c.sourceNote.includes("generated from extracted fragments"))
   );
 });
+
+// ── GAM render → fragments ────────────────────────────────────────────────
+
+function emptyResolution(): GamResolution {
+  return { advertisers: {}, lineItems: {}, orders: {}, creatives: {} };
+}
+
+function baseRender(over: Partial<GamRenderRecord> = {}): GamRenderRecord {
+  return {
+    advertiserId: null,
+    campaignId: null,
+    creativeId: null,
+    lineItemId: null,
+    orderId: null,
+    yieldGroupIds: [],
+    companyIds: [],
+    size: null,
+    iframeUrl: null,
+    thirdPartyHosts: [],
+    isEmpty: false,
+    serviceName: "googletag",
+    ...over,
+  };
+}
+
+test("gamConfigured needs all four required GAM env vars", () => {
+  assert.equal(gamConfigured({}), false);
+  assert.equal(
+    gamConfigured({
+      GAM_NETWORK_CODE: "1",
+      GAM_SERVICE_ACCOUNT_EMAIL: "a@b",
+      GAM_SERVICE_ACCOUNT_PRIVATE_KEY: "x",
+    }),
+    false,
+  );
+  assert.equal(
+    gamConfigured({
+      GAM_NETWORK_CODE: "1",
+      GAM_SERVICE_ACCOUNT_EMAIL: "a@b",
+      GAM_SERVICE_ACCOUNT_PRIVATE_KEY: "x",
+      GAM_AD_UNIT_PATH: "/1/x",
+    }),
+    true,
+  );
+});
+
+test("buildGamFragments turns a resolved advertiser into a brand fragment", () => {
+  const fragments = buildGamFragments(
+    baseRender({ advertiserId: "4823920184" }),
+    {
+      advertisers: { "4823920184": "Patagonia" },
+      lineItems: {},
+      orders: {},
+      creatives: {},
+    },
+  );
+  const values = fragments.map((f) => f.value);
+  assert.ok(values.includes("Patagonia"));
+  const patagonia = fragments.find((f) => f.value === "Patagonia");
+  assert.equal(patagonia?.kind, "brand");
+});
+
+test("buildGamFragments skips unresolved advertiser IDs", () => {
+  const fragments = buildGamFragments(
+    baseRender({ advertiserId: "9999" }),
+    emptyResolution(),
+  );
+  assert.equal(fragments.length, 0);
+});
+
+test("buildGamFragments emits a no-bid fragment when the slot is empty", () => {
+  const fragments = buildGamFragments(
+    baseRender({ isEmpty: true }),
+    emptyResolution(),
+  );
+  assert.ok(fragments.some((f) => f.value === "no advertiser bid"));
+});
+
+test("buildGamFragments drops Google ad-tech middlemen from host fragments", () => {
+  const fragments = buildGamFragments(
+    baseRender({
+      thirdPartyHosts: [
+        "cdn.patagonia.com",
+        "googleads.g.doubleclick.net",
+        "tpc.googlesyndication.com",
+        "www.bing.com",
+      ],
+    }),
+    emptyResolution(),
+  );
+  const values = fragments.map((f) => f.value);
+  assert.ok(values.includes("cdn.patagonia.com"));
+  assert.ok(values.includes("bing.com"));
+  assert.ok(!values.some((v) => v.includes("doubleclick.net")));
+  assert.ok(!values.some((v) => v.includes("googlesyndication.com")));
+});
+
+test("buildGamFragments deduplicates case-insensitively", () => {
+  const fragments = buildGamFragments(
+    baseRender({
+      advertiserId: "1",
+      lineItemId: "2",
+      thirdPartyHosts: ["patagonia.com", "PATAGONIA.com"],
+    }),
+    {
+      advertisers: { "1": "Patagonia" },
+      lineItems: { "2": "patagonia" },
+      orders: {},
+      creatives: {},
+    },
+  );
+  const lowered = fragments.map((f) => f.value.toLowerCase());
+  assert.equal(new Set(lowered).size, lowered.length);
+});
+
+test("generateClaims with a Patagonia brand fragment produces a 'likes' sentence", () => {
+  const gamFragments = buildGamFragments(
+    baseRender({ advertiserId: "4823920184" }),
+    {
+      advertisers: { "4823920184": "Patagonia" },
+      lineItems: {},
+      orders: {},
+      creatives: {},
+    },
+  );
+  const result = generateClaims({
+    source: "ad_preferences_surface",
+    platformHints: ["Google Ad Manager"],
+    fragments: gamFragments,
+    seed: 21,
+  });
+  assert.ok(
+    result.claims.some(
+      (c) =>
+        c.sentence === "this person likes Patagonia" ||
+        c.sentence === "this person is loyal to Patagonia",
+    ),
+  );
+});
+

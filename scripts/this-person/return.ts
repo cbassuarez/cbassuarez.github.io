@@ -10,13 +10,18 @@ function main(): void {
   root.append(
     h(
       "section",
-      {},
-      h("h1", { text: "this person" }),
+      { class: "flow-panel" },
+      h("h1", { class: "flow-title", text: "this person" }),
       h("p", {
+        class: "flow-text",
         text: "The ad-return route is no longer the data source. This work now reads what your browser hands to ad tech in real time, with your consent.",
       }),
-      h("p", {}, h("a", { href: "../", text: "open the consent surface" })),
-      h("p", {}, h("a", { href: "../wall/", text: "view the repository" }))
+      h(
+        "div",
+        { class: "flow-actions" },
+        h("a", { class: "action action--primary", href: "../", text: "open the consent surface" }),
+        h("a", { class: "action action--quiet", href: "../wall/", text: "view the repository" })
+      )
     )
   );
 }

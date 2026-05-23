@@ -107,6 +107,12 @@ const LAB_ENTRIES = [
     description: 'advertising-profile extraction and return loop'
   },
   {
+    key: 'morts',
+    label: 'microwear',
+    href: '/labs/morts',
+    description: 'a unit for accounting computational wear · two ledgers, battery-mort and thermal-mort, reported after a sixty-second multi-core SunSpider run'
+  },
+  {
     key: 'anteroom',
     label: 'anteroom',
     href: '/room',
@@ -1222,6 +1228,17 @@ function CorpusLabPage() {
       src={`/labs/corpus/index.html${currentSearchAndHash()}`}
       onLoad={(event) => wireIframeTopNavigation(event.currentTarget)}
       style={{ width: '100%', height: '100vh', border: 0, display: 'block' }}
+    />
+  );
+}
+
+function MortsLabPage() {
+  return (
+    <iframe
+      title="microwear"
+      src={`/labs/morts/index.html${currentSearchAndHash()}`}
+      onLoad={(event) => wireIframeTopNavigation(event.currentTarget)}
+      style={{ width: '100%', height: '100vh', border: 0, display: 'block', background: '#050505' }}
     />
   );
 }
@@ -3566,6 +3583,7 @@ export default function App() {
   const isLabsDirectoryPage = /^\/labs\/?$/i.test(pathname);
   const isLabsChildRoute = /^\/labs\/.+/i.test(pathname);
   const isCorpusLabPage = /^\/labs\/corpus\/?$/i.test(pathname);
+  const isMortsLabPage = /^\/labs\/morts\/?$/i.test(pathname);
   const isStringPage = /^\/labs\/string\/?$/i.test(pathname);
   const isReplPage = /^\/labs\/repl\/?$/i.test(pathname);
   const isThisPersonLabsPage = /^\/labs\/this-person(?:\/.*)?$/i.test(pathname);
@@ -3589,6 +3607,7 @@ export default function App() {
   isChunkSurferPage ||
   isLabsDirectoryPage ||
   isCorpusLabPage ||
+  isMortsLabPage ||
   isStringPage ||
   isReplPage ||
   isThisPersonLabsPage ||
@@ -3606,6 +3625,8 @@ const isNotFoundRoute = !isKnownRoute;
     page = <ChunkSurferLabPage />;
   } else if (isCorpusLabPage) {
     page = <CorpusLabPage />;
+  } else if (isMortsLabPage) {
+    page = <MortsLabPage />;
   } else if (isLabsDirectoryPage) {
     page = <LabsDirectoryPage />;
   } else if (isRecentPage) {

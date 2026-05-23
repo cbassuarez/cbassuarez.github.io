@@ -34,6 +34,7 @@ import { ThisPersonRoom } from "./this-person/room";
 import {
   LIMITS as TP_LIMITS,
   parseAppendRequest as parseTpAppendRequest,
+  type ExtractedFragment as TpFragment,
   type ExtractedPerson as TpPerson,
 } from "./this-person/types";
 import { generateClaims as generateTpClaims } from "./this-person/extraction/generateClaims";
@@ -44,6 +45,18 @@ import {
   extractGoogleAdInterestCandidatesFromArchiveBytes,
   type GoogleAdInterestCandidate,
 } from "./this-person/googleDataPortability";
+import {
+  buildGamFragments,
+  gamConfigured,
+  readGamServiceAccount,
+  resolveAdvertiserName,
+  resolveCreativeName,
+  resolveLineItemName,
+  resolveOrderName,
+  type GamRenderRecord,
+  type GamResolution,
+  type GamServiceAccount,
+} from "./this-person/gamApi";
 
 // Re-exported so the Cloudflare runtime registers the Durable Object class.
 export { ThisPersonRoom };
@@ -149,6 +162,14 @@ type Env = {
   THIS_PERSON_GA4_MEASUREMENT_ID?: string;   // e.g. "G-XXXXXXXXXX"
   THIS_PERSON_GOOGLE_ADS_ID?: string;        // e.g. "AW-XXXXXXXXXX"
   THIS_PERSON_META_PIXEL_ID?: string;        // numeric pixel id
+  // Google Ad Manager — the lab serves one GPT slot inside the extraction
+  // review and resolves the bid into the advertiser's display name. The
+  // service-account credentials read companies/orders/lineItems/creatives.
+  GAM_NETWORK_CODE?: string;                 // numeric GAM network code
+  GAM_AD_UNIT_PATH?: string;                 // e.g. "/22222222/this_person/extraction"
+  GAM_SERVICE_ACCOUNT_EMAIL?: string;        // "name@project.iam.gserviceaccount.com"
+  GAM_SERVICE_ACCOUNT_PRIVATE_KEY?: string;  // full PEM, including BEGIN/END lines
+  GAM_SLOT_SIZES?: string;                   // e.g. "300x250,728x90" (optional)
 };
 
 type FeedSnapshot = {
@@ -3373,6 +3394,283 @@ async function handleGoogleDpAppend(
   });
 }
 
+function parseGamSlotSizes(raw: string | undefined): [number, number][] {
+  const text = (raw || "").trim();
+  if (!text) return [[300, 250]];
+  const out: [number, number][] = [];
+  for (const part of text.split(",")) {
+    const m = part.trim().match(/^(\d{2,4})x(\d{2,4})$/);
+    if (!m) continue;
+    out.push([Number(m[1]), Number(m[2])]);
+    if (out.length >= 6) break;
+  }
+  return out.length ? out : [[300, 250]];
+}
+
+// ── GAM resolution helpers ──────────────────────────────────────────────────
+// The client hands us a render record from slotRenderEnded with opaque
+// numeric IDs. We resolve them to display names: cache-first via the Durable
+// Object's gam_cache table, then fill the misses from the GAM REST API and
+// write them back. Caller passes a single record per request; the wall draws
+// stats from the same cache table.
+
+interface GamCacheKey {
+  kind: "advertiser" | "lineItem" | "order" | "creative";
+  id: string;
+}
+
+function dedupeKeys(keys: GamCacheKey[]): GamCacheKey[] {
+  const seen = new Set<string>();
+  const out: GamCacheKey[] = [];
+  for (const k of keys) {
+    if (!k.id) continue;
+    const key = k.kind + ":" + k.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(k);
+  }
+  return out;
+}
+
+function gamKeysFromRecord(record: GamRenderRecord): GamCacheKey[] {
+  const keys: GamCacheKey[] = [];
+  if (record.advertiserId) keys.push({ kind: "advertiser", id: record.advertiserId });
+  if (record.lineItemId) keys.push({ kind: "lineItem", id: record.lineItemId });
+  if (record.orderId) keys.push({ kind: "order", id: record.orderId });
+  if (record.creativeId) keys.push({ kind: "creative", id: record.creativeId });
+  for (const id of record.companyIds || []) {
+    if (id) keys.push({ kind: "advertiser", id: String(id) });
+  }
+  return dedupeKeys(keys);
+}
+
+async function gamCacheRead(
+  tpStub: DurableObjectStub,
+  requestUrl: string,
+  keys: GamCacheKey[]
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (keys.length === 0) return result;
+  const inner = new URL(requestUrl);
+  inner.pathname = "/gam-cache-read";
+  const resp = await tpStub.fetch(
+    new Request(inner.toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ keys }),
+    })
+  );
+  if (!resp.ok) return result;
+  const data: any = await resp.json().catch(() => ({}));
+  const entries = Array.isArray(data?.entries) ? data.entries : [];
+  for (const entry of entries) {
+    const kind = String(entry?.kind || "");
+    const id = String(entry?.id || "");
+    const name = String(entry?.name || "");
+    if (kind && id && name) result.set(kind + ":" + id, name);
+  }
+  return result;
+}
+
+async function gamCacheWrite(
+  tpStub: DurableObjectStub,
+  requestUrl: string,
+  entries: { kind: string; id: string; name: string }[]
+): Promise<void> {
+  if (entries.length === 0) return;
+  const inner = new URL(requestUrl);
+  inner.pathname = "/gam-cache-write";
+  await tpStub.fetch(
+    new Request(inner.toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ entries }),
+    })
+  );
+}
+
+async function resolveOneGamKey(
+  account: GamServiceAccount,
+  key: GamCacheKey
+): Promise<{ name: string; extraOrderId?: string }> {
+  switch (key.kind) {
+    case "advertiser":
+      return { name: await resolveAdvertiserName(account, key.id) };
+    case "lineItem": {
+      const li = await resolveLineItemName(account, key.id);
+      return { name: li.name, extraOrderId: li.orderId };
+    }
+    case "order":
+      return { name: await resolveOrderName(account, key.id) };
+    case "creative":
+      return { name: await resolveCreativeName(account, key.id) };
+  }
+}
+
+// Resolves a set of IDs to display names. Cache-first; on miss, queries GAM
+// and writes results back. Returns the resolved map shaped for the fragment
+// builder. Swallows API errors per-key so one bad ID does not poison the
+// whole record.
+async function resolveGamRecord(
+  env: Env,
+  tpStub: DurableObjectStub,
+  requestUrl: string,
+  record: GamRenderRecord
+): Promise<GamResolution> {
+  const resolved: GamResolution = {
+    advertisers: {},
+    lineItems: {},
+    orders: {},
+    creatives: {},
+  };
+  if (!gamConfigured(env)) return resolved;
+  const account = readGamServiceAccount(env);
+  if (!account) return resolved;
+
+  const keys = gamKeysFromRecord(record);
+  if (keys.length === 0) return resolved;
+  const cached = await gamCacheRead(tpStub, requestUrl, keys);
+  const toWrite: { kind: string; id: string; name: string }[] = [];
+  const extraOrderKeys: GamCacheKey[] = [];
+
+  for (const key of keys) {
+    const cacheKey = key.kind + ":" + key.id;
+    let name = cached.get(cacheKey) || "";
+    if (!name) {
+      try {
+        const resolvedKey = await resolveOneGamKey(account, key);
+        name = resolvedKey.name;
+        if (name) toWrite.push({ kind: key.kind, id: key.id, name });
+        if (resolvedKey.extraOrderId && !record.orderId) {
+          // Line items reference an order; pull that too so the order name
+          // shows up even when the slot did not surface orderId directly.
+          extraOrderKeys.push({ kind: "order", id: resolvedKey.extraOrderId });
+        }
+      } catch {
+        name = "";
+      }
+    }
+    if (!name) continue;
+    if (key.kind === "advertiser") resolved.advertisers[key.id] = name;
+    else if (key.kind === "lineItem") resolved.lineItems[key.id] = name;
+    else if (key.kind === "order") resolved.orders[key.id] = name;
+    else if (key.kind === "creative") resolved.creatives[key.id] = name;
+  }
+
+  if (extraOrderKeys.length > 0) {
+    const cachedExtra = await gamCacheRead(tpStub, requestUrl, extraOrderKeys);
+    for (const key of extraOrderKeys) {
+      let name = cachedExtra.get(key.kind + ":" + key.id) || "";
+      if (!name) {
+        try {
+          name = await resolveOrderName(account, key.id);
+          if (name) toWrite.push({ kind: key.kind, id: key.id, name });
+        } catch {
+          name = "";
+        }
+      }
+      if (name) resolved.orders[key.id] = name;
+    }
+  }
+
+  if (toWrite.length > 0) await gamCacheWrite(tpStub, requestUrl, toWrite);
+  return resolved;
+}
+
+function parseGamRenderRecord(value: unknown): GamRenderRecord | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  const numericOrNull = (x: unknown): string | null => {
+    if (x === null || x === undefined) return null;
+    const s = String(x).trim();
+    if (!s || !/^[0-9]{1,32}$/.test(s)) return null;
+    return s;
+  };
+  const stringArray = (x: unknown, max: number): string[] => {
+    if (!Array.isArray(x)) return [];
+    const out: string[] = [];
+    for (const item of x) {
+      const s = String(item ?? "").trim().slice(0, 256);
+      if (!s) continue;
+      if (out.includes(s)) continue;
+      out.push(s);
+      if (out.length >= max) break;
+    }
+    return out;
+  };
+  const sizeRaw = v.size;
+  let size: [number, number] | null = null;
+  if (Array.isArray(sizeRaw) && sizeRaw.length === 2) {
+    const w = Number(sizeRaw[0]);
+    const h = Number(sizeRaw[1]);
+    if (Number.isFinite(w) && Number.isFinite(h)) size = [w, h];
+  }
+  return {
+    advertiserId: numericOrNull(v.advertiserId),
+    campaignId: numericOrNull(v.campaignId),
+    creativeId: numericOrNull(v.creativeId),
+    lineItemId: numericOrNull(v.lineItemId),
+    orderId: numericOrNull(v.orderId),
+    yieldGroupIds: stringArray(v.yieldGroupIds, 6),
+    companyIds: stringArray(v.companyIds, 8),
+    size,
+    iframeUrl: typeof v.iframeUrl === "string" ? v.iframeUrl.slice(0, 1024) : null,
+    thirdPartyHosts: stringArray(v.thirdPartyHosts, 12),
+    isEmpty: v.isEmpty === true,
+    serviceName: typeof v.serviceName === "string" ? v.serviceName.slice(0, 60) : null,
+  };
+}
+
+async function handleThisPersonGamResolve(
+  request: Request,
+  env: Env,
+  allowOrigin: string,
+  tpStub: DurableObjectStub
+): Promise<Response> {
+  if (!(await checkRateLimit(env.RATE_LIMIT_THIS_PERSON, "this-person:gam-resolve"))) {
+    return tooManyRequests(allowOrigin);
+  }
+  if (!gamConfigured(env)) {
+    return new Response(JSON.stringify({ error: "gam_unconfigured" }), {
+      status: 503,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  const text = await request.text();
+  if (text.length > 2048) {
+    return new Response(JSON.stringify({ error: "payload_too_large" }), {
+      status: 413,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  let body: any = null;
+  try {
+    body = JSON.parse(text || "{}");
+  } catch {
+    body = null;
+  }
+  const record = parseGamRenderRecord(body?.adRender);
+  if (!record) {
+    return new Response(JSON.stringify({ error: "bad_record" }), {
+      status: 400,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  let resolved: GamResolution;
+  try {
+    resolved = await resolveGamRecord(env, tpStub, request.url, record);
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: "gam_resolution_failed", detail: (err as Error)?.message || "" }),
+      { status: 502, headers: jsonHeaders(allowOrigin) }
+    );
+  }
+  return new Response(JSON.stringify({ resolved }), {
+    status: 200,
+    headers: jsonHeaders(allowOrigin),
+  });
+}
+
 // "this person" web-signals append.
 //
 // The browser-side collector reads Topics + client hints + fingerprint + fires
@@ -3405,6 +3703,11 @@ async function handleThisPersonWebSignalsAppend(
   // client cannot relabel itself as Google Data Portability.
   if (body && typeof body === "object") body.source = "ad_preferences_surface";
 
+  // Pull the GAM ad-render record off the body before validation so the
+  // generic append parser does not have to know about it.
+  const adRenderRaw = body && typeof body === "object" ? (body as any).adRender : null;
+  if (body && typeof body === "object") delete (body as any).adRender;
+
   const parsed = parseTpAppendRequest(body);
   if (!parsed.ok) {
     return new Response(JSON.stringify({ error: parsed.error }), {
@@ -3413,7 +3716,32 @@ async function handleThisPersonWebSignalsAppend(
     });
   }
   const { source, platformHints, fragments, seed } = parsed.data;
-  const generated = generateTpClaims({ source, platformHints, fragments, seed });
+
+  // GAM enrichment: resolve advertiser/order/line item/creative names from
+  // the slotRenderEnded record, then merge those into the validated fragments
+  // so the claim generator can produce "this person likes Patagonia"-style
+  // sentences alongside the device + topics fragments.
+  let gamFragments: TpFragment[] = [];
+  const adRender = parseGamRenderRecord(adRenderRaw);
+  if (adRender) {
+    try {
+      const resolved = await resolveGamRecord(env, tpStub, request.url, adRender);
+      gamFragments = buildGamFragments(adRender, resolved);
+    } catch {
+      gamFragments = [];
+    }
+  }
+  const allFragments: TpFragment[] = [...fragments, ...gamFragments].slice(
+    0,
+    TP_LIMITS.MAX_FRAGMENTS
+  );
+
+  const generated = generateTpClaims({
+    source,
+    platformHints,
+    fragments: allFragments,
+    seed,
+  });
   if (generated.claims.length === 0) {
     return new Response(JSON.stringify({ error: "no_claims" }), {
       status: 400,
@@ -3426,7 +3754,7 @@ async function handleThisPersonWebSignalsAppend(
     source,
     status: "extracted_and_appended",
     platformHints,
-    fragments,
+    fragments: allFragments,
     claims: generated.claims,
     generatedText: generated.generatedText,
     extractionSummary: generated.extractionSummary,
@@ -4585,6 +4913,8 @@ export default {
         const metaId = clean(env.THIS_PERSON_META_PIXEL_ID);
         const googleAdsEnabled = !!ga4 || !!gAds;
         const metaEnabled = !!metaId;
+        const gamEnabled = gamConfigured(env);
+        const gamSizes = parseGamSlotSizes(env.GAM_SLOT_SIZES);
         return new Response(
           JSON.stringify({
             adminEnabled: !!clean(env.THIS_PERSON_ADMIN_TOKEN),
@@ -4600,6 +4930,12 @@ export default {
                 enabled: metaEnabled,
                 id: metaId || null,
               },
+            },
+            googleAdManager: {
+              enabled: gamEnabled,
+              networkCode: gamEnabled ? clean(env.GAM_NETWORK_CODE) : null,
+              adUnitPath: gamEnabled ? clean(env.GAM_AD_UNIT_PATH) : null,
+              sizes: gamSizes,
             },
             googleDataPortability: {
               enabled: googleDpEnabled,
@@ -4667,6 +5003,10 @@ export default {
 
       if (sub === "web-signals/append" && request.method === "POST") {
         return handleThisPersonWebSignalsAppend(request, env, allowOrigin, tpStub);
+      }
+
+      if (sub === "gam/resolve" && request.method === "POST") {
+        return handleThisPersonGamResolve(request, env, allowOrigin, tpStub);
       }
 
       if (sub === "admin/clear" || sub === "admin/export") {

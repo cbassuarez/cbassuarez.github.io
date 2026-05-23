@@ -11,3 +11,4 @@ Live and experimental routes.
 - [Tell Me About Your Day](/labs/tell-me-about-your-day) — TMAYD submission and reels lab route.
 - [Seb Feed](/labs/feed) — live operator activity timeline.
 - [Guestbook](/labs/guestbook) — signed public guestbook stream.
+- [microwear](/labs/morts) — a one-minute benchmark that bills you, in morts, for the wear it spent.

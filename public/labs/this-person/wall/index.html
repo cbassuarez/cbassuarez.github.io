@@ -3,24 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://seb-feed.cbassuarez.workers.dev wss://seb-feed.cbassuarez.workers.dev http://localhost:8787 ws://localhost:8787; font-src 'self'; object-src 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://seb-feed.cbassuarez.workers.dev wss://seb-feed.cbassuarez.workers.dev http://localhost:8787 ws://localhost:8787; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
   <title>this person &mdash; repository</title>
-  <meta name="description" content="The repository of consented Google ad-interest entries.">
+  <meta name="description" content="The repository of people who chose extraction.">
+  <link rel="stylesheet" href="../this-person.css">
 </head>
-<body>
-  <header>
-    <h1>this person</h1>
-    <p>repository of consented Google ad-interest records</p>
+<body class="page-wall">
+  <header class="wall-masthead">
+    <h1 class="wall-masthead__title">this person</h1>
+    <p class="wall-masthead__subtitle">repository of people who chose extraction</p>
+    <p class="wall-masthead__line">participants enter as users. they leave as entries.</p>
   </header>
 
-  <main id="wall" aria-live="polite" aria-label="the repository of extracted persons"></main>
+  <main id="wall" class="wall" aria-live="polite" aria-label="the repository of extracted persons"></main>
 
-  <aside>
-    <p>scan to confess</p>
-    <canvas id="qr" width="320" height="320" aria-label="QR code to the consent route"></canvas>
-    <p id="submit-url"></p>
-    <p><span id="count">0</span> entries &middot; <span id="status">connecting</span></p>
-    <p id="source-mix"></p>
+  <aside class="wall-qr">
+    <p class="wall-qr__label">scan to be extracted</p>
+    <canvas id="qr" class="wall-qr__canvas" width="320" height="320" aria-label="QR code to the consent route"></canvas>
+    <p id="submit-url" class="wall-qr__url"></p>
+    <p class="wall-qr__meta"><span id="count">0</span> extracted &middot; <span id="status">connecting</span></p>
+    <p id="source-mix" class="wall-qr__mix"></p>
   </aside>
 
   <script src="../wall.bundle.js" defer></script>

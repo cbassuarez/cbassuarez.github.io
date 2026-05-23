@@ -9,14 +9,16 @@
     visitor — those have to be allowed. The wall and admin pages keep their
     tighter CSPs.
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://www.google-analytics.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://connect.facebook.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.googletagmanager.com https://www.google-analytics.com https://www.facebook.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://stats.g.doubleclick.net; font-src 'self'; connect-src 'self' https://seb-feed.cbassuarez.workers.dev wss://seb-feed.cbassuarez.workers.dev http://localhost:8787 ws://localhost:8787 https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://stats.g.doubleclick.net https://www.googleadservices.com https://googleads.g.doubleclick.net https://www.facebook.com https://connect.facebook.net; frame-src 'self' https://td.doubleclick.net https://www.googleadservices.com https://www.facebook.com; object-src 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://www.google-analytics.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://securepubads.g.doubleclick.net https://pagead2.googlesyndication.com https://tpc.googlesyndication.com https://connect.facebook.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.googletagmanager.com https://www.google-analytics.com https://www.facebook.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://stats.g.doubleclick.net https://securepubads.g.doubleclick.net https://pagead2.googlesyndication.com https://tpc.googlesyndication.com; font-src 'self'; connect-src 'self' https://seb-feed.cbassuarez.workers.dev wss://seb-feed.cbassuarez.workers.dev http://localhost:8787 ws://localhost:8787 https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://stats.g.doubleclick.net https://www.googleadservices.com https://googleads.g.doubleclick.net https://securepubads.g.doubleclick.net https://pagead2.googlesyndication.com https://www.facebook.com https://connect.facebook.net; frame-src 'self' https://td.doubleclick.net https://www.googleadservices.com https://googleads.g.doubleclick.net https://securepubads.g.doubleclick.net https://tpc.googlesyndication.com https://www.facebook.com; object-src 'none'; base-uri 'none'">
   <meta http-equiv="Permissions-Policy" content="browsing-topics=(self), attribution-reporting=(self), run-ad-auction=(self), shared-storage=(self), interest-cohort=(self)">
   <title>this person</title>
   <meta name="description" content="A consented industry-ad-tech read, rendered in third-person.">
   <link rel="canonical" href="https://cbassuarez.com/labs/this-person/">
+  <link rel="stylesheet" href="this-person.css">
 </head>
-<body>
-  <main id="root">
+<body class="page-landing">
+  <header class="topbar"><a class="wordmark" href="./">this person</a></header>
+  <main id="root" class="stage">
     <noscript>this work requires JavaScript.</noscript>
   </main>
   <script src="landing.bundle.js" defer></script>
