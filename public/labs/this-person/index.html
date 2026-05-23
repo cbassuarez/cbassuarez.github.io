@@ -3,9 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://seb-feed.cbassuarez.workers.dev wss://seb-feed.cbassuarez.workers.dev http://localhost:8787 ws://localhost:8787; font-src 'self'; object-src 'none'; base-uri 'none'">
+  <!--
+    CSP rationale: this is the consent surface for "this person". On consent,
+    the page loads real Google Ads / GA4 + Meta Pixel scripts against the
+    visitor — those have to be allowed. The wall and admin pages keep their
+    tighter CSPs.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://www.google-analytics.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://connect.facebook.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.googletagmanager.com https://www.google-analytics.com https://www.facebook.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://stats.g.doubleclick.net; font-src 'self'; connect-src 'self' https://seb-feed.cbassuarez.workers.dev wss://seb-feed.cbassuarez.workers.dev http://localhost:8787 ws://localhost:8787 https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://stats.g.doubleclick.net https://www.googleadservices.com https://googleads.g.doubleclick.net https://www.facebook.com https://connect.facebook.net; frame-src 'self' https://td.doubleclick.net https://www.googleadservices.com https://www.facebook.com; object-src 'none'; base-uri 'none'">
+  <meta http-equiv="Permissions-Policy" content="browsing-topics=(self), attribution-reporting=(self), run-ad-auction=(self), shared-storage=(self), interest-cohort=(self)">
   <title>this person</title>
-  <meta name="description" content="A consented Google ad-interest confessional.">
+  <meta name="description" content="A consented industry-ad-tech read, rendered in third-person.">
   <link rel="canonical" href="https://cbassuarez.com/labs/this-person/">
 </head>
 <body>

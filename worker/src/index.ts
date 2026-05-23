@@ -33,8 +33,10 @@ import {
 import { ThisPersonRoom } from "./this-person/room";
 import {
   LIMITS as TP_LIMITS,
+  parseAppendRequest as parseTpAppendRequest,
   type ExtractedPerson as TpPerson,
 } from "./this-person/types";
+import { generateClaims as generateTpClaims } from "./this-person/extraction/generateClaims";
 import {
   GOOGLE_DP_RESOURCE,
   GOOGLE_DP_SCOPE,
@@ -142,6 +144,11 @@ type Env = {
   GOOGLE_DP_REDIRECT_URI?: string;
   GOOGLE_DP_STATE_SECRET?: string;
   GOOGLE_DP_TOKEN_ENCRYPTION_KEY?: string;
+  // The "this person" lab fires real ad-tech tags against the consenting
+  // browser. These IDs are the same kind a normal commercial site sets.
+  THIS_PERSON_GA4_MEASUREMENT_ID?: string;   // e.g. "G-XXXXXXXXXX"
+  THIS_PERSON_GOOGLE_ADS_ID?: string;        // e.g. "AW-XXXXXXXXXX"
+  THIS_PERSON_META_PIXEL_ID?: string;        // numeric pixel id
 };
 
 type FeedSnapshot = {
@@ -3366,6 +3373,80 @@ async function handleGoogleDpAppend(
   });
 }
 
+// "this person" web-signals append.
+//
+// The browser-side collector reads Topics + client hints + fingerprint + fires
+// the ad-tech tags, then hands us the substrate as ExtractedFragments. We do
+// not trust the client to write the claim sentences — generateClaims rebuilds
+// them server-side from the validated fragment list.
+async function handleThisPersonWebSignalsAppend(
+  request: Request,
+  env: Env,
+  allowOrigin: string,
+  tpStub: DurableObjectStub
+): Promise<Response> {
+  if (!(await checkRateLimit(env.RATE_LIMIT_THIS_PERSON, "this-person:web-signals-append"))) {
+    return tooManyRequests(allowOrigin);
+  }
+  const text = await request.text();
+  if (text.length > TP_LIMITS.MAX_BODY_BYTES) {
+    return new Response(JSON.stringify({ error: "payload_too_large" }), {
+      status: 413,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  let body: any = null;
+  try {
+    body = JSON.parse(text || "{}");
+  } catch {
+    body = null;
+  }
+  // The web-signals surface is its own enumerated source. Lock it in: the
+  // client cannot relabel itself as Google Data Portability.
+  if (body && typeof body === "object") body.source = "ad_preferences_surface";
+
+  const parsed = parseTpAppendRequest(body);
+  if (!parsed.ok) {
+    return new Response(JSON.stringify({ error: parsed.error }), {
+      status: 400,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  const { source, platformHints, fragments, seed } = parsed.data;
+  const generated = generateTpClaims({ source, platformHints, fragments, seed });
+  if (generated.claims.length === 0) {
+    return new Response(JSON.stringify({ error: "no_claims" }), {
+      status: 400,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  const person: TpPerson = {
+    id: "0000",
+    publicNumber: 0,
+    source,
+    status: "extracted_and_appended",
+    platformHints,
+    fragments,
+    claims: generated.claims,
+    generatedText: generated.generatedText,
+    extractionSummary: generated.extractionSummary,
+    appendedAtOrder: 0,
+  };
+  const inner = new URL(request.url);
+  inner.pathname = "/append";
+  const resp = await tpStub.fetch(
+    new Request(inner.toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ person }),
+    })
+  );
+  return new Response(await resp.text(), {
+    status: resp.status,
+    headers: jsonHeaders(allowOrigin),
+  });
+}
+
 function clientKey(request: Request): string {
   return (
     request.headers.get("cf-connecting-ip") ||
@@ -4499,10 +4580,27 @@ export default {
 
       if (sub === "config" && request.method === "GET") {
         const googleDpEnabled = googleDpConfigured(env);
+        const ga4 = clean(env.THIS_PERSON_GA4_MEASUREMENT_ID);
+        const gAds = clean(env.THIS_PERSON_GOOGLE_ADS_ID);
+        const metaId = clean(env.THIS_PERSON_META_PIXEL_ID);
+        const googleAdsEnabled = !!ga4 || !!gAds;
+        const metaEnabled = !!metaId;
         return new Response(
           JSON.stringify({
             adminEnabled: !!clean(env.THIS_PERSON_ADMIN_TOKEN),
             persistence: "durable_object_sqlite",
+            adtech: {
+              enabled: googleAdsEnabled || metaEnabled,
+              googleAds: {
+                enabled: googleAdsEnabled,
+                id: ga4 || gAds || null,
+                label: gAds || null,
+              },
+              metaPixel: {
+                enabled: metaEnabled,
+                id: metaId || null,
+              },
+            },
             googleDataPortability: {
               enabled: googleDpEnabled,
               scope: GOOGLE_DP_SCOPE,
@@ -4565,6 +4663,10 @@ export default {
 
       if (sub === "google/append" && request.method === "POST") {
         return handleGoogleDpAppend(request, env, allowOrigin, tpStub);
+      }
+
+      if (sub === "web-signals/append" && request.method === "POST") {
+        return handleThisPersonWebSignalsAppend(request, env, allowOrigin, tpStub);
       }
 
       if (sub === "admin/clear" || sub === "admin/export") {

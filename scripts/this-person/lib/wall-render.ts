@@ -10,6 +10,9 @@ import { h } from "./dom";
 
 export const SOURCE_LABELS: Record<string, string> = {
   google_data_portability: "Google My Ad Center",
+  ad_preferences_surface: "consented industry ad-tech read",
+  browser_topics: "Chrome Topics API",
+  adtech_return_loop: "ad-loop return",
 };
 
 export function sourceLabel(source: string): string {

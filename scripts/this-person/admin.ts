@@ -63,7 +63,11 @@ async function main(): Promise<void> {
       h("p", { class: "admin__note", text: "persistence: " + config.persistence }),
       h("p", {
         class: "admin__note",
-        text: "Google Data Portability: " + (config.googleDataPortability.enabled ? "configured" : "off"),
+        text: "Google Ads / GA4: " + (config.adtech.googleAds.enabled ? "configured (" + config.adtech.googleAds.id + ")" : "off"),
+      }),
+      h("p", {
+        class: "admin__note",
+        text: "Meta Pixel: " + (config.adtech.metaPixel.enabled ? "configured (" + config.adtech.metaPixel.id + ")" : "off"),
       }),
       h("h3", { class: "admin__subtitle admin__subtitle--small", text: "last entries" }),
       recent.length ? h("ul", { class: "admin__entries" }, ...recent)
@@ -151,7 +155,7 @@ async function main(): Promise<void> {
       h("p", { class: "admin__mono" }, h("a", { href: kioskUrl, text: kioskUrl })),
       h("p", { class: "admin__note" },
         h("a", { href: new URL("../", location.href).toString(),
-          text: "open the Google consent flow" })
+          text: "open the consent surface" })
       )
     )
   );

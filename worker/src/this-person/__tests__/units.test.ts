@@ -234,3 +234,43 @@ test("Google Data Portability entry builder emits google_data_portability source
   assert.equal(built.fragments[0].platformHint, "Google My Ad Center");
   assert.ok(built.generatedText.includes("this person liked an ad about Hotels"));
 });
+
+test("ad_preferences_surface is an accepted parseAppendRequest source", () => {
+  // The new "this person" path stamps every web-signals payload with this
+  // source on the worker before parseAppendRequest runs.
+  const ok = parseAppendRequest({
+    source: "ad_preferences_surface",
+    platformHints: ["Chrome 131 on macOS", "googletagmanager.com"],
+    fragments: [
+      frag("Comics", "entertainment"),
+      frag("en-US", "unknown"),
+      frag("Google Ads", "brand"),
+    ],
+    seed: 12345,
+  });
+  assert.equal(ok.ok, true);
+  if (ok.ok) {
+    assert.equal(ok.data.source, "ad_preferences_surface");
+    assert.equal(ok.data.fragments.length, 3);
+    assert.ok(ok.data.platformHints.includes("Chrome 131 on macOS"));
+  }
+});
+
+test("generateClaims on a web-signals payload reads as the consented industry source", () => {
+  const result = generateClaims({
+    source: "ad_preferences_surface",
+    platformHints: ["Chrome 131 on macOS"],
+    fragments: [
+      frag("Comics", "entertainment"),
+      frag("Travel & Transportation", "travel"),
+      frag("Google Ads", "brand"),
+    ],
+    seed: 7,
+  });
+  assert.ok(result.claims.length >= 4);
+  assert.ok(!hasEmoji(result.generatedText));
+  assert.ok(
+    result.claims.some((c) => c.sourceNote.includes("ad-preference surface")) ||
+    result.claims.some((c) => c.sourceNote.includes("generated from extracted fragments"))
+  );
+});

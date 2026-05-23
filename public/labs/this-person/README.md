@@ -1,77 +1,71 @@
 # this person
 
-A consented Google ad-interest confessional.
+An art piece in the shape of an ordinary page load.
 
-The work asks a participant to authorize the official Google Data Portability
-API for My Ad Center activity. Google prepares an archive; the worker downloads
-it from Google's signed URLs, extracts ad-interest records, redacts identifiers,
-and shows the participant a review screen. Only selected sanitized interests
-become public wall entries.
+A visitor presses one button. The page does exactly what almost every
+commercial site does silently against its visitors:
 
-This is Google-only. Legacy ingestion methods were removed rather than hidden.
+1. asks Chrome for the topics it has decided this browser is interested in
+   this week (the Topics API);
+2. reads the user-agent client hints, screen / locale / WebGL / canvas
+   surface, and Privacy-Sandbox feature presence;
+3. fires real Google Ads / GA4 and Meta Pixel beacons against this browser,
+   using configured IDs (so the visitor's real Google and Meta ad profiles
+   are touched, for real);
+4. shows the visitor the exact payload, in third-person, before anything is
+   appended to the public wall.
+
+Browser history itself is not exposed to JavaScript — the Topics list is
+Chrome's projection of history into the v2 ad-targeting taxonomy. Nothing
+the visitor uploaded, nothing screenshotted. The only "consent" gate is the
+button.
 
 ## Routes
 
 | URL | Role |
 | --- | --- |
-| `/labs/this-person/` | Public Google consent and review flow. |
+| `/labs/this-person/` | The consent surface (the work itself). |
 | `/labs/this-person/wall/` | Public repository wall. |
 | `/labs/this-person/gallery/` | Installation helper with wall links and QR. |
 | `/labs/this-person/admin/` | Counts, exports, and clear controls. |
-| `/labs/this-person/return/` | Legacy route pointing back to the Google flow. |
+| `/labs/this-person/return/` | Legacy stub pointing back to the consent surface. |
 
 ## Worker API
 
 | Endpoint | Role |
 | --- | --- |
-| `GET /api/this-person/config` | Reports whether Google Data Portability is configured. |
-| `GET /api/this-person/google/start` | Starts OAuth with PKCE and signed state. |
-| `GET /api/this-person/google/callback` | Exchanges the OAuth code and starts the portability archive job. |
-| `GET /api/this-person/google/job?id=...` | Polls the archive job, parses completed archive URLs, and returns sanitized candidates. |
-| `POST /api/this-person/google/append` | Appends selected server-sanitized candidate IDs. |
+| `GET /api/this-person/config` | Reports admin status and which ad-tech IDs are configured. |
+| `POST /api/this-person/web-signals/append` | Accepts the sanitized signal bundle, generates claims server-side, appends to the wall. |
 | `GET /api/this-person/state` / `socket` | Wall state and live updates. |
-| `GET /api/this-person/admin/export`, `POST /admin/clear` | Token-gated admin controls. |
+| `GET /api/this-person/admin/export`, `POST /api/this-person/admin/clear` | Token-gated admin controls. |
 
-Retired public endpoints (`preview`, `append`, `enroll`) return `410`.
+A handful of Google Data Portability endpoints (`google/start`, `google/callback`,
+`google/job`, `google/append`) and the retired `preview` / `append` / `enroll`
+endpoints are left in the worker but are no longer the data path. The current
+work flows entirely through `/web-signals/append`.
 
-## Google configuration
+## Worker configuration
 
-Set these worker secrets/config values:
-
-```
-GOOGLE_DP_CLIENT_ID
-GOOGLE_DP_CLIENT_SECRET
-GOOGLE_DP_REDIRECT_URI
-GOOGLE_DP_STATE_SECRET
-GOOGLE_DP_TOKEN_ENCRYPTION_KEY
-```
-
-The OAuth client must have the Data Portability scope:
+These are all `wrangler secret put`:
 
 ```
-https://www.googleapis.com/auth/dataportability.myactivity.myadcenter
+THIS_PERSON_ADMIN_TOKEN              # gates /admin/clear and /admin/export
+THIS_PERSON_GA4_MEASUREMENT_ID       # e.g. G-XXXXXXXXXX — what gtag.js sends to
+THIS_PERSON_GOOGLE_ADS_ID            # e.g. AW-XXXXXXXXXX — optional conversion id
+THIS_PERSON_META_PIXEL_ID            # numeric Meta Pixel id
 ```
 
-The archive request exports:
-
-```
-myactivity.myadcenter
-```
-
-Without this configuration the public page reports that the real source is
-unavailable and does not fake an entry.
+If no ad-tech IDs are configured, the page still runs the browser-side reads
+(Topics API, client hints, fingerprint) and appends an entry — it just doesn't
+fire outbound beacons. The wall entry honestly reflects which networks were
+actually pinged.
 
 ## Storage
 
-OAuth tokens and archive job state are encrypted before being stored in
-`HITS_KV`. Pending jobs expire after at most 7 days. After the worker downloads
-and parses completed archive URLs, it calls Google's authorization reset
-endpoint on a best-effort basis, removes tokens from the stored job, and keeps
-only sanitized review candidates for a short append window.
-
-The durable wall stores only public entries: source, platform hints, selected
-sanitized fragments, generated claims/source notes, append order, and optional
-coarse time.
+The Durable Object stores only the public `ExtractedPerson` model: source,
+platform hints, sanitized fragments, generated claims, append order, and the
+optional coarse hour. No IPs, no user agents, no referrers, no fingerprint
+hashes, no tokens.
 
 ## Local development
 
@@ -90,5 +84,7 @@ Open:
 http://localhost:5173/labs/this-person/?api=http://localhost:8787
 ```
 
-Local OAuth requires a matching Google redirect URI if you want to exercise the
-full consent flow. Otherwise the page should show the unavailable state.
+Without configured ad-tech IDs the page runs the browser reads but won't
+load external ad scripts. The Topics API only returns topics in Chromium
+browsers, on HTTPS, with a non-incognito profile that has accumulated
+observation history.
