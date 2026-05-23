@@ -32,32 +32,19 @@ import {
 } from "./body-for-visits/idempotency.js";
 import { ThisPersonRoom } from "./this-person/room";
 import {
-  parsePreviewRequest as tpParsePreview,
-  parseAppendRequest as tpParseAppend,
   LIMITS as TP_LIMITS,
-  type ExtractedFragment as TpFragment,
   type ExtractedPerson as TpPerson,
 } from "./this-person/types";
-import { generateClaims as tpGenerateClaims } from "./this-person/extraction/generateClaims";
 import {
-  redactText as tpRedactText,
-  isRedactedEmpty as tpIsRedactedEmpty,
-} from "./this-person/extraction/redactIdentifiers";
+  GOOGLE_DP_RESOURCE,
+  GOOGLE_DP_SCOPE,
+  buildGoogleDataPortabilityEntry,
+  extractGoogleAdInterestCandidatesFromArchiveBytes,
+  type GoogleAdInterestCandidate,
+} from "./this-person/googleDataPortability";
 
 // Re-exported so the Cloudflare runtime registers the Durable Object class.
 export { ThisPersonRoom };
-
-// Defence in depth: identifier redaction also runs server-side. Fragments that
-// reduce to nothing but placeholders are dropped.
-function tpRedactFragments(fragments: TpFragment[]): TpFragment[] {
-  const out: TpFragment[] = [];
-  for (const fragment of fragments) {
-    const { text } = tpRedactText(fragment.value);
-    if (!text || tpIsRedactedEmpty(text)) continue;
-    out.push({ ...fragment, value: text });
-  }
-  return out;
-}
 
 type FeedItem = {
   source: string;
@@ -150,12 +137,11 @@ type Env = {
   RATE_LIMIT_THIS_PERSON?: RateLimitBinding;
   THIS_PERSON_ADMIN_TOKEN?: string;
   THIS_PERSON_SHOW_TIME?: string;
-  ENABLE_ADTECH?: string;
-  ENABLE_GOOGLE_ADS?: string;
-  GOOGLE_ADS_ID?: string;
-  GOOGLE_ADS_REMARKETING_LABEL?: string;
-  ENABLE_META_PIXEL?: string;
-  META_PIXEL_ID?: string;
+  GOOGLE_DP_CLIENT_ID?: string;
+  GOOGLE_DP_CLIENT_SECRET?: string;
+  GOOGLE_DP_REDIRECT_URI?: string;
+  GOOGLE_DP_STATE_SECRET?: string;
+  GOOGLE_DP_TOKEN_ENCRYPTION_KEY?: string;
 };
 
 type FeedSnapshot = {
@@ -2777,6 +2763,609 @@ function tooManyRequests(allowOrigin: string): Response {
   );
 }
 
+type GoogleDpJobState = {
+  stage: "pending" | "ready" | "failed";
+  archiveJobId: string;
+  accessToken?: string;
+  refreshToken?: string;
+  accessTokenExpiresAt?: number;
+  candidates?: GoogleAdInterestCandidate[];
+  returnTo: string;
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+};
+
+const GOOGLE_DP_OAUTH_COOKIE = "tp_google_oauth";
+const GOOGLE_DP_PENDING_TTL_SECONDS = 7 * 24 * 60 * 60;
+const GOOGLE_DP_READY_TTL_SECONDS = 60 * 60;
+const GOOGLE_DP_COOKIE_TTL_SECONDS = 15 * 60;
+const GOOGLE_DP_MAX_ARCHIVE_BYTES = 12 * 1024 * 1024;
+const GOOGLE_DP_MAX_ARCHIVE_URLS = 5;
+const GOOGLE_DP_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_DP_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const GOOGLE_DP_API = "https://dataportability.googleapis.com/v1";
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlToBytes(value: string): Uint8Array {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function randomToken(bytes = 32): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return bytesToBase64Url(buf);
+}
+
+async function sha256Bytes(value: string): Promise<ArrayBuffer> {
+  return crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+}
+
+async function hmacBase64Url(value: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
+  return bytesToBase64Url(new Uint8Array(sig));
+}
+
+async function signedToken(payload: unknown, secret: string): Promise<string> {
+  const encoded = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  return encoded + "." + (await hmacBase64Url(encoded, secret));
+}
+
+async function verifySignedToken<T>(token: string, secret: string): Promise<T | null> {
+  const [encoded, sig] = token.split(".");
+  if (!encoded || !sig) return null;
+  const expected = await hmacBase64Url(encoded, secret);
+  if (!constantTimeEqual(sig, expected)) return null;
+  try {
+    return JSON.parse(new TextDecoder().decode(base64UrlToBytes(encoded))) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function aesKey(secret: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    "raw",
+    await sha256Bytes(secret),
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+async function encryptJson(value: unknown, secret: string): Promise<string> {
+  const iv = new Uint8Array(12);
+  crypto.getRandomValues(iv);
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    await aesKey(secret),
+    new TextEncoder().encode(JSON.stringify(value))
+  );
+  return bytesToBase64Url(iv) + "." + bytesToBase64Url(new Uint8Array(encrypted));
+}
+
+async function decryptJson<T>(value: string, secret: string): Promise<T | null> {
+  const [ivRaw, encryptedRaw] = value.split(".");
+  if (!ivRaw || !encryptedRaw) return null;
+  try {
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: base64UrlToBytes(ivRaw) },
+      await aesKey(secret),
+      base64UrlToBytes(encryptedRaw)
+    );
+    return JSON.parse(new TextDecoder().decode(decrypted)) as T;
+  } catch {
+    return null;
+  }
+}
+
+function parseCookie(header: string, name: string): string {
+  for (const part of header.split(";")) {
+    const [rawName, ...rest] = part.trim().split("=");
+    if (rawName === name) return rest.join("=");
+  }
+  return "";
+}
+
+function clearGoogleDpCookie(): string {
+  return `${GOOGLE_DP_OAUTH_COOKIE}=; Max-Age=0; Path=/api/this-person/google/; HttpOnly; SameSite=Lax`;
+}
+
+function setGoogleDpCookie(value: string, secure: boolean): string {
+  return [
+    `${GOOGLE_DP_OAUTH_COOKIE}=${value}`,
+    `Max-Age=${GOOGLE_DP_COOKIE_TTL_SECONDS}`,
+    "Path=/api/this-person/google/",
+    "HttpOnly",
+    "SameSite=Lax",
+    secure ? "Secure" : "",
+  ].filter(Boolean).join("; ");
+}
+
+function googleDpConfigured(env: Env): boolean {
+  return !!(
+    clean(env.GOOGLE_DP_CLIENT_ID) &&
+    clean(env.GOOGLE_DP_CLIENT_SECRET) &&
+    clean(env.GOOGLE_DP_REDIRECT_URI) &&
+    clean(env.GOOGLE_DP_STATE_SECRET) &&
+    clean(env.GOOGLE_DP_TOKEN_ENCRYPTION_KEY) &&
+    env.HITS_KV
+  );
+}
+
+function safeGoogleDpReturnTo(value: string, requestUrl: URL): string {
+  const fallback = "https://cbassuarez.com/labs/this-person/";
+  try {
+    const u = new URL(value || fallback);
+    const host = u.hostname.toLowerCase();
+    const allowedHost =
+      host === "cbassuarez.com" ||
+      host === "www.cbassuarez.com" ||
+      host === "localhost" ||
+      host === "127.0.0.1";
+    if (allowedHost && u.pathname.startsWith("/labs/this-person/")) return u.toString();
+  } catch {
+    // fall through
+  }
+  if (requestUrl.hostname === "localhost" || requestUrl.hostname === "127.0.0.1") {
+    return `http://localhost:5173/labs/this-person/?api=${encodeURIComponent(requestUrl.origin)}`;
+  }
+  return fallback;
+}
+
+function locationWithHash(returnTo: string, key: string, value: string): string {
+  const u = new URL(returnTo);
+  const hash = new URLSearchParams(u.hash.replace(/^#/, ""));
+  hash.set(key, value);
+  u.hash = hash.toString();
+  return u.toString();
+}
+
+function redirectWithHash(returnTo: string, key: string, value: string, headers?: HeadersInit): Response {
+  return new Response(null, {
+    status: 302,
+    headers: { ...(headers || {}), location: locationWithHash(returnTo, key, value) },
+  });
+}
+
+function googleJobKey(id: string): string {
+  return "this-person:google-dp-job:" + id;
+}
+
+function validGoogleJobId(value: unknown): string {
+  const id = clean(value);
+  return /^[A-Za-z0-9_-]{16,96}$/.test(id) ? id : "";
+}
+
+async function putGoogleJob(env: Env, id: string, job: GoogleDpJobState, ttl: number): Promise<void> {
+  if (!env.HITS_KV) throw new Error("kv_unconfigured");
+  const encrypted = await encryptJson(job, clean(env.GOOGLE_DP_TOKEN_ENCRYPTION_KEY));
+  await env.HITS_KV.put(googleJobKey(id), encrypted, { expirationTtl: ttl });
+}
+
+async function getGoogleJob(env: Env, id: string): Promise<GoogleDpJobState | null> {
+  if (!env.HITS_KV) return null;
+  const encrypted = await env.HITS_KV.get(googleJobKey(id));
+  if (!encrypted) return null;
+  return decryptJson<GoogleDpJobState>(encrypted, clean(env.GOOGLE_DP_TOKEN_ENCRYPTION_KEY));
+}
+
+async function deleteGoogleJob(env: Env, id: string): Promise<void> {
+  if (env.HITS_KV) await env.HITS_KV.delete(googleJobKey(id));
+}
+
+async function googleCodeChallenge(verifier: string): Promise<string> {
+  return bytesToBase64Url(new Uint8Array(await sha256Bytes(verifier)));
+}
+
+async function exchangeGoogleCode(env: Env, code: string, verifier: string): Promise<{
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+}> {
+  const body = new URLSearchParams({
+    code,
+    client_id: clean(env.GOOGLE_DP_CLIENT_ID),
+    client_secret: clean(env.GOOGLE_DP_CLIENT_SECRET),
+    redirect_uri: clean(env.GOOGLE_DP_REDIRECT_URI),
+    grant_type: "authorization_code",
+    code_verifier: verifier,
+  });
+  const resp = await fetch(GOOGLE_DP_TOKEN_URL, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const data: any = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.access_token) throw new Error(clean(data.error) || "token_exchange_failed");
+  return {
+    accessToken: clean(data.access_token),
+    refreshToken: clean(data.refresh_token),
+    expiresAt: Date.now() + Math.max(60, Number(data.expires_in) || 3600) * 1000,
+  };
+}
+
+async function refreshGoogleToken(env: Env, refreshToken: string): Promise<{
+  accessToken: string;
+  expiresAt: number;
+} | null> {
+  if (!refreshToken) return null;
+  const body = new URLSearchParams({
+    client_id: clean(env.GOOGLE_DP_CLIENT_ID),
+    client_secret: clean(env.GOOGLE_DP_CLIENT_SECRET),
+    refresh_token: refreshToken,
+    grant_type: "refresh_token",
+  });
+  const resp = await fetch(GOOGLE_DP_TOKEN_URL, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const data: any = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.access_token) return null;
+  return {
+    accessToken: clean(data.access_token),
+    expiresAt: Date.now() + Math.max(60, Number(data.expires_in) || 3600) * 1000,
+  };
+}
+
+async function initiateGoogleArchive(accessToken: string): Promise<string> {
+  const resp = await fetch(GOOGLE_DP_API + "/portabilityArchive:initiate", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + accessToken,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ resources: [GOOGLE_DP_RESOURCE] }),
+  });
+  const data: any = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.archiveJobId) throw new Error(clean(data.error?.status || data.error) || "archive_initiate_failed");
+  return clean(data.archiveJobId);
+}
+
+function archiveStatePath(archiveJobId: string): string {
+  const cleanId = clean(archiveJobId).replace(/^archiveJobs\//, "").replace(/\/portabilityArchiveState$/, "");
+  return GOOGLE_DP_API + "/archiveJobs/" + encodeURIComponent(cleanId) + "/portabilityArchiveState";
+}
+
+async function fetchGoogleArchiveState(accessToken: string, archiveJobId: string): Promise<Response> {
+  return fetch(archiveStatePath(archiveJobId), {
+    headers: { authorization: "Bearer " + accessToken },
+  });
+}
+
+async function resetGoogleAuthorization(accessToken: string): Promise<void> {
+  try {
+    await fetch(GOOGLE_DP_API + "/authorization:reset", {
+      method: "POST",
+      headers: { authorization: "Bearer " + accessToken },
+    });
+  } catch {
+    // Best-effort cleanup; local encrypted token deletion still happens.
+  }
+}
+
+async function downloadGoogleArchiveCandidates(urls: string[]): Promise<GoogleAdInterestCandidate[]> {
+  const byId = new Map<string, GoogleAdInterestCandidate>();
+  for (const url of urls.slice(0, GOOGLE_DP_MAX_ARCHIVE_URLS)) {
+    const resp = await fetch(url);
+    if (!resp.ok) continue;
+    const len = Number(resp.headers.get("content-length") || "0");
+    if (len > GOOGLE_DP_MAX_ARCHIVE_BYTES) continue;
+    const bytes = await resp.arrayBuffer();
+    if (bytes.byteLength > GOOGLE_DP_MAX_ARCHIVE_BYTES) continue;
+    const contentType = resp.headers.get("content-type") || "";
+    const candidates = await extractGoogleAdInterestCandidatesFromArchiveBytes(bytes, url, contentType);
+    for (const candidate of candidates) {
+      if (!byId.has(candidate.id)) byId.set(candidate.id, candidate);
+      if (byId.size >= TP_LIMITS.MAX_FRAGMENTS) break;
+    }
+    if (byId.size >= TP_LIMITS.MAX_FRAGMENTS) break;
+  }
+  return [...byId.values()];
+}
+
+async function handleGoogleDpStart(request: Request, env: Env, allowOrigin: string): Promise<Response> {
+  const url = new URL(request.url);
+  const returnTo = safeGoogleDpReturnTo(url.searchParams.get("returnTo") || "", url);
+  if (!googleDpConfigured(env)) {
+    return redirectWithHash(returnTo, "google_error", "unconfigured");
+  }
+  if (!(await checkRateLimit(env.RATE_LIMIT_THIS_PERSON, "this-person:google-start"))) {
+    return redirectWithHash(returnTo, "google_error", "rate_limited");
+  }
+
+  const nonce = randomToken(24);
+  const verifier = randomToken(48);
+  const issuedAt = Date.now();
+  const secret = clean(env.GOOGLE_DP_STATE_SECRET);
+  const cookie = await signedToken({ nonce, verifier, issuedAt }, secret);
+  const state = await signedToken({ nonce, returnTo, issuedAt }, secret);
+  const authUrl = new URL(GOOGLE_DP_AUTH_URL);
+  authUrl.searchParams.set("client_id", clean(env.GOOGLE_DP_CLIENT_ID));
+  authUrl.searchParams.set("redirect_uri", clean(env.GOOGLE_DP_REDIRECT_URI));
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("scope", GOOGLE_DP_SCOPE);
+  authUrl.searchParams.set("state", state);
+  authUrl.searchParams.set("code_challenge", await googleCodeChallenge(verifier));
+  authUrl.searchParams.set("code_challenge_method", "S256");
+  authUrl.searchParams.set("access_type", "offline");
+  authUrl.searchParams.set("prompt", "consent");
+  authUrl.searchParams.set("include_granted_scopes", "false");
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      location: authUrl.toString(),
+      "set-cookie": setGoogleDpCookie(cookie, url.protocol === "https:"),
+      ...jsonHeaders(allowOrigin),
+    },
+  });
+}
+
+async function handleGoogleDpCallback(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  let returnTo = safeGoogleDpReturnTo("", url);
+  const fail = (error: string) =>
+    redirectWithHash(returnTo, "google_error", error, { "set-cookie": clearGoogleDpCookie() });
+
+  if (!googleDpConfigured(env)) return fail("unconfigured");
+  const secret = clean(env.GOOGLE_DP_STATE_SECRET);
+  const rawState = clean(url.searchParams.get("state"));
+  const state = rawState
+    ? await verifySignedToken<{ nonce: string; returnTo: string; issuedAt: number }>(rawState, secret)
+    : null;
+  if (state?.returnTo) returnTo = safeGoogleDpReturnTo(state.returnTo, url);
+
+  const oauthError = clean(url.searchParams.get("error"));
+  if (oauthError) return fail(oauthError);
+  if (!state || Date.now() - Number(state.issuedAt) > GOOGLE_DP_COOKIE_TTL_SECONDS * 1000) {
+    return fail("bad_state");
+  }
+
+  const rawCookie = parseCookie(request.headers.get("cookie") || "", GOOGLE_DP_OAUTH_COOKIE);
+  const cookie = rawCookie
+    ? await verifySignedToken<{ nonce: string; verifier: string; issuedAt: number }>(rawCookie, secret)
+    : null;
+  if (!cookie || cookie.nonce !== state.nonce || Date.now() - Number(cookie.issuedAt) > GOOGLE_DP_COOKIE_TTL_SECONDS * 1000) {
+    return fail("bad_cookie");
+  }
+
+  const code = clean(url.searchParams.get("code"));
+  if (!code) return fail("missing_code");
+
+  try {
+    const token = await exchangeGoogleCode(env, code, cookie.verifier);
+    const archiveJobId = await initiateGoogleArchive(token.accessToken);
+    const id = randomToken(24);
+    const now = new Date().toISOString();
+    await putGoogleJob(env, id, {
+      stage: "pending",
+      archiveJobId,
+      accessToken: token.accessToken,
+      refreshToken: token.refreshToken || undefined,
+      accessTokenExpiresAt: token.expiresAt,
+      returnTo,
+      createdAt: now,
+      updatedAt: now,
+    }, GOOGLE_DP_PENDING_TTL_SECONDS);
+    return redirectWithHash(returnTo, "google_job", id, { "set-cookie": clearGoogleDpCookie() });
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "google_callback_failed");
+  }
+}
+
+async function handleGoogleDpJob(request: Request, env: Env, allowOrigin: string): Promise<Response> {
+  if (!googleDpConfigured(env)) {
+    return new Response(JSON.stringify({ error: "unconfigured" }), {
+      status: 503,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  const url = new URL(request.url);
+  const id = validGoogleJobId(url.searchParams.get("id"));
+  if (!id) {
+    return new Response(JSON.stringify({ error: "bad_id" }), {
+      status: 400,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  const job = await getGoogleJob(env, id);
+  if (!job) {
+    return new Response(JSON.stringify({ error: "not_found" }), {
+      status: 404,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  if (job.stage === "ready") {
+    return new Response(JSON.stringify({
+      state: job.candidates?.length ? "complete" : "empty",
+      candidates: job.candidates || [],
+    }), { status: 200, headers: jsonHeaders(allowOrigin) });
+  }
+  if (job.stage === "failed") {
+    return new Response(JSON.stringify({ state: "failed", error: job.error || "failed" }), {
+      status: 200,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+
+  let accessToken = clean(job.accessToken);
+  let accessTokenExpiresAt = Number(job.accessTokenExpiresAt) || 0;
+  if (job.refreshToken && accessTokenExpiresAt > 0 && Date.now() > accessTokenExpiresAt - 60_000) {
+    const refreshed = await refreshGoogleToken(env, job.refreshToken);
+    if (refreshed) {
+      accessToken = refreshed.accessToken;
+      accessTokenExpiresAt = refreshed.expiresAt;
+      await putGoogleJob(env, id, { ...job, accessToken, accessTokenExpiresAt, updatedAt: new Date().toISOString() }, GOOGLE_DP_PENDING_TTL_SECONDS);
+    }
+  }
+  if (!accessToken) {
+    return new Response(JSON.stringify({ state: "failed", error: "missing_token" }), {
+      status: 200,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+
+  let resp = await fetchGoogleArchiveState(accessToken, job.archiveJobId);
+  if (resp.status === 401 && job.refreshToken) {
+    const refreshed = await refreshGoogleToken(env, job.refreshToken);
+    if (refreshed) {
+      accessToken = refreshed.accessToken;
+      accessTokenExpiresAt = refreshed.expiresAt;
+      resp = await fetchGoogleArchiveState(accessToken, job.archiveJobId);
+      await putGoogleJob(env, id, { ...job, accessToken, accessTokenExpiresAt, updatedAt: new Date().toISOString() }, GOOGLE_DP_PENDING_TTL_SECONDS);
+    }
+  }
+  const data: any = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    const error = clean(data.error?.status || data.error) || "state_failed";
+    await putGoogleJob(env, id, { ...job, stage: "failed", error, accessToken: undefined, refreshToken: undefined, updatedAt: new Date().toISOString() }, GOOGLE_DP_READY_TTL_SECONDS);
+    return new Response(JSON.stringify({ state: "failed", error }), {
+      status: 200,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+
+  const state = clean(data.state).toUpperCase();
+  if (state === "IN_PROGRESS" || state === "STATE_UNSPECIFIED" || !state) {
+    return new Response(JSON.stringify({ state: "in_progress" }), {
+      status: 200,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  if (state === "FAILED" || state === "CANCELLED") {
+    await resetGoogleAuthorization(accessToken);
+    await putGoogleJob(env, id, { ...job, stage: "failed", error: state.toLowerCase(), accessToken: undefined, refreshToken: undefined, updatedAt: new Date().toISOString() }, GOOGLE_DP_READY_TTL_SECONDS);
+    return new Response(JSON.stringify({ state: "failed", error: state.toLowerCase() }), {
+      status: 200,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  if (state !== "COMPLETE") {
+    return new Response(JSON.stringify({ state: "in_progress" }), {
+      status: 200,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+
+  const urls = Array.isArray(data.urls) ? data.urls.map(clean).filter(Boolean) : [];
+  const candidates = urls.length ? await downloadGoogleArchiveCandidates(urls) : [];
+  await resetGoogleAuthorization(accessToken);
+  await putGoogleJob(env, id, {
+    ...job,
+    stage: "ready",
+    accessToken: undefined,
+    refreshToken: undefined,
+    accessTokenExpiresAt: undefined,
+    candidates,
+    updatedAt: new Date().toISOString(),
+  }, GOOGLE_DP_READY_TTL_SECONDS);
+  return new Response(JSON.stringify({
+    state: candidates.length ? "complete" : "empty",
+    candidates,
+  }), { status: 200, headers: jsonHeaders(allowOrigin) });
+}
+
+async function handleGoogleDpAppend(
+  request: Request,
+  env: Env,
+  allowOrigin: string,
+  tpStub: DurableObjectStub
+): Promise<Response> {
+  if (!(await checkRateLimit(env.RATE_LIMIT_THIS_PERSON, "this-person:google-append"))) {
+    return tooManyRequests(allowOrigin);
+  }
+  const text = await request.text();
+  if (text.length > TP_LIMITS.MAX_BODY_BYTES) {
+    return new Response(JSON.stringify({ error: "payload_too_large" }), {
+      status: 413,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  let body: any = null;
+  try {
+    body = JSON.parse(text || "{}");
+  } catch {
+    body = null;
+  }
+  const id = validGoogleJobId(body?.id);
+  const selectedIds = Array.isArray(body?.candidateIds)
+    ? body.candidateIds.map(clean).filter((x: string) => /^[A-Za-z0-9_-]{4,32}$/.test(x))
+    : [];
+  if (!id || selectedIds.length === 0) {
+    return new Response(JSON.stringify({ error: "bad_body" }), {
+      status: 400,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  const job = await getGoogleJob(env, id);
+  if (!job || job.stage !== "ready" || !Array.isArray(job.candidates)) {
+    return new Response(JSON.stringify({ error: "not_ready" }), {
+      status: 409,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  const wanted = new Set(selectedIds);
+  const selected = job.candidates.filter((candidate) => wanted.has(candidate.id));
+  if (selected.length === 0) {
+    return new Response(JSON.stringify({ error: "no_candidates" }), {
+      status: 400,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  const built = buildGoogleDataPortabilityEntry(selected);
+  if (built.claims.length === 0) {
+    return new Response(JSON.stringify({ error: "no_claims" }), {
+      status: 400,
+      headers: jsonHeaders(allowOrigin),
+    });
+  }
+  const person: TpPerson = {
+    id: "0000",
+    publicNumber: 0,
+    source: "google_data_portability",
+    status: "extracted_and_appended",
+    platformHints: ["Google My Ad Center", "Google Data Portability"],
+    fragments: built.fragments,
+    claims: built.claims,
+    generatedText: built.generatedText,
+    extractionSummary: built.extractionSummary,
+    appendedAtOrder: 0,
+  };
+  const inner = new URL(request.url);
+  inner.pathname = "/append";
+  const resp = await tpStub.fetch(
+    new Request(inner.toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ person }),
+    })
+  );
+  const responseText = await resp.text();
+  if (resp.ok) await deleteGoogleJob(env, id);
+  return new Response(responseText, {
+    status: resp.status,
+    headers: jsonHeaders(allowOrigin),
+  });
+}
+
 function clientKey(request: Request): string {
   return (
     request.headers.get("cf-connecting-ip") ||
@@ -3896,8 +4485,8 @@ export default {
     }
 
     // ─── this person ────────────────────────────────────────────────────────
-    // A consented extraction repository: only successful extracted portraits.
-    // The only data accepted is the final, participant-approved person.
+    // A consented Google ad-interest repository: only reviewed Data Portability
+    // candidates become public wall entries.
     if (url.pathname.startsWith("/api/this-person/")) {
       const sub = url.pathname.slice("/api/this-person/".length);
 
@@ -3909,30 +4498,16 @@ export default {
       }
 
       if (sub === "config" && request.method === "GET") {
-        const adtechEnabled = clean(env.ENABLE_ADTECH) === "true";
-        const googleAdsId = clean(env.GOOGLE_ADS_ID);
-        const metaPixelId = clean(env.META_PIXEL_ID);
+        const googleDpEnabled = googleDpConfigured(env);
         return new Response(
           JSON.stringify({
             adminEnabled: !!clean(env.THIS_PERSON_ADMIN_TOKEN),
             persistence: "durable_object_sqlite",
-            adtech: {
-              enabled: adtechEnabled,
-              googleAds: {
-                enabled:
-                  adtechEnabled &&
-                  clean(env.ENABLE_GOOGLE_ADS) === "true" &&
-                  googleAdsId.length > 0,
-                id: googleAdsId || null,
-                label: clean(env.GOOGLE_ADS_REMARKETING_LABEL) || null,
-              },
-              metaPixel: {
-                enabled:
-                  adtechEnabled &&
-                  clean(env.ENABLE_META_PIXEL) === "true" &&
-                  metaPixelId.length > 0,
-                id: metaPixelId || null,
-              },
+            googleDataPortability: {
+              enabled: googleDpEnabled,
+              scope: GOOGLE_DP_SCOPE,
+              resource: GOOGLE_DP_RESOURCE,
+              startUrl: "/api/this-person/google/start",
             },
             at: new Date().toISOString(),
           }),
@@ -3940,58 +4515,23 @@ export default {
         );
       }
 
-      // Preview is pure: validate, redact, generate deterministic claims, and
-      // return a seed. Nothing is persisted and the Durable Object is untouched.
-      if (sub === "preview" && request.method === "POST") {
-        if (!(await checkRateLimit(env.RATE_LIMIT_THIS_PERSON, "this-person:preview"))) {
-          return tooManyRequests(allowOrigin);
-        }
-        const text = await request.text();
-        if (text.length > TP_LIMITS.MAX_BODY_BYTES) {
-          return new Response(JSON.stringify({ error: "payload_too_large" }), {
-            status: 413,
-            headers: jsonHeaders(allowOrigin),
-          });
-        }
-        let parsedBody: unknown;
-        try {
-          parsedBody = JSON.parse(text || "{}");
-        } catch {
-          parsedBody = null;
-        }
-        const parsed = tpParsePreview(parsedBody);
-        if (!parsed.ok) {
-          return new Response(JSON.stringify({ error: parsed.error }), {
-            status: 400,
-            headers: jsonHeaders(allowOrigin),
-          });
-        }
-        const fragments = tpRedactFragments(parsed.data.fragments);
-        if (fragments.length === 0) {
-          return new Response(JSON.stringify({ error: "no_fragments" }), {
-            status: 400,
-            headers: jsonHeaders(allowOrigin),
-          });
-        }
-        const seed = Math.floor(Math.random() * 0xffffffff) >>> 0;
-        const generated = tpGenerateClaims({
-          source: parsed.data.source,
-          platformHints: parsed.data.platformHints,
-          fragments,
-          seed,
+      if (sub === "google/start" && request.method === "GET") {
+        return handleGoogleDpStart(request, env, allowOrigin);
+      }
+
+      if (sub === "google/callback" && request.method === "GET") {
+        return handleGoogleDpCallback(request, env);
+      }
+
+      if (sub === "google/job" && request.method === "GET") {
+        return handleGoogleDpJob(request, env, allowOrigin);
+      }
+
+      if (sub === "preview" || sub === "append" || sub === "enroll") {
+        return new Response(JSON.stringify({ error: "retired_endpoint" }), {
+          status: 410,
+          headers: jsonHeaders(allowOrigin),
         });
-        return new Response(
-          JSON.stringify({
-            source: parsed.data.source,
-            platformHints: parsed.data.platformHints,
-            fragments,
-            claims: generated.claims,
-            generatedText: generated.generatedText,
-            extractionSummary: generated.extractionSummary,
-            seed,
-          }),
-          { status: 200, headers: jsonHeaders(allowOrigin) }
-        );
       }
 
       if (!env.THIS_PERSON_ROOM) {
@@ -4023,104 +4563,8 @@ export default {
         });
       }
 
-      if (sub === "append" && request.method === "POST") {
-        if (!(await checkRateLimit(env.RATE_LIMIT_THIS_PERSON, "this-person:append"))) {
-          return tooManyRequests(allowOrigin);
-        }
-        const text = await request.text();
-        if (text.length > TP_LIMITS.MAX_BODY_BYTES) {
-          return new Response(JSON.stringify({ error: "payload_too_large" }), {
-            status: 413,
-            headers: jsonHeaders(allowOrigin),
-          });
-        }
-        let parsedBody: unknown;
-        try {
-          parsedBody = JSON.parse(text || "{}");
-        } catch {
-          parsedBody = null;
-        }
-        const parsed = tpParseAppend(parsedBody);
-        if (!parsed.ok) {
-          return new Response(JSON.stringify({ error: parsed.error }), {
-            status: 400,
-            headers: jsonHeaders(allowOrigin),
-          });
-        }
-        const fragments = tpRedactFragments(parsed.data.fragments);
-        if (fragments.length === 0) {
-          return new Response(JSON.stringify({ error: "no_fragments" }), {
-            status: 400,
-            headers: jsonHeaders(allowOrigin),
-          });
-        }
-        // The server regenerates claims from the seed; the participant may only
-        // subtract claims by index, never supply display text.
-        const generated = tpGenerateClaims({
-          source: parsed.data.source,
-          platformHints: parsed.data.platformHints,
-          fragments,
-          seed: parsed.data.seed,
-        });
-        let claims = generated.claims;
-        if (parsed.data.keptClaimIndices) {
-          const kept = new Set(parsed.data.keptClaimIndices);
-          const filtered = claims.filter((_, index) => kept.has(index));
-          if (filtered.length > 0) claims = filtered;
-        }
-        const generatedText = claims
-          .map((claim) => claim.sentence + "\nsource: " + claim.sourceNote)
-          .join("\n\n");
-        const person: TpPerson = {
-          id: "0000",
-          publicNumber: 0,
-          source: parsed.data.source,
-          status: "extracted_and_appended",
-          platformHints: parsed.data.platformHints,
-          fragments,
-          claims,
-          generatedText,
-          extractionSummary: generated.extractionSummary,
-          appendedAtOrder: 0,
-        };
-        const inner = new URL(request.url);
-        inner.pathname = "/append";
-        const resp = await tpStub.fetch(
-          new Request(inner.toString(), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ person }),
-          })
-        );
-        return new Response(await resp.text(), {
-          status: resp.status,
-          headers: jsonHeaders(allowOrigin),
-        });
-      }
-
-      if (sub === "enroll" && request.method === "POST") {
-        if (!(await checkRateLimit(env.RATE_LIMIT_THIS_PERSON, "this-person:enroll"))) {
-          return tooManyRequests(allowOrigin);
-        }
-        let enrollBody: any = null;
-        try {
-          enrollBody = JSON.parse((await request.text()) || "{}");
-        } catch {
-          enrollBody = null;
-        }
-        const inner = new URL(request.url);
-        inner.pathname = "/enroll";
-        const resp = await tpStub.fetch(
-          new Request(inner.toString(), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ id: Number(enrollBody?.id) }),
-          })
-        );
-        return new Response(await resp.text(), {
-          status: resp.status,
-          headers: jsonHeaders(allowOrigin),
-        });
+      if (sub === "google/append" && request.method === "POST") {
+        return handleGoogleDpAppend(request, env, allowOrigin, tpStub);
       }
 
       if (sub === "admin/clear" || sub === "admin/export") {

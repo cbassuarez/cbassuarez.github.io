@@ -17,6 +17,10 @@ import { classifyFragment } from "../extraction/classifyFragment";
 import { extractFragments } from "../extraction/extractFragments";
 import { redactText, isRedactedEmpty, containsIdentifier } from "../extraction/redactIdentifiers";
 import { generateClaims } from "../extraction/generateClaims";
+import {
+  buildGoogleDataPortabilityEntry,
+  extractGoogleAdInterestCandidatesFromText,
+} from "../googleDataPortability";
 
 function frag(value: string, kind: ExtractedFragment["kind"]): ExtractedFragment {
   return { value, kind, confidence: 0.85, includeInWall: true };
@@ -165,4 +169,68 @@ test("zeroPad pads to four digits and never truncates", () => {
   assert.equal(zeroPad(7), "0007");
   assert.equal(zeroPad(42), "0042");
   assert.equal(zeroPad(12345), "12345");
+});
+
+test("Google Data Portability parser extracts liked My Ad Center topics", () => {
+  const candidates = extractGoogleAdInterestCandidatesFromText(JSON.stringify([
+    {
+      header: "My Ad Center",
+      title: "Chose to see more ads about Coffee",
+      products: ["Ads"],
+      time: "2026-05-01T12:00:00Z",
+    },
+  ]));
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].label, "Coffee");
+  assert.equal(candidates[0].relation, "likes");
+  assert.equal(candidates[0].claimSentence, "this person chose to see more ads about Coffee");
+});
+
+test("Google Data Portability parser preserves fewer and blocked uncertainty", () => {
+  const candidates = extractGoogleAdInterestCandidatesFromText(JSON.stringify([
+    { header: "My Ad Center", title: "Chose to see fewer ads about Cars", products: ["Ads"] },
+    { header: "My Ad Center", title: "Blocked an ad about Payday loans", products: ["Ads"] },
+  ]));
+  assert.deepEqual(candidates.map((candidate) => candidate.relation), ["less", "blocked"]);
+  assert.ok(candidates[0].claimSentence.includes("fewer ads about Cars"));
+  assert.ok(candidates[1].claimSentence.includes("blocked an ad about Payday loans"));
+});
+
+test("Google Data Portability parser handles associated advertiser records", () => {
+  const candidates = extractGoogleAdInterestCandidatesFromText(JSON.stringify([
+    {
+      header: "Google Ads",
+      title: "Ad topics",
+      titleUrl: "https://ads.google.com/topic/Sneakers",
+      products: ["Ads"],
+    },
+  ]));
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].label, "Sneakers");
+  assert.equal(candidates[0].relation, "associated");
+  assert.equal(candidates[0].claimSentence, "Google associated this person with Sneakers");
+});
+
+test("Google Data Portability parser redacts identifiers and ignores empty exports", () => {
+  const empty = extractGoogleAdInterestCandidatesFromText(JSON.stringify([{ header: "Search", title: "Coffee" }]));
+  assert.equal(empty.length, 0);
+
+  const candidates = extractGoogleAdInterestCandidatesFromText(JSON.stringify([
+    {
+      header: "My Ad Center",
+      title: "Chose to see more ads about person@example.com",
+      products: ["Ads"],
+    },
+  ]));
+  assert.equal(candidates.length, 0);
+});
+
+test("Google Data Portability entry builder emits google_data_portability source claims", () => {
+  const candidates = extractGoogleAdInterestCandidatesFromText(JSON.stringify([
+    { header: "My Ad Center", title: "Liked an ad about Hotels", products: ["Ads"] },
+  ]));
+  const built = buildGoogleDataPortabilityEntry(candidates);
+  assert.equal(built.claims.length, 1);
+  assert.equal(built.fragments[0].platformHint, "Google My Ad Center");
+  assert.ok(built.generatedText.includes("this person liked an ad about Hotels"));
 });

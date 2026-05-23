@@ -2,10 +2,10 @@
 // One instance (fixed name) owns the append-only ledger of ExtractedPerson
 // records in SQLite and broadcasts changes to every open wall over WebSocket.
 //
-// The repository contains only successful extracted portraits. Failed,
-// canceled, refused, unsupported, and empty attempts never reach this class.
-// It stores only the ExtractedPerson model — no IP, user agent, referrer,
-// session, raw screenshot, raw archive, or raw OCR text.
+// The repository contains only successful public entries. Failed, canceled,
+// refused, unsupported, and empty attempts never reach this class. It stores
+// only the ExtractedPerson model — no IP, user agent, referrer, OAuth token,
+// session, or raw Google archive text.
 
 import type { ExtractedPerson } from "./types";
 import { zeroPad } from "./types";

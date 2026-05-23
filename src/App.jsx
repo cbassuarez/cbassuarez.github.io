@@ -44,6 +44,27 @@ const VISITED_LINK_COLOR = '#551A8B';
 
 const LAB_ENTRIES = [
   {
+    key: 'to-complete',
+    label: '(to)complete',
+    href: '/labs/corpus',
+    still: '/labs/stills/to-complete.webp',
+    description: 'one shared sentence, mutated by visitation'
+  },
+  {
+    key: 'string',
+    label: 'String',
+    href: '/labs/string',
+    still: '/labs/stills/string.webp',
+    description: 'shared live string instrument'
+  },
+  {
+    key: 'repl',
+    label: "seb's REPL",
+    href: '/labs/repl',
+    still: '/labs/stills/repl.webp',
+    description: 'live-coding score-grid REPL'
+  },
+  {
     key: 'works-list',
     label: 'works list',
     href: '/labs/works-list',
@@ -70,27 +91,6 @@ const LAB_ENTRIES = [
     href: '/labs/chunk-surfer',
     still: '/labs/stills/chunk-surfer.webp',
     description: 'navigable chunk-field lab surface'
-  },
-  {
-    key: 'string',
-    label: 'string',
-    href: '/labs/string',
-    still: '/labs/stills/string.webp',
-    description: 'shared live string instrument'
-  },
-  {
-    key: 'to-complete',
-    label: '(to)complete',
-    href: '/labs/corpus',
-    still: '/labs/stills/to-complete.webp',
-    description: 'one shared sentence, mutated by visitation'
-  },
-  {
-    key: 'repl',
-    label: 'repl',
-    href: '/labs/repl',
-    still: '/labs/stills/repl.webp',
-    description: 'live-coding score-grid REPL'
   },
   {
     key: 'tell-me-about-your-day',
@@ -975,36 +975,38 @@ function LabsDirectoryPage() {
 
       <hr />
 
-      <h2>labs</h2>
-      <p>live and experimental routes.</p>
+      <div style={{ padding: '0.75em 0.85em 0.5em' }}>
+        <h2>labs</h2>
+        <p>live and experimental routes.</p>
 
-      <div
-        style={{
-          display: 'grid',
-          gap: '1.25em',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))'
-        }}
-      >
-        {LAB_DIRECTORY_ENTRIES.map((entry) => (
-          <a
-            key={entry.key}
-            href={entry.href}
-            style={{ color: 'inherit', display: 'block', textDecoration: 'none' }}
-          >
-            <LabStill entry={entry} />
-            <strong style={{ textDecoration: 'underline' }}>{entry.label}</strong>
-            <br />
-            <small>{entry.description}</small>
-          </a>
-        ))}
+        <div
+          style={{
+            display: 'grid',
+            gap: '1.25em',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))'
+          }}
+        >
+          {LAB_DIRECTORY_ENTRIES.map((entry) => (
+            <a
+              key={entry.key}
+              href={entry.href}
+              style={{ color: 'inherit', display: 'block', textDecoration: 'none' }}
+            >
+              <LabStill entry={entry} />
+              <strong style={{ textDecoration: 'underline' }}>{entry.label}</strong>
+              <br />
+              <small>{entry.description}</small>
+            </a>
+          ))}
+        </div>
+
+        <hr />
+        <p>
+          <small>
+            text links: <InlineLabLinks entries={LAB_DIRECTORY_ENTRIES} />
+          </small>
+        </p>
       </div>
-
-      <hr />
-      <p>
-        <small>
-          text links: <InlineLabLinks entries={LAB_DIRECTORY_ENTRIES} />
-        </small>
-      </p>
     </>
   );
 }

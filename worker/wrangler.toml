@@ -10,15 +10,15 @@ TURNSTILE_ALLOWED_HOSTNAMES = "cbassuarez.com,www.cbassuarez.com"
 CONTACT_FORMSPREE_ENDPOINT = "https://formspree.io/f/mjkepaeo"
 SITE_VERSION_URL = "https://cbassuarez.com/version.json"
 SITE_REPO_URL = "https://github.com/cbassuarez/site"
-# this person — SHOW_TIME stamps entries with a coarse hour. The admin token is
-# a secret: `wrangler secret put THIS_PERSON_ADMIN_TOKEN`. The adtech return
-# loop is off by default; when enabled it loads third-party ad tags only after a
-# participant explicitly opts in. Set GOOGLE_ADS_ID / GOOGLE_ADS_REMARKETING_LABEL
-# / META_PIXEL_ID as secrets (`wrangler secret put ...`) when enabling the loop.
+# this person — SHOW_TIME stamps entries with a coarse hour. The admin token and
+# Google Data Portability OAuth values are secrets:
+# `wrangler secret put THIS_PERSON_ADMIN_TOKEN`
+# `wrangler secret put GOOGLE_DP_CLIENT_ID`
+# `wrangler secret put GOOGLE_DP_CLIENT_SECRET`
+# `wrangler secret put GOOGLE_DP_REDIRECT_URI`
+# `wrangler secret put GOOGLE_DP_STATE_SECRET`
+# `wrangler secret put GOOGLE_DP_TOKEN_ENCRYPTION_KEY`
 THIS_PERSON_SHOW_TIME = "false"
-ENABLE_ADTECH = "false"
-ENABLE_GOOGLE_ADS = "false"
-ENABLE_META_PIXEL = "false"
 
 [[kv_namespaces]]
 binding = "HITS_KV"

@@ -7,6 +7,7 @@
 // unsupported, empty, or error entry type.
 
 export type ExtractionSource =
+  | "google_data_portability"
   | "screen_capture"
   | "screenshot_ocr"
   | "data_export"
@@ -17,6 +18,7 @@ export type ExtractionSource =
   | "manual_operator_entry";
 
 export const EXTRACTION_SOURCES: readonly ExtractionSource[] = [
+  "google_data_portability",
   "screen_capture",
   "screenshot_ocr",
   "data_export",

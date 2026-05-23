@@ -3,7 +3,7 @@
 // token is held in page memory only — never localStorage, never a cookie.
 
 import { apiBase, fetchConfig, fetchState } from "./lib/api";
-import { SOURCE_LABELS } from "./lib/wall-render";
+import { sourceLabel } from "./lib/wall-render";
 import { clear, h } from "./lib/dom";
 import type { ExtractedPerson } from "../../worker/src/this-person/types";
 
@@ -37,16 +37,16 @@ async function main(): Promise<void> {
   const counts: Record<string, number> = {};
   for (const person of persons) counts[person.source] = (counts[person.source] || 0) + 1;
   const distribution = Object.keys(counts)
-    .map((k) => (SOURCE_LABELS[k as keyof typeof SOURCE_LABELS] || k) + ": " + counts[k])
+    .map((k) => sourceLabel(k) + ": " + counts[k])
     .join("   /   ");
 
   const recent = persons
     .slice(-10)
     .reverse()
     .map((person) =>
-      h("li", { class: "admin__entry" },
-        h("span", { class: "admin__entry-id", text: "#" + person.id }),
-        h("span", { class: "admin__entry-source", text: SOURCE_LABELS[person.source] || person.source }),
+        h("li", { class: "admin__entry" },
+          h("span", { class: "admin__entry-id", text: "#" + person.id }),
+        h("span", { class: "admin__entry-source", text: sourceLabel(person.source) }),
         h("span", { class: "admin__entry-claim", text: person.claims[0]?.sentence || "" })
       )
     );
@@ -61,8 +61,10 @@ async function main(): Promise<void> {
       h("p", { class: "admin__note", text: "extracted persons: " + persons.length }),
       h("p", { class: "admin__note", text: "source distribution — " + (distribution || "none yet") }),
       h("p", { class: "admin__note", text: "persistence: " + config.persistence }),
-      h("p", { class: "admin__note", text: "adtech return loop: " + (config.adtech.enabled ? "configured" : "off") }),
-      h("p", { class: "admin__note", text: "OCR engine: loaded on demand from CDN (tesseract.js)" }),
+      h("p", {
+        class: "admin__note",
+        text: "Google Data Portability: " + (config.googleDataPortability.enabled ? "configured" : "off"),
+      }),
       h("h3", { class: "admin__subtitle admin__subtitle--small", text: "last entries" }),
       recent.length ? h("ul", { class: "admin__entries" }, ...recent)
         : h("p", { class: "admin__note", text: "the repository is empty." })
@@ -148,8 +150,8 @@ async function main(): Promise<void> {
       h("p", { class: "admin__note", text: "Open the wall in kiosk mode for the gallery projection:" }),
       h("p", { class: "admin__mono" }, h("a", { href: kioskUrl, text: kioskUrl })),
       h("p", { class: "admin__note" },
-        h("a", { href: new URL("../extract/?terminal=1", location.href).toString(),
-          text: "open the extraction terminal (screen-capture station)" })
+        h("a", { href: new URL("../", location.href).toString(),
+          text: "open the Google consent flow" })
       )
     )
   );

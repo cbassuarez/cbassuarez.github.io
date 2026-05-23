@@ -1,10 +1,10 @@
 // this person — the repository wall. A fullscreen projection of every
-// successful extracted portrait, with a QR to the submission route. Slow
+// successful extracted portrait, with a QR to the consent route. Slow
 // auto-scroll crawls the ledger; the spacebar pauses it; ?kiosk=1 hides chrome.
 
 import { openWallStream } from "./lib/socket";
 import { renderQr } from "./lib/qr";
-import { createWallView, SOURCE_LABELS } from "./lib/wall-render";
+import { createWallView, sourceLabel } from "./lib/wall-render";
 
 const SCROLL_SPEED_PX_PER_SEC = 22;
 const BOTTOM_HOLD_MS = 8000;
@@ -60,7 +60,7 @@ function main(): void {
     document.body.classList.add("kiosk");
   }
 
-  const submitUrl = new URL("../submit/", location.href).toString();
+  const submitUrl = new URL("../", location.href).toString();
   if (submitUrlEl) submitUrlEl.textContent = submitUrl;
   if (qrCanvas) renderQr(qrCanvas, submitUrl);
 
@@ -72,7 +72,7 @@ function main(): void {
       const keys = Object.keys(counts);
       mixEl.textContent = keys.length
         ? keys
-            .map((k) => (SOURCE_LABELS[k as keyof typeof SOURCE_LABELS] || k) + ": " + counts[k])
+            .map((k) => sourceLabel(k) + ": " + counts[k])
             .join("   /   ")
         : "";
     }

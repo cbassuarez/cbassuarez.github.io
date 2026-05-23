@@ -5,20 +5,16 @@
 import type {
   ExtractedClaim,
   ExtractedPerson,
-  ExtractionSource,
 } from "../../../worker/src/this-person/types";
 import { h } from "./dom";
 
-export const SOURCE_LABELS: Record<ExtractionSource, string> = {
-  screen_capture: "screen capture",
-  screenshot_ocr: "screenshot",
-  data_export: "data archive",
-  active_tab_extension: "browser tab",
-  ad_preferences_surface: "ad surface",
-  browser_topics: "browser topics",
-  adtech_return_loop: "return loop",
-  manual_operator_entry: "operator",
+export const SOURCE_LABELS: Record<string, string> = {
+  google_data_portability: "Google My Ad Center",
 };
+
+export function sourceLabel(source: string): string {
+  return SOURCE_LABELS[source] || "legacy source";
+}
 
 function renderClaim(claim: ExtractedClaim): HTMLElement {
   return h(
@@ -33,7 +29,7 @@ function renderClaim(claim: ExtractedClaim): HTMLElement {
 // preview (where idText is a placeholder).
 export function buildEntry(
   idText: string,
-  source: ExtractionSource,
+  source: string,
   claims: ExtractedClaim[],
   options?: { status?: string; summary?: string; time?: string | null }
 ): HTMLElement {
@@ -44,7 +40,7 @@ export function buildEntry(
       "header",
       { class: "entry__head" },
       h("span", { class: "entry__id", text: "THIS PERSON #" + idText }),
-      h("span", { class: "entry__source", text: SOURCE_LABELS[source] || "extraction" })
+      h("span", { class: "entry__source", text: sourceLabel(source) })
     ),
     h("div", { class: "entry__claims" }, ...claims.map(renderClaim))
   );

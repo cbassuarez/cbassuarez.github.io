@@ -1,13 +1,6 @@
-// this person — API client. All calls go to the seb-feed worker. The only data
-// sent is the participant-approved set of fragments (or the final append).
-// Raw screenshots, raw archives, and raw OCR text never leave the browser.
+// this person — API client for the Google Data Portability flow.
 
-import type {
-  ExtractedClaim,
-  ExtractedFragment,
-  ExtractedPerson,
-  ExtractionSource,
-} from "../../../worker/src/this-person/types";
+import type { ExtractedPerson } from "../../../worker/src/this-person/types";
 
 const DEFAULT_API = "https://seb-feed.cbassuarez.workers.dev";
 
@@ -20,25 +13,45 @@ export function apiBase(): string {
   return DEFAULT_API;
 }
 
-export interface AdtechConfig {
+export interface GoogleDataPortabilityConfig {
   enabled: boolean;
-  googleAds: { enabled: boolean; id: string | null; label: string | null };
-  metaPixel: { enabled: boolean; id: string | null };
+  scope: string;
+  resource: string;
+  startUrl: string;
 }
 
 export interface Config {
   adminEnabled: boolean;
   persistence: string;
-  adtech: AdtechConfig;
+  googleDataPortability: GoogleDataPortabilityConfig;
 }
+
+export interface GoogleAdCandidate {
+  id: string;
+  label: string;
+  relation: "likes" | "less" | "blocked" | "seen" | "visited" | "associated";
+  kind: string;
+  confidence: number;
+  claimSentence: string;
+  sourceNote: string;
+  evidenceTitle: string;
+  evidenceTime?: string;
+}
+
+export type GoogleJobResult =
+  | { state: "in_progress"; candidates?: undefined; error?: undefined }
+  | { state: "complete"; candidates: GoogleAdCandidate[]; error?: undefined }
+  | { state: "empty"; candidates: GoogleAdCandidate[]; error?: undefined }
+  | { state: "failed"; candidates?: undefined; error: string };
 
 const DEFAULT_CONFIG: Config = {
   adminEnabled: false,
   persistence: "unknown",
-  adtech: {
+  googleDataPortability: {
     enabled: false,
-    googleAds: { enabled: false, id: null, label: null },
-    metaPixel: { enabled: false, id: null },
+    scope: "https://www.googleapis.com/auth/dataportability.myactivity.myadcenter",
+    resource: "myactivity.myadcenter",
+    startUrl: "/api/this-person/google/start",
   },
 };
 
@@ -50,17 +63,11 @@ export async function fetchConfig(): Promise<Config> {
     return {
       adminEnabled: !!j.adminEnabled,
       persistence: String(j.persistence || "unknown"),
-      adtech: {
-        enabled: !!j?.adtech?.enabled,
-        googleAds: {
-          enabled: !!j?.adtech?.googleAds?.enabled,
-          id: j?.adtech?.googleAds?.id ?? null,
-          label: j?.adtech?.googleAds?.label ?? null,
-        },
-        metaPixel: {
-          enabled: !!j?.adtech?.metaPixel?.enabled,
-          id: j?.adtech?.metaPixel?.id ?? null,
-        },
+      googleDataPortability: {
+        enabled: !!j?.googleDataPortability?.enabled,
+        scope: String(j?.googleDataPortability?.scope || DEFAULT_CONFIG.googleDataPortability.scope),
+        resource: String(j?.googleDataPortability?.resource || DEFAULT_CONFIG.googleDataPortability.resource),
+        startUrl: String(j?.googleDataPortability?.startUrl || DEFAULT_CONFIG.googleDataPortability.startUrl),
       },
     };
   } catch {
@@ -68,63 +75,27 @@ export async function fetchConfig(): Promise<Config> {
   }
 }
 
-export interface PreviewResult {
-  source: ExtractionSource;
-  platformHints: string[];
-  fragments: ExtractedFragment[];
-  claims: ExtractedClaim[];
-  generatedText: string;
-  extractionSummary: string;
-  seed: number;
+export function googleStartUrl(): string {
+  const u = new URL(apiBase() + "/api/this-person/google/start");
+  u.searchParams.set("returnTo", location.href.replace(/#.*$/, ""));
+  return u.toString();
 }
 
-export async function requestPreview(
-  source: ExtractionSource,
-  platformHints: string[],
-  fragments: ExtractedFragment[]
-): Promise<PreviewResult> {
-  const r = await fetch(apiBase() + "/api/this-person/preview", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ source, platformHints, fragments }),
-  });
-  if (!r.ok) throw new Error("preview_failed");
-  const j: any = await r.json();
-  return {
-    source: j.source,
-    platformHints: Array.isArray(j.platformHints) ? j.platformHints : [],
-    fragments: Array.isArray(j.fragments) ? j.fragments : [],
-    claims: Array.isArray(j.claims) ? j.claims : [],
-    generatedText: String(j.generatedText || ""),
-    extractionSummary: String(j.extractionSummary || ""),
-    seed: Number(j.seed) || 0,
-  };
+export async function fetchGoogleJob(id: string): Promise<GoogleJobResult> {
+  const u = new URL(apiBase() + "/api/this-person/google/job");
+  u.searchParams.set("id", id);
+  const r = await fetch(u.toString());
+  if (!r.ok) throw new Error("job_failed");
+  return (await r.json()) as GoogleJobResult;
 }
 
-export async function appendPerson(
-  source: ExtractionSource,
-  platformHints: string[],
-  fragments: ExtractedFragment[],
-  seed: number,
-  keptClaimIndices: number[] | null
-): Promise<ExtractedPerson> {
-  const r = await fetch(apiBase() + "/api/this-person/append", {
+export async function appendGoogleCandidates(id: string, candidateIds: string[]): Promise<ExtractedPerson> {
+  const r = await fetch(apiBase() + "/api/this-person/google/append", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ source, platformHints, fragments, seed, keptClaimIndices }),
+    body: JSON.stringify({ id, candidateIds }),
   });
   if (!r.ok) throw new Error("append_failed");
-  const j: any = await r.json();
-  return j.person as ExtractedPerson;
-}
-
-export async function enrollPerson(publicNumber: number): Promise<ExtractedPerson> {
-  const r = await fetch(apiBase() + "/api/this-person/enroll", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ id: publicNumber }),
-  });
-  if (!r.ok) throw new Error("enroll_failed");
   const j: any = await r.json();
   return j.person as ExtractedPerson;
 }

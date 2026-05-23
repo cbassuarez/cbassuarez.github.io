@@ -3,39 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://seb-feed.cbassuarez.workers.dev wss://seb-feed.cbassuarez.workers.dev http://localhost:8787 ws://localhost:8787; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://seb-feed.cbassuarez.workers.dev wss://seb-feed.cbassuarez.workers.dev http://localhost:8787 ws://localhost:8787; font-src 'self'; object-src 'none'; base-uri 'none'">
   <title>this person &mdash; gallery</title>
-  <meta name="description" content="Installation mode for this person: the extraction terminal, the wall, and the submission route.">
-  <link rel="stylesheet" href="../this-person.css">
+  <meta name="description" content="Installation mode for this person: the consent route and the wall.">
 </head>
-<body class="page-gallery">
-  <header class="topbar"><a class="wordmark" href="../">this person</a></header>
-  <main class="gallery">
-    <h1 class="gallery__title">this person &mdash; installation</h1>
-    <p class="gallery__lead">A consented extraction repository. In gallery mode the work runs on three surfaces.</p>
+<body>
+  <header><a href="../">this person</a></header>
+  <main>
+    <h1>this person &mdash; installation</h1>
+    <p>consented Google ad-interest records, reviewed and appended by the participant.</p>
 
-    <section class="gallery__block">
-      <h2 class="gallery__heading">the wall</h2>
-      <p class="gallery__text">Open the repository wall on the projection or monitor. It shows every successful extracted portrait and updates live.</p>
-      <p class="gallery__links">
-        <a class="action" href="../wall/">open the wall</a>
-        <a class="action action--quiet" href="../wall/?kiosk=1">open the wall in kiosk mode</a>
+    <section>
+      <h2>the wall</h2>
+      <p>Open the repository wall on the projection or monitor. It shows every successful public entry and updates live.</p>
+      <p>
+        <a href="../wall/">open the wall</a>
+        <a href="../wall/?kiosk=1">open the wall in kiosk mode</a>
       </p>
     </section>
 
-    <section class="gallery__block">
-      <h2 class="gallery__heading">the extraction terminal</h2>
-      <p class="gallery__text">A laptop station for screen-capture extraction. Open an ad-preference page, expose the surface, and append.</p>
-      <p class="gallery__links">
-        <a class="action" href="../extract/?terminal=1">open the extraction terminal</a>
-      </p>
-    </section>
-
-    <section class="gallery__block">
-      <h2 class="gallery__heading">submit from a phone</h2>
-      <p class="gallery__text">Audience phones scan this code to reach the screenshot-extraction route.</p>
-      <canvas id="qr" class="gallery__qr" width="320" height="320" aria-label="QR code to the submission route"></canvas>
-      <p id="submit-url" class="gallery__url"></p>
+    <section>
+      <h2>consent route</h2>
+      <p>Audience phones scan this code to start the Google Data Portability flow.</p>
+      <canvas id="qr" width="320" height="320" aria-label="QR code to the consent route"></canvas>
+      <p id="submit-url"></p>
     </section>
   </main>
   <script src="../gallery.bundle.js" defer></script>

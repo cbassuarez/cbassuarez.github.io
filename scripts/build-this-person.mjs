@@ -15,10 +15,7 @@ const outdir = resolve(root, 'public/labs/this-person');
 await build({
   entryPoints: [
     resolve(entryDir, 'landing.ts'),
-    resolve(entryDir, 'extract.ts'),
-    resolve(entryDir, 'import.ts'),
     resolve(entryDir, 'gallery.ts'),
-    resolve(entryDir, 'submit.ts'),
     resolve(entryDir, 'wall.ts'),
     resolve(entryDir, 'admin.ts'),
     resolve(entryDir, 'return.ts'),

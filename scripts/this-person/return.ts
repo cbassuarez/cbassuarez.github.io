@@ -1,34 +1,22 @@
-// this person — the returned-through-ad route. The page is reached when an
-// advertisement built by the return loop sends the participant back. It does
-// not append a new entry; it marks the return and fires the neutral
-// returned-from-ad event if adtech is configured.
+// this person — legacy return route.
 
-import { fetchConfig } from "./lib/api";
 import { h } from "./lib/dom";
-import { markReturnedFromAd } from "./lib/adtechReturnLoop";
 
-async function main(): Promise<void> {
+function main(): void {
   const root = document.getElementById("root");
   if (!root) return;
-  const config = await fetchConfig();
-  markReturnedFromAd(config);
-
   root.append(
     h(
       "section",
-      { class: "flow-panel" },
-      h("h1", { class: "flow-title", text: "this person returned through the advertisement." }),
+      {},
+      h("h1", { text: "this person" }),
       h("p", {
-        class: "flow-text",
-        text: "the page was sent back to you through the advertising pipeline. this return is the part of the work the return loop produces.",
+        text: "The ad-return route is no longer the data source. This work now uses consented Google My Ad Center records through Data Portability.",
       }),
-      h("p", {
-        class: "flow-text flow-text--small",
-        text: "no entry was appended. the return loop does not create a new person — it only addresses one that already chose extraction.",
-      }),
-      h("a", { class: "action action--primary", href: "../wall/", text: "view the repository" })
+      h("p", {}, h("a", { href: "../", text: "start the Google consent flow" })),
+      h("p", {}, h("a", { href: "../wall/", text: "view the repository" }))
     )
   );
 }
 
-void main();
+main();

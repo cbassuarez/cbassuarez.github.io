@@ -43,6 +43,8 @@ interface ClaimDraft {
 function extractedSourceNote(source: ExtractionSource, platformHint: string): string {
   const surface = platformHint ? platformHint + " " : "";
   switch (source) {
+    case "google_data_portability":
+      return "Google Data Portability: My Ad Center";
     case "screen_capture":
       return "extracted from " + surface + "screen capture";
     case "screenshot_ocr":
@@ -278,6 +280,8 @@ export interface ClaimGenerationResult {
 
 function sourceLabel(source: ExtractionSource): string {
   switch (source) {
+    case "google_data_portability":
+      return "from Google My Ad Center";
     case "screen_capture":
       return "from a screen capture";
     case "screenshot_ocr":
