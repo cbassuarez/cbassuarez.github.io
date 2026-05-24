@@ -110,6 +110,7 @@ const LAB_ENTRIES = [
     key: 'morts',
     label: 'microwear',
     href: '/labs/morts',
+    still: '/labs/stills/microwear.webp',
     description: 'a unit for accounting computational wear · two ledgers, battery-mort and thermal-mort, reported after a sixty-second multi-core SunSpider run'
   },
   {
@@ -1261,36 +1262,13 @@ function ThisPersonLabPage({ pathname }) {
 }
 
 function StringLabPage() {
-  const isMobile = useIsMobile();
-
   return (
-    <>
-      <center>
-        <h1>{SITE_DOMAIN}</h1>
-        <p>
-          <i>string</i>
-        </p>
-        <p>
-          [ <a href="/">home</a> ] [ <a href="/works">works</a> ] [ <a href="/labs">labs</a> ] [ <a href="/labs/repl">repl</a> ] [ <a href="/about">about</a> ] [ <a href="/contact">contact</a> ]
-        </p>
-      </center>
-
-      <hr />
-
-      <iframe
-        title="String Lab"
-        src="/labs/string/index.html?v=20260501ws2"
-        onLoad={(event) => wireIframeTopNavigation(event.currentTarget)}
-        style={{ width: '100%', height: isMobile ? '64vh' : '78vh', border: 0, display: 'block' }}
-      />
-      {isMobile ? (
-        <p>
-          <small>
-            mobile fallback: [ <a href="/labs/string/index.html?v=20260501ws2">open string directly</a> ]
-          </small>
-        </p>
-      ) : null}
-    </>
+    <iframe
+      title="String Lab"
+      src="/labs/string/index.html?v=20260501ws2"
+      onLoad={(event) => wireIframeTopNavigation(event.currentTarget)}
+      style={{ width: '100%', height: '100vh', border: 0, display: 'block' }}
+    />
   );
 }
 
@@ -1606,40 +1584,35 @@ function HomePage({ shellMode = false }) {
     return () => window.clearInterval(intervalId);
   }, [spotifyNow?.isPlaying, spotifyNow?.durationMs, spotifyNow?.url, spotifyNow?.at]);
 
+  const activeWorksEntries = [
+    tmaydActive
+      ? LAB_ENTRIES.find((entry) => entry.key === 'tell-me-about-your-day')
+      : LAB_ENTRIES.find((entry) => entry.key === 'morts'),
+    LAB_ENTRIES.find((entry) => entry.key === 'to-complete'),
+    LAB_ENTRIES.find((entry) => entry.key === 'string')
+  ].filter(Boolean);
+
   const activeWorksLines = (
-    <>
-      {tmaydActive ? (
-        <p>
-          <button type="button" onClick={() => { window.location.href = '/labs/tell-me-about-your-day'; }}>
-            tell me about your day
-          </button>
+    <div
+      style={{
+        display: 'grid',
+        gap: '1.25em',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))'
+      }}
+    >
+      {activeWorksEntries.map((entry) => (
+        <a
+          key={entry.key}
+          href={entry.href}
+          style={{ color: 'inherit', display: 'block', textDecoration: 'none' }}
+        >
+          <LabStill entry={entry} />
+          <strong style={{ textDecoration: 'underline' }}>{entry.label}</strong>
           <br />
-          <small>an exhibition you contribute to, open now.</small>
-        </p>
-      ) : (
-        <p>
-          <button type="button" onClick={() => { window.location.href = '/labs/repl'; }}>
-            repl
-          </button>
-          <br />
-          <small>live-code the cbassuarez voices: score-grid notation, sample wildcards, attractor coupling.</small>
-        </p>
-      )}
-      <p>
-        <button type="button" onClick={() => { window.location.href = '/labs/corpus'; }}>
-          (to)complete
-        </button>
-        <br />
-        <small>one shared sentence, mutated by visitation.</small>
-      </p>
-      <p>
-        <button type="button" onClick={() => { window.location.href = '/labs/string'; }}>
-          string
-        </button>
-        <br />
-        <small>a shared room of cybernetic strings, ringing for one another.</small>
-      </p>
-    </>
+          <small>{entry.description}</small>
+        </a>
+      ))}
+    </div>
   );
 
   if (shellMode) {

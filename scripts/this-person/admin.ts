@@ -19,7 +19,7 @@ function downloadBlob(blob: Blob, filename: string): void {
 function toPlainText(persons: ExtractedPerson[]): string {
   return persons
     .map((person) => {
-      const head = "THIS PERSON #" + person.id;
+      const head = "this person #" + person.id;
       const claims = person.claims
         .map((claim) => claim.sentence + "\n  source: " + claim.sourceNote)
         .join("\n\n");

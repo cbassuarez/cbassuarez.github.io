@@ -42,7 +42,7 @@ export function buildEntry(
     h(
       "header",
       { class: "entry__head" },
-      h("span", { class: "entry__id", text: "THIS PERSON #" + idText }),
+      h("span", { class: "entry__id", text: "this person #" + idText }),
       h("span", { class: "entry__source", text: sourceLabel(source) })
     ),
     h("div", { class: "entry__claims" }, ...claims.map(renderClaim))

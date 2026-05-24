@@ -54,8 +54,18 @@
     }
   }
 
-  document.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
-  document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+  function eventInsideBodyFrame(target) {
+    return target instanceof Node && bodyFrameEl instanceof Node && bodyFrameEl.contains(target);
+  }
+
+  document.addEventListener('wheel', (e) => {
+    if (eventInsideBodyFrame(e.target)) return;
+    e.preventDefault();
+  }, { passive: false });
+  document.addEventListener('touchmove', (e) => {
+    if (eventInsideBodyFrame(e.target)) return;
+    e.preventDefault();
+  }, { passive: false });
   window.addEventListener('scroll', lockDocumentScroll, { passive: true });
 
   function setColophonPage(index) {
@@ -160,7 +170,7 @@
       const saved = normalizeViewMode(localStorage.getItem(VIEW_KEY));
       if (saved) return saved;
     } catch (_) {}
-    return 'paged';
+    return 'flow';
   }
 
   let viewMode = initialViewMode();
@@ -208,18 +218,19 @@
     const paged = viewMode === 'paged';
     if (pageControlsEl) pageControlsEl.hidden = false;
     if (pagePrevBtn) {
-      pagePrevBtn.hidden = false;
+      pagePrevBtn.hidden = !paged;
       pagePrevBtn.disabled = pageIndex <= 0;
     }
     if (pageNextBtn) {
-      pageNextBtn.hidden = false;
+      pageNextBtn.hidden = !paged;
       pageNextBtn.disabled = pageIndex >= pageCount - 1;
     }
     if (pageReadoutEl) {
-      pageReadoutEl.hidden = false;
-      pageReadoutEl.textContent = `${paged ? 'page' : 'flow'} ${Math.min(pageIndex + 1, pageCount)} / ${pageCount}`;
+      pageReadoutEl.hidden = !paged;
+      pageReadoutEl.textContent = `page ${Math.min(pageIndex + 1, pageCount)} / ${pageCount}`;
     }
     if (viewToggleBtn) {
+      viewToggleBtn.hidden = false;
       const label = paged ? 'flow' : 'paged';
       viewToggleBtn.dataset.action = label;
       viewToggleBtn.textContent = `[ ${label} ]`;
@@ -229,12 +240,12 @@
 
   function applyPageOffset() {
     if (!bodyEl) return;
-    const offset = Math.max(0, pageIndex * pageStride);
     if (viewMode === 'paged') {
+      const offset = Math.max(0, pageIndex * pageStride);
       bodyEl.style.setProperty('--bfv-page-offset', `${offset}px`);
       bodyEl.style.removeProperty('--bfv-flow-offset');
     } else {
-      bodyEl.style.setProperty('--bfv-flow-offset', `${offset}px`);
+      bodyEl.style.removeProperty('--bfv-flow-offset');
       bodyEl.style.removeProperty('--bfv-page-offset');
     }
     updatePageControls();
@@ -331,6 +342,39 @@
     return Math.max(lineHeight, Math.floor(raw / lineHeight) * lineHeight);
   }
 
+  function isFlowAtBottom() {
+    if (!bodyFrameEl) return true;
+    const slack = Math.max(8, Math.floor(parseFloat(getComputedStyle(bodyEl).lineHeight) || 24) * 1.25);
+    return bodyFrameEl.scrollTop + bodyFrameEl.clientHeight >= bodyFrameEl.scrollHeight - slack;
+  }
+
+  function scrollFlowToLatest() {
+    if (!bodyFrameEl) return;
+    bodyFrameEl.scrollTop = bodyFrameEl.scrollHeight;
+  }
+
+  function syncFlowLayout(opts = {}) {
+    if (!bodyFrameEl || !bodyEl) return;
+    const stickToLatest = !!opts.forceLatest || followLatestPage || isFlowAtBottom();
+    // measure the true text height with no leading padding applied so the
+    // computed leading reflects only the bottom-pad anchor
+    bodyEl.style.setProperty('--bfv-flow-leading', '0px');
+    const computed = getComputedStyle(bodyEl);
+    const padBottom = parseFloat(computed.paddingBottom) || 0;
+    const naturalTextHeight = Math.max(0, bodyEl.scrollHeight - padBottom);
+    const frameHeight = Math.max(1, bodyFrameEl.clientHeight);
+    const leading = Math.max(0, frameHeight - naturalTextHeight - padBottom);
+    bodyEl.style.setProperty('--bfv-flow-leading', `${leading}px`);
+    pageIndex = 0;
+    pageCount = 1;
+    pageStride = 0;
+    if (stickToLatest) {
+      followLatestPage = true;
+      scrollFlowToLatest();
+    }
+    updatePageControls();
+  }
+
   function syncPageLayout(opts = {}) {
     if ((viewMode !== 'paged' && viewMode !== 'flow') || !bodyFrameEl || !bodyEl) {
       clearPageLayoutStyles();
@@ -339,6 +383,11 @@
       pageStride = 0;
       followLatestPage = true;
       updatePageControls();
+      return;
+    }
+
+    if (viewMode === 'flow') {
+      syncFlowLayout(opts);
       return;
     }
 
@@ -357,17 +406,9 @@
     bodyEl.style.setProperty('--bfv-page-width', `${pageWidth}px`);
     bodyEl.style.setProperty('--bfv-page-gap', `${PAGE_GAP_PX}px`);
 
-    if (viewMode === 'paged') {
-      pageStride = pageWidth + PAGE_GAP_PX;
-      const scrollWidth = Math.max(pageWidth, bodyEl.scrollWidth);
-      pageCount = Math.max(1, Math.ceil(scrollWidth / pageStride));
-    } else {
-      pageStride = pageHeight;
-      const measured = measureCorpusText(pageWidth);
-      const measuredHeight = Number.isFinite(measured?.height) ? measured.height : 0;
-      const contentHeight = Math.max(pageHeight, bodyEl.scrollHeight, measuredHeight);
-      pageCount = Math.max(1, Math.ceil(contentHeight / pageStride));
-    }
+    pageStride = pageWidth + PAGE_GAP_PX;
+    const scrollWidth = Math.max(pageWidth, bodyEl.scrollWidth);
+    pageCount = Math.max(1, Math.ceil(scrollWidth / pageStride));
 
     pageIndex = shouldFollowLatest ? pageCount - 1 : Math.min(pageIndex, pageCount - 1);
     followLatestPage = pageIndex >= pageCount - 1;
@@ -1043,6 +1084,12 @@
   if (bodyFrameEl && 'ResizeObserver' in window) {
     const resizeObserver = new ResizeObserver(() => queuePageSync());
     resizeObserver.observe(bodyFrameEl);
+  }
+  if (bodyFrameEl) {
+    bodyFrameEl.addEventListener('scroll', () => {
+      if (viewMode !== 'flow') return;
+      followLatestPage = isFlowAtBottom();
+    }, { passive: true });
   }
   if (document.fonts?.ready) {
     document.fonts.ready.then(() => queuePageSync({ forceLatest: true })).catch(() => {});

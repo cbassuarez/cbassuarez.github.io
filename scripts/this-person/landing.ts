@@ -244,18 +244,64 @@ function adResolutionLines(result: AdResult): string[] {
   return lines;
 }
 
-function adSlotBlock(result: AdResult): HTMLElement {
-  const lines = adResolutionLines(result);
-  const wrapper = h("section", { class: "chamber-panel" },
+function adSlotPlaceholder(config: Config, ad: AdResult | null): HTMLElement {
+  const placeholder = h("div", { class: "ad-slot-placeholder" });
+  const widest = config.gam.sizes.reduce(
+    (best, s) => (s[0] >= best[0] ? s : best),
+    config.gam.sizes[0] || [300, 250]
+  );
+  placeholder.style.minWidth = widest[0] + "px";
+  placeholder.style.minHeight = widest[1] + "px";
+
+  let label = "ad slot";
+  let note = "";
+  if (!config.gam.enabled) {
+    label = "ad slot — GAM not configured";
+    note =
+      "Google Ad Manager is not configured on this worker. When it is, the real GAM creative renders here and the winning advertiser becomes an entry claim.";
+  } else if (ad?.render.isEmpty) {
+    label = "ad slot — no fill";
+    note = "no advertiser bid for this impression. the slot was put up for auction and nothing cleared.";
+  } else if (ad === null) {
+    label = "ad slot — failed to render";
+    note =
+      "the slot did not render. an upstream block (ad blocker, network) prevented gpt.js from loading or the slot from filling.";
+  } else {
+    label = "ad slot — empty";
+  }
+
+  placeholder.appendChild(h("p", { class: "ad-slot-placeholder__label", text: label }));
+  placeholder.appendChild(
+    h("p", { class: "ad-slot-placeholder__dim", text: widest[0] + " × " + widest[1] })
+  );
+  if (note) {
+    placeholder.appendChild(h("p", { class: "ad-slot-placeholder__note", text: note }));
+  }
+  return placeholder;
+}
+
+function adSlotBlock(config: Config, ad: AdResult | null): HTMLElement {
+  const wrapper = h(
+    "section",
+    { class: "chamber-panel" },
     h("h2", { class: "flow-title", text: "the ad Google served to this person" }),
     h("p", {
       class: "flow-text--small",
-      text: "Below is the real creative GAM returned for this slot. Its bidder, line item, and brand are what end up in the entry.",
+      text:
+        "the real creative GAM returns for this slot. its bidder, line item, and brand are what end up in the entry.",
     })
   );
+
   const frame = h("div", { class: "ad-slot-frame" });
-  frame.appendChild(result.slotNode);
+  const liveSlot = ad?.slotNode && !ad.render.isEmpty ? ad.slotNode : null;
+  if (liveSlot) {
+    frame.appendChild(liveSlot);
+  } else {
+    frame.appendChild(adSlotPlaceholder(config, ad));
+  }
   wrapper.appendChild(frame);
+
+  const lines = ad ? adResolutionLines(ad) : [];
   if (lines.length) {
     wrapper.appendChild(
       h(
@@ -301,7 +347,8 @@ function showFailure(root: HTMLElement, message: string, retry: () => void): voi
           text: "start again",
           onClick: retry,
         }),
-        h("a", { class: "action action--quiet", href: "wall/", text: "view the repository" })
+        h("a", { class: "action action--quiet", href: "wall/", text: "view the repository" }),
+        h("a", { class: "action action--quiet", href: "/", text: "home" })
       )
     )
   );
@@ -398,12 +445,13 @@ function showReview(
         chamberPanel(
           stepIndicator("appended"),
           h("h1", { class: "flow-title", text: "this person has been appended." }),
-          h("p", { class: "flow-done-id", text: "THIS PERSON #" + person.id }),
+          h("p", { class: "flow-done-id", text: "this person #" + person.id }),
           buildEntry(person.id, person.source, person.claims, { summary: person.extractionSummary }),
           h(
             "div",
             { class: "flow-actions" },
             h("a", { class: "action action--primary", href: "wall/", text: "view the repository" }),
+            h("a", { class: "action action--quiet", href: "/", text: "home" }),
             h("a", { class: "action action--quiet", href: "./", text: "do this again with a different browser" })
           )
         )
@@ -426,7 +474,7 @@ function showReview(
         class: "flow-text",
         text: "Everything below was read from this browser, sent out from it, or served to it in the last few seconds. Review and append, or close the tab and nothing public happens.",
       }),
-      ad ? adSlotBlock(ad) : false,
+      adSlotBlock(config, ad),
       topicsBlock(reading),
       clientHintsBlock(reading),
       fingerprintBlock(reading),
@@ -450,6 +498,7 @@ function showReview(
         "div",
         { class: "flow-actions" },
         h("a", { class: "action action--quiet", href: "wall/", text: "view the repository" }),
+        h("a", { class: "action action--quiet", href: "/", text: "home" }),
         h("a", { class: "action action--quiet", href: "./", text: "start over" })
       )
     )
@@ -648,7 +697,8 @@ function showStart(root: HTMLElement, config: Config): void {
       }),
       h("p", { class: "flow-text--small", text: tagsLine(config) }),
       h("div", { class: "flow-actions" }, beginButton),
-      h("a", { class: "hero__link", href: "wall/", text: "view the repository" })
+      h("a", { class: "hero__link", href: "wall/", text: "view the repository" }),
+      h("a", { class: "hero__link", href: "/", text: "home" })
     )
   );
 }

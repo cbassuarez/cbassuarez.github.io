@@ -87,14 +87,36 @@
   }
   body.bfv-view-flow .body-frame {
     height: 100%;
-    overflow: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black 36px,
+      black calc(100% - 12px),
+      transparent 100%
+    );
+            mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black 36px,
+      black calc(100% - 12px),
+      transparent 100%
+    );
   }
+  body.bfv-view-flow .body-frame::-webkit-scrollbar { display: none; }
   body.bfv-view-flow .body-text {
-    width: var(--bfv-page-width, 100%);
+    width: 100%;
     height: auto;
     column-width: auto;
     column-gap: normal;
-    transform: translateY(calc(-1 * var(--bfv-flow-offset, 0px)));
+    transform: none;
+    /* the bottom padding intentionally lifts the latest line well up the
+       viewport — the resting read position sits high above the frame edge so
+       new tokens land in central reading space, not at the footer */
+    padding-top: var(--bfv-flow-leading, 0px);
+    padding-bottom: var(--bfv-flow-bottom-pad, 38vh);
   }
   .body-text .fold-marker { font-style: italic; color: var(--ink-soft); }
   .body-skeleton {
@@ -499,6 +521,6 @@
 </dialog>
 <script src="./corpus-motion.bundle.js?v=20260521-square-pips" defer></script>
 <script src="./corpus-text-flow.bundle.js?v=20260522-no-scroll" defer></script>
-<script src="./script.js?v=20260522-no-scroll" defer></script>
+<script src="./script.js?v=20260523-flow-scroll" defer></script>
 </body>
 </html>
