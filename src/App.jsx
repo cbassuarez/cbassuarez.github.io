@@ -967,8 +967,11 @@ function LabStill({ entry }) {
   );
 }
 
+const SOCKET_PRESENCE_KEYS = new Set(['to-complete', 'string', 'this-person', 'anteroom']);
+
 function useLabsPresence({ intervalMs = 30000 } = {}) {
   const [rooms, setRooms] = useState({});
+  const [status, setStatus] = useState('loading');
 
   useEffect(() => {
     let active = true;
@@ -980,8 +983,10 @@ function useLabsPresence({ intervalMs = 30000 } = {}) {
         if (!active) return;
         const next = payload?.rooms && typeof payload.rooms === 'object' ? payload.rooms : {};
         setRooms(next);
+        setStatus('live');
       } catch (_) {
-        // leave previous counts in place; rooms with no entry render no chip
+        if (!active) return;
+        setStatus('offline');
       }
     };
 
@@ -993,18 +998,21 @@ function useLabsPresence({ intervalMs = 30000 } = {}) {
     };
   }, [intervalMs]);
 
-  return rooms;
+  return { rooms, status };
 }
 
-function presenceLabel(count) {
-  if (!Number.isFinite(count) || count < 0) return '';
-  if (count === 0) return 'empty';
-  if (count === 1) return '1 here now';
-  return `${count} here now`;
+function presenceChip(count, status) {
+  if (Number.isFinite(count) && count >= 0) {
+    if (count === 0) return 'no one here right now';
+    if (count === 1) return '1 person here right now';
+    return `${count} people here right now`;
+  }
+  if (status === 'loading') return 'checking who’s here…';
+  return '';
 }
 
 function LabsDirectoryPage() {
-  const presence = useLabsPresence();
+  const { rooms, status } = useLabsPresence();
 
   return (
     <>
@@ -1032,10 +1040,11 @@ function LabsDirectoryPage() {
           }}
         >
           {LAB_DIRECTORY_ENTRIES.map((entry) => {
-            const count = Object.prototype.hasOwnProperty.call(presence, entry.key)
-              ? presence[entry.key]
+            const hasPresence = SOCKET_PRESENCE_KEYS.has(entry.key);
+            const count = Object.prototype.hasOwnProperty.call(rooms, entry.key)
+              ? rooms[entry.key]
               : null;
-            const label = count !== null ? presenceLabel(count) : '';
+            const chip = hasPresence ? presenceChip(count, status) : '';
             return (
               <a
                 key={entry.key}
@@ -1044,14 +1053,16 @@ function LabsDirectoryPage() {
               >
                 <LabStill entry={entry} />
                 <strong style={{ textDecoration: 'underline' }}>{entry.label}</strong>
-                {label ? (
-                  <>
-                    {' '}
-                    <small style={{ color: '#555', fontFamily: MONO_FONT_STACK }}>· {label}</small>
-                  </>
-                ) : null}
                 <br />
                 <small>{entry.description}</small>
+                {chip ? (
+                  <>
+                    <br />
+                    <small style={{ color: '#555', fontFamily: MONO_FONT_STACK, letterSpacing: '0.04em' }}>
+                      · {chip}
+                    </small>
+                  </>
+                ) : null}
               </a>
             );
           })}
