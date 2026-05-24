@@ -1079,6 +1079,18 @@ export class StringRoom {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname.endsWith("/presence")) {
+      return new Response(
+        JSON.stringify({ count: this.state.getWebSockets().length }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "no-store",
+          },
+        }
+      );
+    }
     if (!url.pathname.endsWith("/socket")) {
       return new Response(JSON.stringify({ error: "not_found" }), {
         status: 404,
@@ -2253,6 +2265,9 @@ export class BodyForVisitsRoom {
     }
     if (request.method === "POST" && path === "/admin/reset") {
       return this.adminReset(request);
+    }
+    if (request.method === "GET" && path === "/presence") {
+      return this.responseJson({ count: this.presenceCount() });
     }
     return this.responseJson({ error: "not_found" }, 404);
   }
@@ -5047,6 +5062,61 @@ export default {
         status: 405,
         headers: jsonHeaders(allowOrigin),
       });
+    }
+
+    if (url.pathname === "/api/presence") {
+      if (request.method !== "GET") {
+        return new Response(JSON.stringify({ error: "method_not_allowed" }), {
+          status: 405,
+          headers: jsonHeaders(allowOrigin),
+        });
+      }
+      // Each room exposes /presence (or /snapshot for CoRoom) returning { count }.
+      // Rooms that aren't configured for this environment, or that fail to
+      // respond in time, are simply omitted — the labs page renders no count
+      // for those tiles. We intentionally do not fail the whole response on
+      // one bad room.
+      type RoomFetch = { key: string; promise: Promise<number | null> };
+
+      const fetchRoomCount = async (
+        ns: DurableObjectNamespace | undefined,
+        name: string,
+        path: "/presence" | "/snapshot"
+      ): Promise<number | null> => {
+        if (!ns) return null;
+        try {
+          const id = ns.idFromName(name);
+          const stub = ns.get(id);
+          const inner = new URL(request.url);
+          inner.pathname = path;
+          const resp = await stub.fetch(new Request(inner.toString(), { method: "GET" }));
+          if (!resp.ok) return null;
+          const data = await resp.json<{ count?: number }>();
+          const n = Number(data?.count);
+          return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const room_fetches: RoomFetch[] = [
+        { key: "to-complete", promise: fetchRoomCount(env.BFV_ROOM, BFV_ROOM_NAME, "/presence") },
+        { key: "string", promise: fetchRoomCount(env.STRING_ROOM, STRING_ROOM_NAME, "/presence") },
+        { key: "this-person", promise: fetchRoomCount(env.THIS_PERSON_ROOM, THIS_PERSON_ROOM_NAME, "/presence") },
+        { key: "anteroom", promise: fetchRoomCount(env.CO_ROOM, COROOM_NAME, "/snapshot") },
+      ];
+
+      const rooms: Record<string, number> = {};
+      const settled = await Promise.all(room_fetches.map((r) => r.promise));
+      room_fetches.forEach((r, i) => {
+        const v = settled[i];
+        if (v !== null) rooms[r.key] = v;
+      });
+
+      return new Response(
+        JSON.stringify({ rooms, at: new Date().toISOString() }),
+        { status: 200, headers: jsonHeaders(allowOrigin) }
+      );
     }
 
     if (url.pathname === "/api/health") {

@@ -967,7 +967,45 @@ function LabStill({ entry }) {
   );
 }
 
+function useLabsPresence({ intervalMs = 30000 } = {}) {
+  const [rooms, setRooms] = useState({});
+
+  useEffect(() => {
+    let active = true;
+    const sync = async () => {
+      try {
+        const response = await fetch(`${FEED_API_BASE}/api/presence`);
+        if (!response.ok) throw new Error(`presence api failed (${response.status})`);
+        const payload = await response.json();
+        if (!active) return;
+        const next = payload?.rooms && typeof payload.rooms === 'object' ? payload.rooms : {};
+        setRooms(next);
+      } catch (_) {
+        // leave previous counts in place; rooms with no entry render no chip
+      }
+    };
+
+    sync();
+    const id = window.setInterval(sync, intervalMs);
+    return () => {
+      active = false;
+      window.clearInterval(id);
+    };
+  }, [intervalMs]);
+
+  return rooms;
+}
+
+function presenceLabel(count) {
+  if (!Number.isFinite(count) || count < 0) return '';
+  if (count === 0) return 'empty';
+  if (count === 1) return '1 here now';
+  return `${count} here now`;
+}
+
 function LabsDirectoryPage() {
+  const presence = useLabsPresence();
+
   return (
     <>
       <center>
@@ -993,18 +1031,30 @@ function LabsDirectoryPage() {
             gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))'
           }}
         >
-          {LAB_DIRECTORY_ENTRIES.map((entry) => (
-            <a
-              key={entry.key}
-              href={entry.href}
-              style={{ color: 'inherit', display: 'block', textDecoration: 'none' }}
-            >
-              <LabStill entry={entry} />
-              <strong style={{ textDecoration: 'underline' }}>{entry.label}</strong>
-              <br />
-              <small>{entry.description}</small>
-            </a>
-          ))}
+          {LAB_DIRECTORY_ENTRIES.map((entry) => {
+            const count = Object.prototype.hasOwnProperty.call(presence, entry.key)
+              ? presence[entry.key]
+              : null;
+            const label = count !== null ? presenceLabel(count) : '';
+            return (
+              <a
+                key={entry.key}
+                href={entry.href}
+                style={{ color: 'inherit', display: 'block', textDecoration: 'none' }}
+              >
+                <LabStill entry={entry} />
+                <strong style={{ textDecoration: 'underline' }}>{entry.label}</strong>
+                {label ? (
+                  <>
+                    {' '}
+                    <small style={{ color: '#555', fontFamily: MONO_FONT_STACK }}>· {label}</small>
+                  </>
+                ) : null}
+                <br />
+                <small>{entry.description}</small>
+              </a>
+            );
+          })}
         </div>
 
         <hr />

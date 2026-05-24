@@ -66,6 +66,9 @@ export class ThisPersonRoom {
     const path = new URL(request.url).pathname;
     if (path.endsWith("/socket")) return this.handleSocket(request);
     if (path.endsWith("/state")) return this.json({ persons: this.readAll() });
+    if (path.endsWith("/presence")) {
+      return this.json({ count: this.state.getWebSockets().length });
+    }
     if (path.endsWith("/append")) return this.handleAppend(request);
     if (path.endsWith("/enroll")) return this.handleEnroll(request);
     if (path.endsWith("/clear")) return this.handleClear();
