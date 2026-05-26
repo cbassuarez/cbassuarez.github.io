@@ -1317,13 +1317,13 @@ export class StringRoom {
 
 // ---------- co-presence room (the back of /404) ----------
 
-type CoRoomMember = { who: string; joinedAt: number; location: string };
+type CoRoomMember = { id: string; who: string; joinedAt: number; location: string };
 type CoRoomLogEntry = {
   startedAt: number;
   endedAt: number;
   durationMs: number;
   peak: number;
-  // Distinct participants who passed through this instance, with last-known location.
+  // Presence sessions that passed through this instance, with last-known location.
   members: Array<{ who: string; location: string }>;
 };
 
@@ -1337,9 +1337,24 @@ const COROOM_WHO_REGEX = /^[0-9a-f]{8,12}$|^[0-9a-f]{32}$|^[0-9a-f]{8}-[0-9a-f]{
 
 interface CoRoomAttachment {
   who: string;
+  sessionId?: string;
   joinedAt: number;
   lastSeenAt: number;
   location: string;
+}
+
+function createCoRoomSessionId(): string {
+  try {
+    return crypto.randomUUID().toLowerCase();
+  } catch {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+}
+
+function coRoomSessionId(att: CoRoomAttachment): string {
+  return att.sessionId || `${att.who}:${att.joinedAt}`;
 }
 
 function deriveCfLocation(request: Request): string {
@@ -1368,8 +1383,8 @@ export class CoRoom {
   private readonly state: DurableObjectState;
   private readonly env: Env;
   private log: CoRoomLogEntry[] = [];
-  // seenWhos maps each who that has been part of this instance to their last-known location.
-  private currentInstance: { startedAt: number; peak: number; seenWhos: Map<string, string> } | null = null;
+  // seenSessions maps each socket/session in this instance to its last-known identity and location.
+  private currentInstance: { startedAt: number; peak: number; seenSessions: Map<string, { who: string; location: string }> } | null = null;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -1393,19 +1408,19 @@ export class CoRoom {
       }
       // After hibernation wake, reconstruct in-memory instance from any sockets
       // that survived. If no sockets remain, the instance state is correctly null.
-      const whos = this.distinctWhos();
-      if (whos.size >= 2) {
+      const count = this.activeCount();
+      if (count >= 2) {
         // We don't know the original startedAt; best-effort: use the earliest
         // joinedAt across surviving sockets.
         let startedAt = Date.now();
-        const seen = new Map<string, string>();
+        const seen = new Map<string, { who: string; location: string }>();
         for (const ws of this.state.getWebSockets()) {
           const att = readCoRoomAttachment(ws);
           if (!att) continue;
           if (att.joinedAt < startedAt) startedAt = att.joinedAt;
-          seen.set(att.who, att.location || "");
+          seen.set(coRoomSessionId(att), { who: att.who, location: att.location || "" });
         }
-        this.currentInstance = { startedAt, peak: seen.size, seenWhos: seen };
+        this.currentInstance = { startedAt, peak: count, seenSessions: seen };
       }
     });
   }
@@ -1414,11 +1429,11 @@ export class CoRoom {
     const url = new URL(request.url);
     if (url.pathname.endsWith("/snapshot")) {
       const now = Date.now();
-      const whos = this.distinctWhos();
+      const count = this.activeCount();
       const members = this.membersList();
       return new Response(
         JSON.stringify({
-          count: whos.size,
+          count,
           currentInstance: this.currentInstance
             ? {
                 startedAt: this.currentInstance.startedAt,
@@ -1462,32 +1477,31 @@ export class CoRoom {
     const server = pair[1];
 
     const now = Date.now();
-    const att: CoRoomAttachment = { who, joinedAt: now, lastSeenAt: now, location };
+    const att: CoRoomAttachment = { who, sessionId: createCoRoomSessionId(), joinedAt: now, lastSeenAt: now, location };
     server.serializeAttachment(att);
     this.state.acceptWebSocket(server);
 
     // Determine instance lifecycle effects of this connection.
-    const whos = this.distinctWhos();
+    const count = this.activeCount();
     const wasOpen = this.currentInstance !== null;
     let openedNow = false;
-    if (whos.size >= 2 && !this.currentInstance) {
-      const seen = new Map<string, string>();
-      for (const m of this.membersList()) seen.set(m.who, m.location);
-      this.currentInstance = { startedAt: now, peak: whos.size, seenWhos: seen };
+    if (count >= 2 && !this.currentInstance) {
+      const seen = new Map<string, { who: string; location: string }>();
+      for (const m of this.membersList()) seen.set(m.id, { who: m.who, location: m.location });
+      this.currentInstance = { startedAt: now, peak: count, seenSessions: seen };
       openedNow = true;
     } else if (this.currentInstance) {
       for (const m of this.membersList()) {
-        // Always update with the most recent location for each who.
-        this.currentInstance.seenWhos.set(m.who, m.location);
+        this.currentInstance.seenSessions.set(m.id, { who: m.who, location: m.location });
       }
-      if (whos.size > this.currentInstance.peak) this.currentInstance.peak = whos.size;
+      if (count > this.currentInstance.peak) this.currentInstance.peak = count;
     }
 
     // Send hello to the new socket with full state.
     const helloPayload = {
       type: "hello",
       who,
-      count: whos.size,
+      count,
       currentInstance: this.currentInstance
         ? {
             startedAt: this.currentInstance.startedAt,
@@ -1520,7 +1534,7 @@ export class CoRoom {
       this.broadcast(
         JSON.stringify({
           type: "presence",
-          count: whos.size,
+          count,
           peak: this.currentInstance!.peak,
           members: this.membersList(),
           serverNow: now,
@@ -1530,8 +1544,8 @@ export class CoRoom {
     }
     // If !wasOpen && !openedNow: count stayed at 1, no broadcast needed (no listeners).
 
-    // Cancel any pending grace alarm now that we have ≥1 connections.
-    if (whos.size >= 2) {
+    // Cancel any pending grace alarm once the room is open again.
+    if (count >= 2) {
       try {
         await this.state.storage.deleteAlarm();
       } catch {
@@ -1575,16 +1589,16 @@ export class CoRoom {
   }
 
   async alarm(): Promise<void> {
-    const whos = this.distinctWhos();
-    if (this.currentInstance && whos.size < 2) {
+    const count = this.activeCount();
+    if (this.currentInstance && count < 2) {
       const now = Date.now();
       const entry: CoRoomLogEntry = {
         startedAt: this.currentInstance.startedAt,
         endedAt: now,
         durationMs: Math.max(0, now - this.currentInstance.startedAt),
         peak: this.currentInstance.peak,
-        members: [...this.currentInstance.seenWhos.entries()]
-          .map(([who, location]) => ({ who, location }))
+        members: [...this.currentInstance.seenSessions.values()]
+          .map(({ who, location }) => ({ who, location }))
           .sort((a, b) => a.who.localeCompare(b.who)),
       };
       this.log.unshift(entry);
@@ -1599,7 +1613,7 @@ export class CoRoom {
         JSON.stringify({ type: "close", entry, serverNow: now })
       );
     }
-    // If size >= 2, instance still alive; nothing to do.
+    // If count >= 2, instance still alive; nothing to do.
   }
 
   private async handleDisconnect(ws: WebSocket): Promise<void> {
@@ -1610,21 +1624,21 @@ export class CoRoom {
     // event we broadcast reflects post-disconnect state, not the transient
     // pre-close state. Otherwise remaining clients keep seeing count=2 until
     // the grace alarm fires (and the user perceives "stuck").
-    const whos = this.distinctWhos(ws);
+    const count = this.activeCount(ws);
     const members = this.membersList(ws);
     const now = Date.now();
     if (this.currentInstance) {
       this.broadcast(
         JSON.stringify({
           type: "presence",
-          count: whos.size,
+          count,
           peak: this.currentInstance.peak,
           members,
           serverNow: now,
         }),
         ws
       );
-      if (whos.size < 2) {
+      if (count < 2) {
         try {
           const existing = await this.state.storage.getAlarm();
           if (existing == null) {
@@ -1637,33 +1651,30 @@ export class CoRoom {
     }
   }
 
-  private distinctWhos(exclude?: WebSocket): Set<string> {
-    const whos = new Set<string>();
+  private activeCount(exclude?: WebSocket): number {
+    let count = 0;
     for (const ws of this.state.getWebSockets()) {
       if (exclude && ws === exclude) continue;
       const att = readCoRoomAttachment(ws);
-      if (att) whos.add(att.who);
+      if (att) count += 1;
     }
-    return whos;
+    return count;
   }
 
   private membersList(exclude?: WebSocket): CoRoomMember[] {
-    const aggregated = new Map<string, { joinedAt: number; location: string }>();
+    const members: CoRoomMember[] = [];
     for (const ws of this.state.getWebSockets()) {
       if (exclude && ws === exclude) continue;
       const att = readCoRoomAttachment(ws);
       if (!att) continue;
-      const prev = aggregated.get(att.who);
-      if (!prev || att.joinedAt < prev.joinedAt) {
-        aggregated.set(att.who, { joinedAt: att.joinedAt, location: att.location || prev?.location || "" });
-      } else if (att.location && !prev.location) {
-        // Backfill location if a sibling socket has it.
-        aggregated.set(att.who, { ...prev, location: att.location });
-      }
+      members.push({
+        id: coRoomSessionId(att),
+        who: att.who,
+        joinedAt: att.joinedAt,
+        location: att.location || "",
+      });
     }
-    return [...aggregated.entries()]
-      .map(([who, v]) => ({ who, joinedAt: v.joinedAt, location: v.location }))
-      .sort((a, b) => a.joinedAt - b.joinedAt);
+    return members.sort((a, b) => a.joinedAt - b.joinedAt || a.id.localeCompare(b.id));
   }
 
   private broadcast(message: string, exclude?: WebSocket): void {

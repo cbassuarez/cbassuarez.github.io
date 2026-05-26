@@ -3327,7 +3327,7 @@ const sectionTitleStyle = { fontStyle: 'italic', margin: '1.2em 0 0.4em', textAl
           ) : (
             members.map((m) => (
               <CoRoomMemberRow
-                key={m.who}
+                key={m.id || `${m.who}:${m.joinedAt}`}
                 member={m}
                 currentTick={tick}
                 isSelf={m.who === selfWho}
@@ -3602,15 +3602,15 @@ export default function App() {
   const pathname = window.location.pathname;
   const hash = window.location.hash;
   const isHomePage = pathname === '/';
-  const isWorksPage = window.location.pathname.startsWith('/works');
-  const isAboutPage = window.location.pathname.startsWith('/about');
+  const isWorksPage = /^\/works\/?$/i.test(pathname);
+  const isAboutPage = /^\/about\/?$/i.test(pathname);
   const isPressPage = /^\/press\/?$/i.test(pathname);
   const isFeedPage = /^\/labs\/feed\/?$/i.test(pathname);
   const isGuestbookPage = /^\/labs\/guestbook\/?$/i.test(pathname);
-  const isContactPage = window.location.pathname.startsWith('/contact');
-  const isColophonPage = window.location.pathname.startsWith('/colophon');
+  const isContactPage = /^\/contact(?:\/sent)?\/?$/i.test(pathname);
+  const isColophonPage = /^\/colophon\/?$/i.test(pathname);
   const isAccessPage = /^\/access\/?$/i.test(pathname);
-  const isTalkRecapPage = window.location.pathname.startsWith('/dma-2026');
+  const isTalkRecapPage = /^\/dma-2026\/?$/i.test(pathname);
   const isRecentPage = /^\/(?:recent|events)\/?$/i.test(pathname);
   const isLabsWorksListPage = /^\/labs\/works?-list\/?$/i.test(pathname);
   const isChunkSurferPage = /^\/labs\/chunk-surfer\/?$/i.test(pathname);
@@ -3621,7 +3621,7 @@ export default function App() {
   const isStringPage = /^\/labs\/string\/?$/i.test(pathname);
   const isReplPage = /^\/labs\/repl\/?$/i.test(pathname);
   const isThisPersonLabsPage = /^\/labs\/this-person(?:\/.*)?$/i.test(pathname);
-  const isTmaydLabsPage = pathname.startsWith('/labs/tell-me-about-your-day');
+  const isTmaydLabsPage = /^\/labs\/tell-me-about-your-day(?:\/.*)?$/i.test(pathname);
   const isRoomPage = /^\/room\/?$/i.test(pathname);
   const isLegacyFeedHash = pathname === '/' && /^#seb-feed$/i.test(hash);
   const isKnownRoute =
@@ -3649,8 +3649,8 @@ export default function App() {
   isLegacyFeedHash;
 
 const isNotFoundRoute = !isKnownRoute;
-  const useSplitPaneShell = !isMobile && !isWorksPage && !isLabsChildRoute;
-  const hideGlobalFooter = isWorksPage || isLabsChildRoute;
+  const useSplitPaneShell = !isMobile && !isWorksPage && (!isLabsChildRoute || isNotFoundRoute);
+  const hideGlobalFooter = isWorksPage || (isLabsChildRoute && !isNotFoundRoute);
 
   let page = isHomePage ? <HomePage shellMode={useSplitPaneShell} /> : <NotFoundPage />;
   if (isLabsWorksListPage) {
