@@ -5,7 +5,7 @@
 import { apiBase, fetchConfig, fetchState } from "./lib/api";
 import { sourceLabel } from "./lib/wall-render";
 import { clear, h } from "./lib/dom";
-import type { ExtractedPerson } from "../../worker/src/this-person/types";
+import type { ExtractedPerson } from "../../workers/seb-feed/src/this-person/types";
 
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);

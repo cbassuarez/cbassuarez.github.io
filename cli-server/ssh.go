@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cbassuarez/site/cli-server/repl"
+	"github.com/cbassuarez/cbassuarez.github.io/cli-server/repl"
 	"github.com/gliderlabs/ssh"
 )
 
@@ -87,10 +87,10 @@ func handleSSHSession(s ssh.Session, content *Content) {
 
 // handleSSHRepl renders a patch on stdin (or a hash arg) into a WAV stream.
 //
-//   ssh ssh.cbassuarez.com repl < patch.txt | mpv -
-//   ssh ssh.cbassuarez.com repl <hash>     | mpv -
-//   ssh ssh.cbassuarez.com repl --bars 16 < patch.txt | mpv -
-//   ssh ssh.cbassuarez.com repl --help
+//	ssh ssh.cbassuarez.com repl < patch.txt | mpv -
+//	ssh ssh.cbassuarez.com repl <hash>     | mpv -
+//	ssh ssh.cbassuarez.com repl --bars 16 < patch.txt | mpv -
+//	ssh ssh.cbassuarez.com repl --help
 func handleSSHRepl(s ssh.Session, content *Content, args []string) {
 	bars := repl.DefaultBars
 	var hashArg string

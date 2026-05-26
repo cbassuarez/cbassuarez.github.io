@@ -29,7 +29,7 @@ export const SOURCES = Object.freeze([
 ]);
 
 export const OUTPUT_PATH = new URL(
-  "../worker/src/body-for-visits/speech-model.generated.js",
+  "../workers/seb-feed/src/body-for-visits/speech-model.generated.js",
   import.meta.url
 );
 

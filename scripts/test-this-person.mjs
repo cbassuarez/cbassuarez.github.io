@@ -18,7 +18,7 @@ rmSync(tmp, { recursive: true, force: true });
 mkdirSync(tmp, { recursive: true });
 
 await build({
-  entryPoints: [resolve(root, 'worker/src/this-person/__tests__/units.test.ts')],
+  entryPoints: [resolve(root, 'workers/seb-feed/src/this-person/__tests__/units.test.ts')],
   outfile,
   bundle: true,
   format: 'esm',

@@ -544,7 +544,7 @@ export async function collectWebSignals(config: SignalsConfig): Promise<SignalsR
 // already knows how to ingest. The worker re-classifies and generates claim
 // sentences; the client just hands over the substrate.
 
-import type { ExtractedFragment, FragmentKind } from "../../../worker/src/this-person/types";
+import type { ExtractedFragment, FragmentKind } from "../../../workers/seb-feed/src/this-person/types";
 
 const TOPIC_PATH_TO_KIND: { needle: string; kind: FragmentKind }[] = [
   { needle: "/Food", kind: "food" },

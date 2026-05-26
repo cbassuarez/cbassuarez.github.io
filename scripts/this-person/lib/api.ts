@@ -5,7 +5,7 @@
 import type {
   ExtractedFragment,
   ExtractedPerson,
-} from "../../../worker/src/this-person/types";
+} from "../../../workers/seb-feed/src/this-person/types";
 
 const DEFAULT_API = "https://seb-feed.cbassuarez.workers.dev";
 

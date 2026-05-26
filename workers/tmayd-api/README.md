@@ -1,7 +1,7 @@
 # tmayd-api — Cloudflare Worker
 
 Public API + bridge endpoints for the TMAYD ("Tell Me About Your Day") artwork.
-See [`docs/tmayd-runbook.md`](../../docs/tmayd-runbook.md) for the runbook.
+This Worker is deployed separately from the GitHub Pages site.
 
 ## Local dev
 
@@ -15,6 +15,8 @@ npm run dev
 
 ```bash
 npm run test
+npm run typecheck
+WRANGLER_LOG_PATH=.wrangler/logs npm run deploy -- --dry-run
 ```
 
 Uses `@cloudflare/vitest-pool-workers` with an in-memory D1.
@@ -83,9 +85,8 @@ migrations/
 └── 0001_init.sql
 tests/
 ├── setup.ts              D1 migration mirror + helpers
-├── moderation.test.ts    14 tests
-├── public.test.ts        17 tests
-└── bridge.test.ts        9 tests
+├── moderation.test.ts
+├── public.test.ts
+├── bridge.test.ts
+└── bedrock.test.ts
 ```
-
-40/40 tests passing locally.

@@ -29,12 +29,33 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install TMAYD Worker dependencies
+        run: npm ci --prefix workers/tmayd-api
+
       - name: Build
         run: npm run build
         env:
           VITE_BUILD_SHA: ${{ github.sha }}
           VITE_BUILD_AT: ${{ github.event.head_commit.timestamp }}
           VITE_BUILD_REPO_URL: https://github.com/${{ github.repository }}
+
+      - name: Test this-person build target
+        run: npm run test:this-person
+
+      - name: Test seb-feed Worker
+        run: npm run test:seb-feed
+
+      - name: Dry-run seb-feed Worker deploy
+        run: npm run dry-run:seb-feed
+
+      - name: Test TMAYD Worker
+        run: npm run test:tmayd-api
+
+      - name: Typecheck TMAYD Worker
+        run: npm run typecheck:tmayd-api
+
+      - name: Dry-run TMAYD Worker deploy
+        run: npm run dry-run:tmayd-api
 
       - name: Write version manifest
         if: github.event_name != 'pull_request'

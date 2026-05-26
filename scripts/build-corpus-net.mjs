@@ -1,6 +1,6 @@
 // Offline trainer for the (to)complete online neural model.
 //
-// Pre-trains the fixed-window neural language model in worker/src/body-for-visits/net.js
+// Pre-trains the fixed-window neural language model in workers/seb-feed/src/body-for-visits/net.js
 // on the four pinned public-domain novels, then emits net-weights.generated.js —
 // the warm-start weights the Durable Object loads on first run and then keeps
 // fine-tuning online. The piece ships fluent; it never starts from noise.
@@ -28,12 +28,12 @@ import {
   weightCount,
   snapshotWeights,
   floatsToBase64,
-} from "../worker/src/body-for-visits/net.js";
-import { hashTokens } from "../worker/src/body-for-visits/grammar.js";
+} from "../workers/seb-feed/src/body-for-visits/net.js";
+import { hashTokens } from "../workers/seb-feed/src/body-for-visits/grammar.js";
 
 const CACHE_DIR = new URL("./.cache/corpus-text/", import.meta.url);
 const OUTPUT_PATH = new URL(
-  "../worker/src/body-for-visits/net-weights.generated.js",
+  "../workers/seb-feed/src/body-for-visits/net-weights.generated.js",
   import.meta.url
 );
 

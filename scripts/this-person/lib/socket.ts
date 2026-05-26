@@ -1,7 +1,7 @@
 // this person — the live repository feed. Subscribes to the worker's WebSocket
 // and falls back to polling /state if the socket cannot be held open.
 
-import type { ExtractedPerson } from "../../../worker/src/this-person/types";
+import type { ExtractedPerson } from "../../../workers/seb-feed/src/this-person/types";
 import { apiBase, fetchState } from "./api";
 
 export type WallStatus = "connecting" | "live" | "polling";

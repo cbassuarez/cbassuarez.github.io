@@ -6,7 +6,7 @@
 operator     seb suarez
 location     los angeles
 contact      contact@cbassuarez.com
-source       https://github.com/cbassuarez/site
+source       https://github.com/cbassuarez/cbassuarez.github.io
 
 //--------------/* PRACTICE */---------------//
 

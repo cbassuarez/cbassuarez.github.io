@@ -1,7 +1,7 @@
 # cbassuarez.com
 #
 # operator    seb suarez
-# source      https://github.com/cbassuarez/site
+# source      https://github.com/cbassuarez/cbassuarez.github.io
 #
 # also reachable:
 #   curl  cbassuarez.com/cli

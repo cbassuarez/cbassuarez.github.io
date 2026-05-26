@@ -5,63 +5,64 @@
 // renders the same hand-typed-letter prose for every page.
 //
 // Connections are one-shot:
-//   ssh ssh.cbassuarez.com           -> the letter
-//   ssh ssh.cbassuarez.com feed      -> feed prose
-//   ssh ssh.cbassuarez.com room      -> /404 anteroom prose
-//   gemini://gemini.cbassuarez.com/  -> the letter (with => links)
+//
+//	ssh ssh.cbassuarez.com           -> the letter
+//	ssh ssh.cbassuarez.com feed      -> feed prose
+//	ssh ssh.cbassuarez.com room      -> /404 anteroom prose
+//	gemini://gemini.cbassuarez.com/  -> the letter (with => links)
 //
 // No REPL, no auth. Match the aesthetic of /humans.txt.
 package main
 
 import (
-    "context"
-    "log"
-    "os"
-    "os/signal"
-    "path/filepath"
-    "sync"
-    "syscall"
+	"context"
+	"log"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"sync"
+	"syscall"
 
-    "github.com/cbassuarez/site/cli-server/repl"
+	"github.com/cbassuarez/cbassuarez.github.io/cli-server/repl"
 )
 
 type Config struct {
-	SSHEnabled    bool
-	SSHAddr       string
-	SSHHostKeys   []string
-	GeminiEnabled bool
-	GeminiAddr    string
-	GeminiHost    string
-	GeminiCert    string
-	GeminiKey     string
-	WorkerURL     string
-	LetterURL     string
+	SSHEnabled      bool
+	SSHAddr         string
+	SSHHostKeys     []string
+	GeminiEnabled   bool
+	GeminiAddr      string
+	GeminiHost      string
+	GeminiCert      string
+	GeminiKey       string
+	WorkerURL       string
+	LetterURL       string
 	ReplManifestURL string
 }
 
 func loadConfig() Config {
 	return Config{
-		SSHEnabled:    envBool("SSH_ENABLED", true),
-		SSHAddr:       envStr("SSH_ADDR", ":2222"),
-		SSHHostKeys:   envList("SSH_HOST_KEY_PATHS", "/secrets/ssh_host_ed25519"),
-		GeminiEnabled: envBool("GEMINI_ENABLED", true),
-		GeminiAddr:    envStr("GEMINI_ADDR", ":1965"),
-		GeminiHost:    envStr("GEMINI_HOST", "gemini.cbassuarez.com"),
-		GeminiCert:    envStr("GEMINI_CERT_PATH", "/secrets/gemini.crt"),
-		GeminiKey:     envStr("GEMINI_KEY_PATH", "/secrets/gemini.key"),
-		WorkerURL:     envStr("WORKER_URL", "https://seb-feed.cbassuarez.workers.dev"),
-		LetterURL:     envStr("LETTER_URL", "https://cbassuarez.com/.well-known/cli-letter.txt"),
+		SSHEnabled:      envBool("SSH_ENABLED", true),
+		SSHAddr:         envStr("SSH_ADDR", ":2222"),
+		SSHHostKeys:     envList("SSH_HOST_KEY_PATHS", "/secrets/ssh_host_ed25519"),
+		GeminiEnabled:   envBool("GEMINI_ENABLED", true),
+		GeminiAddr:      envStr("GEMINI_ADDR", ":1965"),
+		GeminiHost:      envStr("GEMINI_HOST", "gemini.cbassuarez.com"),
+		GeminiCert:      envStr("GEMINI_CERT_PATH", "/secrets/gemini.crt"),
+		GeminiKey:       envStr("GEMINI_KEY_PATH", "/secrets/gemini.key"),
+		WorkerURL:       envStr("WORKER_URL", "https://seb-feed.cbassuarez.workers.dev"),
+		LetterURL:       envStr("LETTER_URL", "https://cbassuarez.com/.well-known/cli-letter.txt"),
 		ReplManifestURL: envStr("REPL_MANIFEST_URL", "https://cbassuarez.com/labs/repl/samples/manifest.json"),
 	}
 }
 
 func main() {
 	cfg := loadConfig()
-    log.SetFlags(log.LstdFlags | log.LUTC)
-    materializeSecrets(cfg)
-    content := NewContent(cfg.WorkerURL, cfg.LetterURL)
-    // Wire the REPL sample bank — lazy-loads the manifest on first SSH `repl` call.
-    content.SetSampleBank(repl.NewSampleBank(cfg.ReplManifestURL))
+	log.SetFlags(log.LstdFlags | log.LUTC)
+	materializeSecrets(cfg)
+	content := NewContent(cfg.WorkerURL, cfg.LetterURL)
+	// Wire the REPL sample bank — lazy-loads the manifest on first SSH `repl` call.
+	content.SetSampleBank(repl.NewSampleBank(cfg.ReplManifestURL))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -112,28 +113,28 @@ func envBool(key string, fallback bool) bool {
 }
 
 func materializeSecretFile(envKey, path string, mode os.FileMode) {
-    value := os.Getenv(envKey)
-    if value == "" || path == "" {
-        return
-    }
+	value := os.Getenv(envKey)
+	if value == "" || path == "" {
+		return
+	}
 
-    if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-        log.Printf("secret: mkdir for %s failed: %v", path, err)
-        return
-    }
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		log.Printf("secret: mkdir for %s failed: %v", path, err)
+		return
+	}
 
-    if err := os.WriteFile(path, []byte(value), mode); err != nil {
-        log.Printf("secret: write %s failed: %v", path, err)
-        return
-    }
+	if err := os.WriteFile(path, []byte(value), mode); err != nil {
+		log.Printf("secret: write %s failed: %v", path, err)
+		return
+	}
 
-    log.Printf("secret: materialized %s", path)
+	log.Printf("secret: materialized %s", path)
 }
 
 func materializeSecrets(cfg Config) {
-    materializeSecretFile("SSH_HOST_KEY", cfg.SSHHostKeys[0], 0600)
-    materializeSecretFile("GEMINI_CERT", cfg.GeminiCert, 0600)
-    materializeSecretFile("GEMINI_KEY", cfg.GeminiKey, 0600)
+	materializeSecretFile("SSH_HOST_KEY", cfg.SSHHostKeys[0], 0600)
+	materializeSecretFile("GEMINI_CERT", cfg.GeminiCert, 0600)
+	materializeSecretFile("GEMINI_KEY", cfg.GeminiKey, 0600)
 }
 
 func envList(key, fallback string) []string {

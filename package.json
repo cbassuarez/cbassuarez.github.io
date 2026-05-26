@@ -14,7 +14,15 @@
     "build:corpus-net": "node scripts/build-corpus-net.mjs",
     "build:corpus-lexicon": "node scripts/build-corpus-word-priors.mjs",
     "build:this-person": "node scripts/build-this-person.mjs",
-    "test:this-person": "node scripts/test-this-person.mjs"
+    "test:this-person": "node scripts/test-this-person.mjs",
+    "test:seb-feed": "node --test workers/seb-feed/test/*.test.js",
+    "dry-run:seb-feed": "WRANGLER_LOG_PATH=.wrangler/logs ./workers/tmayd-api/node_modules/.bin/wrangler deploy --dry-run --config workers/seb-feed/wrangler.toml",
+    "test:tmayd-api": "npm --prefix workers/tmayd-api test",
+    "typecheck:tmayd-api": "npm --prefix workers/tmayd-api run typecheck",
+    "dry-run:tmayd-api": "WRANGLER_LOG_PATH=.wrangler/logs npm --prefix workers/tmayd-api run deploy -- --dry-run",
+    "test:workers": "npm run test:seb-feed && npm run test:tmayd-api && npm run typecheck:tmayd-api",
+    "dry-run:workers": "npm run dry-run:seb-feed && npm run dry-run:tmayd-api",
+    "ci:all": "npm run build && npm run test:this-person && npm run test:workers && npm run dry-run:workers"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.7",

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cbassuarez/site/cli-server/repl"
+	"github.com/cbassuarez/cbassuarez.github.io/cli-server/repl"
 )
 
 // FallbackLetter is compiled into the binary; it ships if the canonical letter
@@ -37,9 +37,9 @@ over gemini: gemini://gemini.cbassuarez.com/
 `
 
 const (
-	letterTTL          = 5 * time.Minute
+	letterTTL            = 5 * time.Minute
 	letterFailureBackoff = 30 * time.Second
-	userAgent          = "cbassuarez-cli/1 (+https://cbassuarez.com)"
+	userAgent            = "cbassuarez-cli/1 (+https://cbassuarez.com)"
 )
 
 type Content struct {
@@ -232,9 +232,9 @@ type coroomLogEntry struct {
 	Members    []coroomMember `json:"members"`
 }
 type coroomSnapshot struct {
-	Count            int               `json:"count"`
-	CurrentInstance  *coroomInstance   `json:"currentInstance"`
-	Log              []coroomLogEntry  `json:"log"`
+	Count           int              `json:"count"`
+	CurrentInstance *coroomInstance  `json:"currentInstance"`
+	Log             []coroomLogEntry `json:"log"`
 }
 
 func (c *Content) renderRoom() string {

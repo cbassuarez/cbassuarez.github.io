@@ -5,7 +5,7 @@
 import type {
   ExtractedClaim,
   ExtractedPerson,
-} from "../../../worker/src/this-person/types";
+} from "../../../workers/seb-feed/src/this-person/types";
 import { h } from "./dom";
 
 export const SOURCE_LABELS: Record<string, string> = {

@@ -3,12 +3,21 @@ node_modules
 source/iowa/raw/
 dist
 .vite
+.wrangler/
+.playwright-mcp/
 *.log
+*.orig
+*.rej
+*.patch
+*.pyc
+__pycache__/
 scripts/.cache/
 .env.local
 .env.*.local
-worker/.dev.vars
-worker/.env
+workers/*/.wrangler/
+workers/*/.dev.vars
+workers/*/.env
+cli-server/cli-server
 
 # Large audio/sample assets not intended for GitHub. Hosted elsewhere when
 # the lab needs them.

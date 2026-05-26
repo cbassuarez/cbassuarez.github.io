@@ -50,7 +50,7 @@ fine, but call it that and don't fake a multi-user surface.
 
 ## Existing live API surfaces
 
-- **seb-feed worker** (`worker/src/index.ts`, deployed at
+- **seb-feed worker** (`workers/seb-feed/src/index.ts`, deployed at
   `https://seb-feed.cbassuarez.workers.dev`):
   - `GET /api/feed` — aggregated platform timeline
   - `GET /api/hit` — visitor counter
@@ -60,8 +60,8 @@ fine, but call it that and don't fake a multi-user surface.
   - `GET /api/health`
   - KV: `HITS_KV` (single namespace, multiple keys)
   - Adding a new lab route: mirror the existing pattern (rate-limit binding
-    in `wrangler.toml`, `Env` field, route in `default.fetch`, KV ring
-    buffer or counter helpers near the existing ones).
+    in `workers/seb-feed/wrangler.toml`, `Env` field, route in
+    `default.fetch`, KV ring buffer or counter helpers near the existing ones).
 - **TMAYD external API** (separate backend, consumed by `/labs/tell-me-about-your-day`):
   - `GET /api/tmayd/{status,live/latest,reels/today,reels/:date}`
   - `POST /api/tmayd/submissions`
