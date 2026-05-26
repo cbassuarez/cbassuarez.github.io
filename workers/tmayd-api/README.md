@@ -1,45 +1,7 @@
 # tmayd-api — Cloudflare Worker
 
-Public API + bridge endpoints for the TMAYD ("Tell Me About Your Day") artwork.
+Public API + bridge endpoints for the TMAYD ("Tell me about your day") artwork.
 This Worker is deployed separately from the GitHub Pages site.
-
-## Local dev
-
-```bash
-npm install
-npx wrangler d1 migrations apply tmayd --local
-npm run dev
-```
-
-## Tests
-
-```bash
-npm run test
-npm run typecheck
-WRANGLER_LOG_PATH=.wrangler/logs npm run deploy -- --dry-run
-```
-
-Uses `@cloudflare/vitest-pool-workers` with an in-memory D1.
-
-## Deploy
-
-```bash
-# 1. one-time provisioning
-npx wrangler d1 create tmayd
-# copy database_id into wrangler.jsonc
-
-# 2. secrets
-echo "<turnstile_secret>" | npx wrangler secret put TURNSTILE_SECRET_KEY
-openssl rand -hex 32 | npx wrangler secret put TMAYD_BRIDGE_TOKEN
-openssl rand -hex 32 | npx wrangler secret put TMAYD_ADMIN_TOKEN
-openssl rand -hex 32 | npx wrangler secret put TMAYD_RATE_HASH_SALT
-
-# 3. migrations
-npx wrangler d1 migrations apply tmayd --remote
-
-# 4. ship
-npx wrangler deploy
-```
 
 ## Endpoints
 
@@ -89,4 +51,42 @@ tests/
 ├── public.test.ts
 ├── bridge.test.ts
 └── bedrock.test.ts
+```
+
+## Local dev
+
+```bash
+npm install
+npx wrangler d1 migrations apply tmayd --local
+npm run dev
+```
+
+## Tests
+
+```bash
+npm run test
+npm run typecheck
+WRANGLER_LOG_PATH=.wrangler/logs npm run deploy -- --dry-run
+```
+
+Uses `@cloudflare/vitest-pool-workers` with an in-memory D1.
+
+## Deploy
+
+```bash
+# 1. one-time provisioning
+npx wrangler d1 create tmayd
+# copy database_id into wrangler.jsonc
+
+# 2. secrets
+echo "<turnstile_secret>" | npx wrangler secret put TURNSTILE_SECRET_KEY
+openssl rand -hex 32 | npx wrangler secret put TMAYD_BRIDGE_TOKEN
+openssl rand -hex 32 | npx wrangler secret put TMAYD_ADMIN_TOKEN
+openssl rand -hex 32 | npx wrangler secret put TMAYD_RATE_HASH_SALT
+
+# 3. migrations
+npx wrangler d1 migrations apply tmayd --remote
+
+# 4. ship
+npx wrangler deploy
 ```
