@@ -1401,6 +1401,30 @@ function ChunkSurferLabPage() {
   );
 }
 
+// Hidden "Concerning Human Understanding" (TDR short edit) PDF, hosted on
+// Cloudflare R2 (cbassuarez-assets bucket) rather than committed to the repo.
+const CHU_PDF_URL = 'https://pub-aacb7fc759594596babc442aeeb4c61e.r2.dev/chu/concerning-human-understanding.pdf';
+
+function ChuPage() {
+  // Hidden full-bleed PDF surface. Not linked from any nav; reachable only via
+  // /chu directly.
+  return (
+    <iframe
+      title="Concerning Human Understanding"
+      src={`${CHU_PDF_URL}#view=FitH`}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        width: '100vw',
+        height: '100vh',
+        border: 0,
+        display: 'block',
+        background: '#000'
+      }}
+    />
+  );
+}
+
 function SiteLeftPane() {
   const hits = useTruthfulHitCounter();
 
@@ -3623,9 +3647,11 @@ export default function App() {
   const isThisPersonLabsPage = /^\/labs\/this-person(?:\/.*)?$/i.test(pathname);
   const isTmaydLabsPage = /^\/labs\/tell-me-about-your-day(?:\/.*)?$/i.test(pathname);
   const isRoomPage = /^\/room\/?$/i.test(pathname);
+  const isChuPage = /^\/chu\/?$/i.test(pathname);
   const isLegacyFeedHash = pathname === '/' && /^#seb-feed$/i.test(hash);
   const isKnownRoute =
   isRoomPage ||
+  isChuPage ||
   isHomePage ||
   isWorksPage ||
   isAboutPage ||
@@ -3649,8 +3675,8 @@ export default function App() {
   isLegacyFeedHash;
 
 const isNotFoundRoute = !isKnownRoute;
-  const useSplitPaneShell = !isMobile && !isWorksPage && (!isLabsChildRoute || isNotFoundRoute);
-  const hideGlobalFooter = isWorksPage || (isLabsChildRoute && !isNotFoundRoute);
+  const useSplitPaneShell = !isMobile && !isWorksPage && !isChuPage && (!isLabsChildRoute || isNotFoundRoute);
+  const hideGlobalFooter = isWorksPage || isChuPage || (isLabsChildRoute && !isNotFoundRoute);
 
   let page = isHomePage ? <HomePage shellMode={useSplitPaneShell} /> : <NotFoundPage />;
   if (isLabsWorksListPage) {
@@ -3675,6 +3701,8 @@ const isNotFoundRoute = !isKnownRoute;
     page = <LegacyFeedHashRedirect />;
     } else if (isRoomPage) {
   page = <NotFoundPage isRoomPage />;
+  } else if (isChuPage) {
+    page = <ChuPage />;
   } else if (isTmaydLabsPage) {
     page = <TmaydLabsPage pathname={pathname} />;
   } else if (isAboutPage) {
