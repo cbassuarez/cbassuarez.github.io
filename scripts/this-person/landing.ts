@@ -706,7 +706,7 @@ function showStart(root: HTMLElement, config: Config): void {
       h("button", {
         class: "action action--large",
         type: "button",
-        text: "or: hand over your Google ad profile",
+        text: "or: hand over what your Google account knows",
         onClick: () => startGoogleDp(),
       })
     );
@@ -765,7 +765,7 @@ function showGoogleWorking(root: HTMLElement, message: string): void {
       h("p", { class: "flow-working", text: message }),
       h("p", {
         class: "flow-text--small",
-        text: "Google is assembling the My Ad Center export you authorized. This can take from a few seconds to a couple of minutes.",
+        text: "Reading your YouTube subscriptions and likes and your Google profile demographics. This should only take a moment.",
       })
     )
   );
@@ -828,7 +828,7 @@ function showGoogleEmpty(root: HTMLElement, config: Config): void {
       h("h1", { class: "flow-title", text: "Google returned nothing to show" }),
       h("p", {
         class: "flow-text",
-        text: "Google completed the export, but it held no ad-interest records we could turn into claims. That usually means Ad Personalization is off, or My Ad Center has nothing on this account yet.",
+        text: "The account read came back empty — no YouTube subscriptions or likes we could read, and no profile demographics shared. That can mean this account has little YouTube activity, or the profile fields are not set.",
       }),
       h(
         "div",
@@ -966,10 +966,10 @@ function showGoogleReview(
       "div",
       { class: "flow-panel" },
       stepIndicator("review"),
-      h("h1", { class: "flow-title", text: "this is the profile Google keeps on you" }),
+      h("h1", { class: "flow-title", text: "this is what your Google account hands over" }),
       h("p", {
         class: "flow-text",
-        text: "These are the ad interests Google exported from your My Ad Center activity. Pick the ones to publish as a third-person entry, or close the tab and nothing public happens.",
+        text: "Pulled live from your account on consent: YouTube subscriptions and likes, plus the demographics on your Google profile. Pick the ones to publish as a third-person entry, or close the tab and nothing public happens.",
       }),
       h("ul", { class: "google-candidate-list" }, ...rows),
       h("div", { class: "flow-actions" }, appendButton),
