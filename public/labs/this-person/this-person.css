@@ -92,6 +92,19 @@ a { color: var(--ink); }
 .action--quiet { border-color: var(--rule); color: var(--ink-soft); }
 .action--danger { border-style: dashed; }
 .action--large { font-size: 1rem; padding: 0.95em 1.8em; }
+.action--link {
+  display: inline;
+  border: none;
+  background: none;
+  padding: 0;
+  width: auto;
+  font-size: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.action--link:hover,
+.action--link:focus-visible { background: none; color: var(--ink-soft); }
 .action:disabled { opacity: 0.4; cursor: not-allowed; }
 .action:disabled:hover { background: var(--field); color: var(--ink); }
 .action--primary:disabled:hover { background: var(--ink); color: var(--paper); }
@@ -296,6 +309,29 @@ a { color: var(--ink); }
   color: var(--ink-faint);
   white-space: nowrap;
 }
+
+/* ─── google data portability candidates ───────────────────────────────────*/
+
+.google-candidate-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule);
+  margin: 12px 0;
+}
+.google-candidate {
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--rule);
+}
+.google-candidate:last-child { border-bottom: none; }
+.google-candidate__label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.google-candidate__check { width: 16px; height: 16px; flex: none; accent-color: var(--ink); }
+.google-candidate__claim { flex: 1; font-size: 0.95rem; overflow-wrap: anywhere; }
+.google-candidate .flow-text--small { margin: 5px 0 0 26px; }
 
 /* ─── entry / claim ─────────────────────────────────────────────────────────*/
 

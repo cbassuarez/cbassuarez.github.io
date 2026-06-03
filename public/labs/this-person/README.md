@@ -39,10 +39,13 @@ button.
 | `GET /api/this-person/state` / `socket` | Wall state and live updates. |
 | `GET /api/this-person/admin/export`, `POST /api/this-person/admin/clear` | Token-gated admin controls. |
 
-A handful of Google Data Portability endpoints (`google/start`, `google/callback`,
-`google/job`, `google/append`) and the retired `preview` / `append` / `enroll`
-endpoints are left in the worker but are no longer the data path. The current
-work flows entirely through `/web-signals/append`.
+The default path flows through `/web-signals/append`. An optional second path —
+the Google Data Portability endpoints (`google/start`, `google/callback`,
+`google/job`, `google/append`) — lets the visitor instead sign into Google and
+export the ad-interest profile Google's My Ad Center holds on them. It is
+surfaced in the funnel (start screen + consent modal) only when the `GOOGLE_DP_*`
+secrets are configured. The retired `preview` / `append` / `enroll` endpoints
+return 410.
 
 ## Worker configuration
 
@@ -53,6 +56,22 @@ THIS_PERSON_ADMIN_TOKEN              # gates /admin/clear and /admin/export
 THIS_PERSON_GA4_MEASUREMENT_ID       # e.g. G-XXXXXXXXXX — what gtag.js sends to
 THIS_PERSON_GOOGLE_ADS_ID            # e.g. AW-XXXXXXXXXX — optional conversion id
 THIS_PERSON_META_PIXEL_ID            # numeric Meta Pixel id
+```
+
+The Google Ad Manager slot uses `GAM_NETWORK_CODE`, `GAM_AD_UNIT_PATH`,
+`GAM_SERVICE_ACCOUNT_EMAIL`, `GAM_SERVICE_ACCOUNT_PRIVATE_KEY`, and optional
+`GAM_SLOT_SIZES`.
+
+The optional Google My Ad Center export flow needs an OAuth web client with the
+Data Portability API enabled and the `dataportability.myactivity.myadcenter`
+scope:
+
+```
+GOOGLE_DP_CLIENT_ID                  # OAuth 2.0 web client id
+GOOGLE_DP_CLIENT_SECRET              # OAuth 2.0 client secret
+GOOGLE_DP_REDIRECT_URI               # <worker>/api/this-person/google/callback
+GOOGLE_DP_STATE_SECRET               # random string (HMAC key for state/cookie)
+GOOGLE_DP_TOKEN_ENCRYPTION_KEY       # random string (AES key for stored tokens)
 ```
 
 If no ad-tech IDs are configured, the page still runs the browser-side reads

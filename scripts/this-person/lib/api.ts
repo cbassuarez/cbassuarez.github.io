@@ -1,6 +1,8 @@
 // this person — API client for the consented industry-signals append flow.
-// We do not OAuth, we do not upload archives. The page reads what the browser
-// hands to ad tech and asks the worker to turn that into a public wall entry.
+// The default path reads what the browser hands to ad tech and asks the worker
+// to turn that into a public wall entry. A second, opt-in path (Google Data
+// Portability, below) lets the visitor instead sign into Google and export the
+// ad-interest profile Google itself holds.
 
 import type {
   ExtractedFragment,
@@ -37,11 +39,16 @@ export interface GamConfig {
   sizes: [number, number][];
 }
 
+export interface GoogleDpConfig {
+  enabled: boolean;
+}
+
 export interface Config {
   adminEnabled: boolean;
   persistence: string;
   adtech: AdtechConfig;
   gam: GamConfig;
+  googleDp: GoogleDpConfig;
 }
 
 const DEFAULT_GAM: GamConfig = {
@@ -60,6 +67,7 @@ const DEFAULT_CONFIG: Config = {
     metaPixel: { enabled: false, id: null },
   },
   gam: DEFAULT_GAM,
+  googleDp: { enabled: false },
 };
 
 function readAdNetwork(value: any): AdNetworkConfig {
@@ -111,10 +119,97 @@ export async function fetchConfig(): Promise<Config> {
         metaPixel,
       },
       gam: readGam(j?.googleAdManager),
+      googleDp: { enabled: !!j?.googleDataPortability?.enabled },
     };
   } catch {
     return DEFAULT_CONFIG;
   }
+}
+
+// ── Google Data Portability (My Ad Center) ──────────────────────────────────
+// The optional second movement: instead of reading what the browser leaks, the
+// visitor signs into Google and exports the ad-interest profile Google itself
+// holds. The worker runs the OAuth + archive job; the client only kicks off the
+// redirect, reads the job id handed back in the URL hash, polls until the
+// archive is ready, and posts the selected interests for append.
+
+export interface GoogleAdInterestCandidate {
+  id: string;
+  label: string;
+  relation: string;
+  kind: string;
+  confidence: number;
+  claimSentence: string;
+  sourceNote: string;
+  evidenceTitle: string;
+  evidenceTime?: string;
+}
+
+export type GoogleDpJobState = "in_progress" | "complete" | "empty" | "failed";
+
+export interface GoogleDpJobResult {
+  state: GoogleDpJobState;
+  candidates: GoogleAdInterestCandidate[];
+  error?: string;
+}
+
+// Builds the URL that begins the OAuth redirect. returnTo must be a
+// this-person page on an allowed host — the worker validates and falls back to
+// the canonical URL otherwise.
+export function googleDpStartUrl(returnTo: string): string {
+  return apiBase() + "/api/this-person/google/start?returnTo=" + encodeURIComponent(returnTo);
+}
+
+// Reads (and clears) the #google_job / #google_error the callback redirect
+// leaves in the URL hash. Clearing keeps a refresh from re-triggering the flow.
+export function readGoogleDpReturn(): { jobId: string | null; error: string | null } {
+  const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const jobId = hash.get("google_job");
+  const error = hash.get("google_error");
+  if (jobId || error) {
+    hash.delete("google_job");
+    hash.delete("google_error");
+    const rest = hash.toString();
+    history.replaceState(null, "", location.pathname + location.search + (rest ? "#" + rest : ""));
+  }
+  return {
+    jobId: jobId && /^[A-Za-z0-9_-]{16,96}$/.test(jobId) ? jobId : null,
+    error: error || null,
+  };
+}
+
+export async function pollGoogleDpJob(id: string): Promise<GoogleDpJobResult> {
+  const r = await fetch(apiBase() + "/api/this-person/google/job?id=" + encodeURIComponent(id));
+  if (!r.ok) {
+    return { state: "failed", candidates: [], error: "job_http_" + r.status };
+  }
+  const j: any = await r.json();
+  const state = String(j?.state || "") as GoogleDpJobState;
+  const candidates = Array.isArray(j?.candidates) ? (j.candidates as GoogleAdInterestCandidate[]) : [];
+  if (state === "complete" || state === "empty" || state === "failed") {
+    return { state, candidates, error: j?.error ? String(j.error) : undefined };
+  }
+  return { state: "in_progress", candidates: [] };
+}
+
+export async function appendGoogleDp(id: string, candidateIds: string[]): Promise<ExtractedPerson> {
+  const r = await fetch(apiBase() + "/api/this-person/google/append", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id, candidateIds }),
+  });
+  if (!r.ok) {
+    let detail = "";
+    try {
+      const j: any = await r.json();
+      detail = String(j?.error || "");
+    } catch {
+      // ignore
+    }
+    throw new Error("google_append_failed" + (detail ? ":" + detail : ""));
+  }
+  const j: any = await r.json();
+  return j.person as ExtractedPerson;
 }
 
 export interface AdRenderRecord {
