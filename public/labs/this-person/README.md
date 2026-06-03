@@ -101,9 +101,9 @@ actually pinged.
 ## Storage
 
 The Durable Object stores only the public `ExtractedPerson` model: source,
-platform hints, sanitized fragments, generated claims, append order, and the
-optional coarse hour. No IPs, no user agents, no referrers, no fingerprint
-hashes, no tokens.
+platform hints, sanitized fragments, generated claims, the consented page/ad
+snapshot, append order, and the optional coarse hour. No IPs, no user agents,
+no referrers, no fingerprint hashes, no tokens.
 
 ## Local development
 

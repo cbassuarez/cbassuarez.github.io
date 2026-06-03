@@ -7,6 +7,7 @@
 import type {
   ExtractedFragment,
   ExtractedPerson,
+  ExtractedSnapshot,
 } from "../../../workers/seb-feed/src/this-person/types";
 
 const DEFAULT_API = "https://seb-feed.cbassuarez.workers.dev";
@@ -207,6 +208,7 @@ export interface WebSignalsAppendInput {
   fragments: ExtractedFragment[];
   seed: number;
   adRender?: AdRenderRecord;
+  snapshot?: ExtractedSnapshot;
   // Optional consented-Google fold-in: a ready job id from the popup OAuth read
   // plus the candidate ids the visitor chose to publish. The worker merges them
   // into the same entry.

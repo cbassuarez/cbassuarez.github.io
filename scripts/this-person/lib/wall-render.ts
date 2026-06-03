@@ -5,6 +5,7 @@
 import type {
   ExtractedClaim,
   ExtractedPerson,
+  ExtractedSnapshot,
 } from "../../../workers/seb-feed/src/this-person/types";
 import { h } from "./dom";
 
@@ -29,13 +30,40 @@ function renderClaim(claim: ExtractedClaim): HTMLElement {
   );
 }
 
+function renderSnapshot(snapshot: ExtractedSnapshot): HTMLElement {
+  return h(
+    "figure",
+    { class: "entry__snapshot" },
+    h("img", {
+      class: "entry__snapshot-img",
+      src: snapshot.dataUrl,
+      width: String(snapshot.width),
+      height: String(snapshot.height),
+      loading: "lazy",
+      alt:
+        snapshot.target === "ad_slot"
+          ? "snapshot of the ad served when this person chose extraction"
+          : "snapshot of the page when this person chose extraction",
+    }),
+    h("figcaption", {
+      class: "entry__snapshot-caption",
+      text: snapshot.target === "ad_slot" ? "served ad snapshot" : "page snapshot",
+    })
+  );
+}
+
 // Builds a "THIS PERSON" block. Used for wall entries and for the pre-append
 // preview (where idText is a placeholder).
 export function buildEntry(
   idText: string,
   source: string,
   claims: ExtractedClaim[],
-  options?: { status?: string; summary?: string; time?: string | null }
+  options?: {
+    snapshot?: ExtractedSnapshot | null;
+    status?: string;
+    summary?: string;
+    time?: string | null;
+  }
 ): HTMLElement {
   const article = h(
     "article",
@@ -46,6 +74,7 @@ export function buildEntry(
       h("span", { class: "entry__id", text: "this person #" + idText }),
       h("span", { class: "entry__source", text: sourceLabel(source) })
     ),
+    options?.snapshot ? renderSnapshot(options.snapshot) : false,
     h("div", { class: "entry__claims" }, ...claims.map(renderClaim))
   );
   if (options?.status) {
@@ -68,6 +97,7 @@ function statusNote(person: ExtractedPerson): string | undefined {
 
 export function renderPerson(person: ExtractedPerson): HTMLElement {
   const node = buildEntry(person.id, person.source, person.claims, {
+    snapshot: person.snapshot || null,
     status: statusNote(person),
     time: person.appendedAtVisible || null,
   });

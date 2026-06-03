@@ -3803,7 +3803,7 @@ async function handleThisPersonWebSignalsAppend(
       headers: jsonHeaders(allowOrigin),
     });
   }
-  const { source, platformHints, fragments, seed } = parsed.data;
+  const { source, platformHints, fragments, seed, snapshot } = parsed.data;
 
   // GAM enrichment: resolve advertiser/order/line item/creative names from
   // the slotRenderEnded record, then merge those into the validated fragments
@@ -3884,6 +3884,7 @@ async function handleThisPersonWebSignalsAppend(
     claims: mergedClaims,
     generatedText: mergedText,
     extractionSummary: mergedSummary,
+    ...(snapshot ? { snapshot } : {}),
     appendedAtOrder: 0,
   };
   const inner = new URL(request.url);

@@ -205,6 +205,92 @@ a { color: var(--ink); }
   letter-spacing: 0.06em;
 }
 
+body.is-reviewing {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body.is-reviewing .stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: none;
+  height: auto;
+  padding: 16px 18px;
+  overflow: hidden;
+}
+
+.review-layout {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px 18px;
+  overflow: hidden;
+}
+
+.review-layout > .chamber-steps {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.review-column {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  padding-right: 2px;
+}
+
+.review-layout--collecting {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+.review-layout--collecting .review-column--secondary { display: none; }
+
+.diagnostics {
+  border: 1px solid var(--rule);
+  background: var(--field);
+}
+.diagnostics__summary {
+  cursor: pointer;
+  padding: 9px 12px;
+  font-size: 0.76rem;
+  letter-spacing: 0.14em;
+  color: var(--ink-soft);
+}
+.diagnostics__body {
+  border-top: 1px solid var(--rule);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagnostics__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagnostics__title {
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+.diagnostics .flow-title {
+  font-size: 0.9rem;
+}
+.diagnostics .flow-text,
+.diagnostics .flow-text--small,
+.diagnostics .fragment__value {
+  font-size: 0.78rem;
+}
+
 /* ─── method selection ──────────────────────────────────────────────────────*/
 
 .method-list {
@@ -364,6 +450,24 @@ a { color: var(--ink); }
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.entry__snapshot {
+  margin: 0 0 13px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+}
+.entry__snapshot-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.entry__snapshot-caption {
+  border-top: 1px solid var(--rule);
+  padding: 6px 8px;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
 }
 
 .claim { border-left: 2px solid var(--rule); padding-left: 11px; }

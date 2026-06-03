@@ -165,6 +165,29 @@ test("parseAppendRequest requires a numeric seed", () => {
   if (ok.ok) assert.equal(ok.data.seed, 7);
 });
 
+test("parseAppendRequest accepts a bounded image snapshot", () => {
+  const ok = parseAppendRequest({
+    source: "ad_preferences_surface",
+    platformHints: ["Google Ad Manager"],
+    fragments: [frag("Grainger", "brand")],
+    seed: 7,
+    snapshot: {
+      dataUrl: "data:image/webp;base64,AAAA",
+      mimeType: "image/webp",
+      width: 320,
+      height: 250,
+      target: "ad_slot",
+      capturedAt: "2026-06-03T22:00:00.000Z",
+    },
+  });
+  assert.equal(ok.ok, true);
+  if (ok.ok) {
+    assert.equal(ok.data.snapshot?.target, "ad_slot");
+    assert.equal(ok.data.snapshot?.mimeType, "image/webp");
+    assert.equal(ok.data.snapshot?.width, 320);
+  }
+});
+
 test("sanitizeLabel strips control characters and caps length", () => {
   assert.equal(sanitizeLabel("a b\tc", 80), "a b c");
   assert.equal(sanitizeLabel("  spaced   out  ", 80), "spaced out");
@@ -419,4 +442,3 @@ test("generateClaims with a Patagonia brand fragment produces a 'likes' sentence
     ),
   );
 });
-

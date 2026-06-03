@@ -104,6 +104,17 @@ export interface ExtractedClaim {
   intensity: ClaimIntensity;
 }
 
+export type ExtractedSnapshotTarget = "ad_slot" | "page";
+
+export interface ExtractedSnapshot {
+  dataUrl: string;
+  mimeType: "image/webp" | "image/jpeg" | "image/png";
+  width: number;
+  height: number;
+  target: ExtractedSnapshotTarget;
+  capturedAt: string;
+}
+
 export interface ReturnLoopState {
   enrolled: boolean;
   events: string[];
@@ -120,6 +131,7 @@ export interface ExtractedPerson {
   claims: ExtractedClaim[];
   generatedText: string;
   extractionSummary: string;
+  snapshot?: ExtractedSnapshot;
   appendedAtOrder: number;
   appendedAtVisible?: string | null;
   returnLoop?: ReturnLoopState;
@@ -131,7 +143,10 @@ export const LIMITS = {
   MAX_PLATFORM_HINTS: 8,
   MAX_PLATFORM_HINT_LEN: 60,
   MAX_CLAIMS: 12,
-  MAX_BODY_BYTES: 16384,
+  MAX_BODY_BYTES: 196608,
+  MAX_SNAPSHOT_DATA_URL_BYTES: 120000,
+  MAX_SNAPSHOT_WIDTH: 900,
+  MAX_SNAPSHOT_HEIGHT: 700,
 } as const;
 
 export function zeroPad(n: number, width = 4): string {
@@ -179,6 +194,7 @@ export interface ExtractionInput {
 export interface AppendInput extends ExtractionInput {
   seed: number;
   keptClaimIndices: number[] | null;
+  snapshot: ExtractedSnapshot | null;
 }
 
 function sanitizeHints(value: unknown): string[] {
@@ -238,6 +254,41 @@ function parseExtractionInput(body: unknown): ParseResult<ExtractionInput> {
   };
 }
 
+function parseSnapshot(value: unknown): ExtractedSnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const s = value as Record<string, unknown>;
+  const dataUrl = String(s.dataUrl || "");
+  if (dataUrl.length > LIMITS.MAX_SNAPSHOT_DATA_URL_BYTES) return null;
+  const match = /^data:(image\/(?:webp|jpeg|png));base64,[A-Za-z0-9+/=]+$/.exec(dataUrl);
+  if (!match) return null;
+  const width = Math.floor(Number(s.width));
+  const height = Math.floor(Number(s.height));
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    width > LIMITS.MAX_SNAPSHOT_WIDTH ||
+    height > LIMITS.MAX_SNAPSHOT_HEIGHT
+  ) {
+    return null;
+  }
+  const target: ExtractedSnapshotTarget = s.target === "page" ? "page" : "ad_slot";
+  const capturedAtRaw = String(s.capturedAt || "");
+  const capturedAtMs = Date.parse(capturedAtRaw);
+  const capturedAt = Number.isFinite(capturedAtMs)
+    ? new Date(capturedAtMs).toISOString()
+    : new Date(0).toISOString();
+  return {
+    dataUrl,
+    mimeType: match[1] as ExtractedSnapshot["mimeType"],
+    width,
+    height,
+    target,
+    capturedAt,
+  };
+}
+
 export function parsePreviewRequest(body: unknown): ParseResult<ExtractionInput> {
   return parseExtractionInput(body);
 }
@@ -267,6 +318,7 @@ export function parseAppendRequest(body: unknown): ParseResult<AppendInput> {
       ...base.data,
       seed: Math.floor(seedNum) >>> 0,
       keptClaimIndices,
+      snapshot: parseSnapshot(b.snapshot),
     },
   };
 }

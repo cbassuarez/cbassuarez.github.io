@@ -29,6 +29,7 @@ import {
 import { renderGamSlot, type GamSlotRender } from "./lib/gam-slot";
 import { buildEntry } from "./lib/wall-render";
 import { clear, h } from "./lib/dom";
+import type { ExtractedSnapshot } from "../../workers/seb-feed/src/this-person/types";
 
 type StepName = "collect" | "review" | "appended";
 
@@ -106,17 +107,6 @@ function readingSection(title: string, lines: string[], emptyNote?: string): HTM
   );
 }
 
-function topicsBlock(reading: SignalsReading): HTMLElement {
-  const lines = reading.topics.map((t) => t.label + " — " + t.path);
-  const section = readingSection(
-    "chrome topics",
-    lines,
-    "this browser did not return any Topics."
-  );
-  section.append(h("p", { class: "flow-text--small", text: reading.topicsNote }));
-  return section;
-}
-
 function clientHintsBlock(reading: SignalsReading): HTMLElement {
   const ch = reading.clientHints;
   const lines: string[] = [];
@@ -157,7 +147,6 @@ function privacyBlock(reading: SignalsReading): HTMLElement {
     "Do Not Track: " + (p.doNotTrack ?? "(no signal)"),
     "cookies enabled: " + (p.cookieEnabled ? "yes" : "no"),
     "cookieDeprecationLabel: " + (p.cookieDeprecationLabel ?? "(none)"),
-    "Topics API present: " + (p.hasTopicsApi ? "yes" : "no"),
     "Attribution Reporting present: " + (p.hasAttributionReporting ? "yes" : "no"),
     "Protected Audience (FLEDGE) present: " + (p.hasProtectedAudience ? "yes" : "no"),
     "Shared Storage present: " + (p.hasSharedStorage ? "yes" : "no"),
@@ -218,6 +207,125 @@ interface AdResult {
   render: GamSlotRender;
   slotNode: HTMLElement;
   resolved: ResolvedAdNames;
+}
+
+function stopStream(stream: MediaStream): void {
+  for (const track of stream.getTracks()) track.stop();
+}
+
+function loadedVideo(video: HTMLVideoElement): Promise<void> {
+  if (video.videoWidth > 0 && video.videoHeight > 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("snapshot_timeout")), 5000);
+    video.addEventListener(
+      "loadedmetadata",
+      () => {
+        window.clearTimeout(timer);
+        resolve();
+      },
+      { once: true }
+    );
+  });
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
+
+function canvasSnapshotDataUrl(canvas: HTMLCanvasElement): string {
+  const candidates: Array<[string, number]> = [
+    ["image/webp", 0.72],
+    ["image/webp", 0.58],
+    ["image/jpeg", 0.68],
+    ["image/jpeg", 0.52],
+  ];
+  for (const [type, quality] of candidates) {
+    const dataUrl = canvas.toDataURL(type, quality);
+    if (dataUrl.length <= 120000) return dataUrl;
+  }
+  return canvas.toDataURL("image/jpeg", 0.42);
+}
+
+async function captureSnapshot(target: HTMLElement | null): Promise<ExtractedSnapshot> {
+  const mediaDevices = navigator.mediaDevices as (MediaDevices & {
+    getDisplayMedia?: (constraints?: DisplayMediaStreamOptions & Record<string, unknown>) => Promise<MediaStream>;
+  });
+  if (!mediaDevices?.getDisplayMedia) {
+    throw new Error("screen_capture_unavailable");
+  }
+
+  const stream = await mediaDevices.getDisplayMedia({
+    video: {
+      displaySurface: "browser",
+      selfBrowserSurface: "include",
+      surfaceSwitching: "exclude",
+    } as MediaTrackConstraints & Record<string, unknown>,
+    audio: false,
+    preferCurrentTab: true,
+  } as DisplayMediaStreamOptions & Record<string, unknown>);
+
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = stream;
+  try {
+    await loadedVideo(video);
+    await video.play();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+    let sx = 0;
+    let sy = 0;
+    let sw = videoWidth;
+    let sh = videoHeight;
+    let targetKind: ExtractedSnapshot["target"] = "page";
+
+    const rect = target?.getBoundingClientRect();
+    const viewportRatio = window.innerWidth / Math.max(1, window.innerHeight);
+    const videoRatio = videoWidth / Math.max(1, videoHeight);
+    const canMapToViewport =
+      !!rect &&
+      rect.width > 24 &&
+      rect.height > 24 &&
+      Math.abs(viewportRatio - videoRatio) < 0.08;
+
+    if (canMapToViewport && rect) {
+      const scaleX = videoWidth / window.innerWidth;
+      const scaleY = videoHeight / window.innerHeight;
+      sx = clamp(rect.left * scaleX, 0, videoWidth - 1);
+      sy = clamp(rect.top * scaleY, 0, videoHeight - 1);
+      sw = clamp(rect.width * scaleX, 1, videoWidth - sx);
+      sh = clamp(rect.height * scaleY, 1, videoHeight - sy);
+      targetKind = "ad_slot";
+    }
+
+    const maxW = 900;
+    const maxH = 700;
+    const scale = Math.min(1, maxW / sw, maxH / sh);
+    const width = Math.max(1, Math.round(sw * scale));
+    const height = Math.max(1, Math.round(sh * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("snapshot_canvas_unavailable");
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, width, height);
+    const dataUrl = canvasSnapshotDataUrl(canvas);
+    const mimeType = (dataUrl.match(/^data:(image\/(?:webp|jpeg|png));/)?.[1] ||
+      "image/jpeg") as ExtractedSnapshot["mimeType"];
+    return {
+      dataUrl,
+      mimeType,
+      width,
+      height,
+      target: targetKind,
+      capturedAt: new Date().toISOString(),
+    };
+  } finally {
+    stopStream(stream);
+    video.srcObject = null;
+  }
 }
 
 function adResolutionLines(result: AdResult): string[] {
@@ -324,26 +432,46 @@ function adSlotBlock(config: Config, ad: AdResult | null): HTMLElement {
 interface CollectingView {
   panel: HTMLElement;
   adFrame: HTMLElement | null;
+  leftColumn: HTMLElement | null;
+  rightColumn: HTMLElement | null;
 }
 
 function showCollecting(root: HTMLElement, message: string, adStage?: HTMLElement): CollectingView {
+  document.body.classList.remove("is-reviewing");
   clear(root);
+  if (adStage) {
+    const leftColumn = h(
+      "section",
+      { class: "review-column review-column--primary" },
+      h("h1", { class: "flow-title", text: "exposing the surface" }),
+      h("p", { class: "flow-working", text: message })
+    );
+    const adFrame = h("div", { class: "ad-slot-frame" });
+    adFrame.appendChild(adStage);
+    leftColumn.appendChild(adFrame);
+    const rightColumn = h("section", { class: "review-column review-column--secondary" });
+    const panel = h(
+      "div",
+      { class: "review-layout review-layout--collecting" },
+      stepIndicator("collect"),
+      leftColumn,
+      rightColumn
+    );
+    root.append(panel);
+    return { panel, adFrame, leftColumn, rightColumn };
+  }
+
   const panel = chamberPanel(
     stepIndicator("collect"),
     h("h1", { class: "flow-title", text: "exposing the surface" }),
     h("p", { class: "flow-working", text: message })
   );
-  let adFrame: HTMLElement | null = null;
-  if (adStage) {
-    adFrame = h("div", { class: "ad-slot-frame" });
-    adFrame.appendChild(adStage);
-    panel.appendChild(adFrame);
-  }
   root.append(panel);
-  return { panel, adFrame };
+  return { panel, adFrame: null, leftColumn: null, rightColumn: null };
 }
 
 function showFailure(root: HTMLElement, message: string, retry: () => void): void {
+  document.body.classList.remove("is-reviewing");
   clear(root);
   root.append(
     chamberPanel(
@@ -393,35 +521,50 @@ function preparePreservedAdFrame(
   frame.appendChild(adSlotPlaceholder(config, ad));
 }
 
+function diagnosticsBlock(reading: SignalsReading, adLines: string[]): HTMLElement {
+  const body: (Node | false)[] = [
+    adLines.length
+      ? h(
+          "section",
+          { class: "diagnostics__section" },
+          h("h3", { class: "diagnostics__title", text: "ad slot event" }),
+          adLinesList(adLines)
+        )
+      : false,
+    clientHintsBlock(reading),
+    fingerprintBlock(reading),
+    privacyBlock(reading),
+    firedTagsBlock(reading),
+  ];
+  return h(
+    "details",
+    { class: "diagnostics" },
+    h("summary", { class: "diagnostics__summary", text: "diagnostics" }),
+    h("div", { class: "diagnostics__body" }, ...body)
+  );
+}
+
 function showReview(
   root: HTMLElement,
   config: Config,
   reading: SignalsReading,
   ad: AdResult | null,
   google: GoogleController,
-  preservedAdFrame?: HTMLElement | null
+  collectingView?: CollectingView
 ): void {
+  document.body.classList.add("is-reviewing");
   const payload = buildAppendPayload(reading);
   if (ad) payload.adRender = ad.render;
 
-  // Preview claims: combine topics + resolved brand names so the visitor sees
-  // the "likes" shape before pressing append. The server rewrites these on
-  // append from the validated fragment list.
+  // Preview claims: use resolved ad/account claims so the visible review stays
+  // about the remembered object. Device rows and tag plumbing live in the
+  // diagnostics disclosure below.
   const previewClaims: Array<{
     sentence: string;
     sourceNote: string;
     fragments: string[];
     intensity: "banal" | "aspirational" | "contradictory" | "institutional" | "ugly" | "intimate";
   }> = [];
-
-  for (const t of reading.topics.slice(0, 4)) {
-    previewClaims.push({
-      sentence: "this person likes " + t.label,
-      sourceNote: "Chrome Topics API (taxonomy v2)",
-      fragments: [t.label],
-      intensity: "banal",
-    });
-  }
 
   if (ad) {
     for (const name of Object.values(ad.resolved.advertisers).filter(Boolean)) {
@@ -440,58 +583,54 @@ function showReview(
         intensity: "institutional",
       });
     }
-    for (const host of ad.render.thirdPartyHosts.slice(0, 3)) {
-      const clean = host.replace(/^www\./, "");
-      if (clean.endsWith("doubleclick.net") || clean.endsWith("googlesyndication.com")) continue;
-      previewClaims.push({
-        sentence: "this person triggered loads from " + clean,
-        sourceNote: "ad iframe network traffic",
-        fragments: [clean],
-        intensity: "institutional",
-      });
-    }
-  }
-
-  if (reading.firedTags.some((t) => t.network === "google")) {
-    previewClaims.push({
-      sentence: "this person was just shown to Google Ads",
-      sourceNote: "GA4 page_view + custom event",
-      fragments: ["Google Ads"],
-      intensity: "institutional",
-    });
-  }
-  if (reading.firedTags.some((t) => t.network === "meta")) {
-    previewClaims.push({
-      sentence: "this person was just shown to Meta",
-      sourceNote: "Meta Pixel PageView",
-      fragments: ["Meta"],
-      intensity: "institutional",
-    });
   }
 
   const appendButton = h("button", {
     class: "action action--primary action--large",
     type: "button",
-    text: "append to the repository",
+    text: "append snapshot to the repository",
   }) as HTMLButtonElement;
   const message = h("p", { class: "flow-text", text: "" });
 
   appendButton.addEventListener("click", async () => {
     appendButton.disabled = true;
+    appendButton.textContent = "capturing snapshot…";
+    message.textContent = "choose this tab or window so the served ad can be remembered with the entry.";
+    let snapshot: ExtractedSnapshot;
+    try {
+      const target =
+        collectingView?.adFrame?.isConnected
+          ? collectingView.adFrame
+          : (root.querySelector(".ad-slot-frame") as HTMLElement | null);
+      snapshot = await captureSnapshot(target);
+    } catch (err) {
+      appendButton.disabled = false;
+      appendButton.textContent = "append snapshot to the repository";
+      const reason = (err as Error)?.name === "NotAllowedError"
+        ? "capture was canceled."
+        : ((err as Error)?.message || "snapshot failed.");
+      message.textContent = "snapshot not captured: " + reason + " nothing was appended.";
+      return;
+    }
     appendButton.textContent = "appending…";
+    message.textContent = "";
     const selection = google.getSelection();
     const body = selection
-      ? { ...payload, googleJobId: selection.jobId, candidateIds: selection.candidateIds }
-      : payload;
+      ? { ...payload, snapshot, googleJobId: selection.jobId, candidateIds: selection.candidateIds }
+      : { ...payload, snapshot };
     try {
       const person = await appendWebSignals(body);
+      document.body.classList.remove("is-reviewing");
       clear(root);
       root.append(
         chamberPanel(
           stepIndicator("appended"),
           h("h1", { class: "flow-title", text: "this person has been appended." }),
           h("p", { class: "flow-done-id", text: "this person #" + person.id }),
-          buildEntry(person.id, person.source, person.claims, { summary: person.extractionSummary }),
+          buildEntry(person.id, person.source, person.claims, {
+            snapshot: person.snapshot || null,
+            summary: person.extractionSummary,
+          }),
           h(
             "div",
             { class: "flow-actions" },
@@ -503,13 +642,12 @@ function showReview(
       );
     } catch (err) {
       appendButton.disabled = false;
-      appendButton.textContent = "append to the repository";
+      appendButton.textContent = "append snapshot to the repository";
       message.textContent = "append failed: " + ((err as Error)?.message || "unknown");
     }
   });
 
   const introNodes = [
-    stepIndicator("review"),
     h("h1", { class: "flow-title", text: "this is what the industry just saw" }),
     h("p", {
       class: "flow-text",
@@ -524,13 +662,7 @@ function showReview(
   ];
 
   const adLines = ad ? adResolutionLines(ad) : [];
-  const tailNodes: (Node | false)[] = [
-    adLines.length ? adLinesList(adLines) : false,
-    topicsBlock(reading),
-    clientHintsBlock(reading),
-    fingerprintBlock(reading),
-    privacyBlock(reading),
-    firedTagsBlock(reading),
+  const rightNodes: (Node | false)[] = [
     google.enabled ? google.el : false,
     h(
       "section",
@@ -540,11 +672,10 @@ function showReview(
         ? buildEntry("####", "ad_preferences_surface", previewClaims, {
             summary: "preview — the worker rewrites these claims on append from the validated fragment list. anything you check in the Google panel is merged in too.",
           })
-        : h("p", { class: "flow-text--small", text: "nothing extracted yet from the browser surface — the Google panel above can still add claims." })
+        : h("p", { class: "flow-text--small", text: "the ad snapshot is the primary entry object. any checked Google account rows are merged in too." })
     ),
-    previewClaims.length || google.enabled
-      ? h("div", { class: "flow-actions" }, appendButton)
-      : h("p", { class: "flow-text--small", text: "no claims could be drawn from this browser's surface." }),
+    diagnosticsBlock(reading, adLines),
+    h("div", { class: "flow-actions" }, appendButton),
     message,
     h(
       "div",
@@ -555,32 +686,50 @@ function showReview(
     ),
   ];
 
-  if (preservedAdFrame?.isConnected && root.contains(preservedAdFrame)) {
-    const panel = preservedAdFrame.parentElement;
-    if (panel) {
-      for (const child of [...panel.childNodes]) {
-        if (child !== preservedAdFrame) child.remove();
-      }
-      panel.className = "flow-panel";
-      preparePreservedAdFrame(preservedAdFrame, config, ad);
-      for (const node of introNodes) {
-        panel.insertBefore(node, preservedAdFrame);
-      }
-      for (const node of tailNodes) {
-        if (node) panel.appendChild(node);
-      }
-      return;
+  const panel = collectingView?.panel || null;
+  const adFrame = collectingView?.adFrame || null;
+  const leftColumn = collectingView?.leftColumn || null;
+  const rightColumn = collectingView?.rightColumn || null;
+  if (
+    panel?.isConnected &&
+    adFrame?.isConnected &&
+    leftColumn?.isConnected &&
+    rightColumn?.isConnected &&
+    root.contains(panel)
+  ) {
+    panel.className = "review-layout";
+    for (const child of [...leftColumn.childNodes]) {
+      if (child !== adFrame) child.remove();
     }
+    clear(rightColumn);
+    preparePreservedAdFrame(adFrame, config, ad);
+    for (const node of introNodes) {
+      leftColumn.insertBefore(node, adFrame);
+    }
+    for (const node of rightNodes) {
+      if (node) rightColumn.appendChild(node);
+    }
+    const existingSteps = panel.querySelector(".chamber-steps");
+    if (existingSteps) existingSteps.replaceWith(stepIndicator("review"));
+    else panel.insertBefore(stepIndicator("review"), leftColumn);
+    return;
   }
+
+  const leftColumnFallback = h("section", { class: "review-column review-column--primary" }, ...introNodes);
+  const frame = h("div", { class: "ad-slot-frame" });
+  const liveSlot = ad?.slotNode && !ad.render.isEmpty ? ad.slotNode : null;
+  if (liveSlot) frame.appendChild(liveSlot);
+  else frame.appendChild(adSlotPlaceholder(config, ad));
+  leftColumnFallback.appendChild(frame);
 
   clear(root);
   root.append(
     h(
       "div",
-      { class: "flow-panel" },
-      ...introNodes.slice(0, 3),
-      adSlotBlock(config, ad),
-      ...tailNodes
+      { class: "review-layout" },
+      stepIndicator("review"),
+      leftColumnFallback,
+      h("section", { class: "review-column review-column--secondary" }, ...rightNodes)
     )
   );
 
@@ -657,7 +806,7 @@ async function runUnifiedFlow(root: HTMLElement, config: Config): Promise<void> 
     return;
   }
 
-  showReview(root, config, signals, ad, google, collectingView.adFrame);
+  showReview(root, config, signals, ad, google, collectingView);
 }
 
 function showConsentModal(
@@ -674,8 +823,6 @@ function showConsentModal(
   const list = h(
     "ul",
     { class: "consent-list" },
-    h("li", {}, "reports whether Chrome's ", h("strong", { text: "Topics" }),
-        " surface can be read from this origin."),
     h("li", {}, "reads ", h("strong", { text: "client hints, fingerprint, and Privacy-Sandbox surface" }), "."),
     h("li", {}, "fires real ", h("strong", { text: "Google Ads / GA4 + Meta Pixel" }), " beacons against this browser."),
     config.gam.enabled
@@ -696,7 +843,7 @@ function showConsentModal(
     h("li", {}, h("strong", { text: "What this is not: " }),
       "the silent reads cannot reach your Google profile, your purchase history, or what other sites know about you — pixel and gtag are write-only. The only way account data enters this is the Google sign-in, which you complete yourself and can skip."),
     h("li", {}, h("strong", { text: "Specificity is best-effort: " }),
-      "expect device rows at minimum. ‘this person likes Patagonia’-style rows only appear when GAM returns a bid with a resolvable advertiser, or when an explicitly enabled Topics probe returns something narrow."),
+      "expect device rows at minimum. ‘this person likes Patagonia’-style rows only appear when GAM returns a bid with a resolvable advertiser, or when checked Google account rows add specifics."),
     h("li", {}, h("strong", { text: "Persistence: " }),
       "appended entries are permanent and public on this site. There is no delete-after-append."),
     h("li", {}, h("strong", { text: "What is not stored: " }),
@@ -751,6 +898,7 @@ function showConsentModal(
 }
 
 function showStart(root: HTMLElement, config: Config): void {
+  document.body.classList.remove("is-reviewing");
   clear(root);
 
   const beginButton = h("button", {
@@ -782,7 +930,7 @@ function showStart(root: HTMLElement, config: Config): void {
       ),
       h("p", {
         class: "hero__secondary",
-        text: "ads, topics, and identity, anonymized and consented to",
+        text: "ads and identity, anonymized and consented to",
       }),
       h("p", { class: "flow-text--small", text: tagsLine(config) }),
       h("div", { class: "flow-actions" }, beginButton),
