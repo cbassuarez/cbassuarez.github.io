@@ -46,21 +46,24 @@ button.
 | `GET /api/this-person/state` / `socket` | Wall state and live updates. |
 | `GET /api/this-person/admin/export`, `POST /api/this-person/admin/clear` | Token-gated admin controls. |
 
-The default path flows through `/web-signals/append`. An optional second path —
-the Google OAuth endpoints (`google/start`, `google/callback`, `google/job`,
-`google/append`) — lets the visitor instead sign into Google so the worker can
-read, on consent, their **YouTube subscriptions + liked videos** (YouTube Data
-API) and **profile demographics** — gender, birthday-derived age, employer
-(People API). The callback fetches these synchronously and stores only the
-sanitized candidates (no access/refresh token is ever retained); the client
-polls `google/job` once and the visitor selects what to append. It is surfaced
-in the funnel (start screen + consent modal) only when the `GOOGLE_DP_*` secrets
-are configured.
+Everything appends through `/web-signals/append`. When `GOOGLE_DP_*` is
+configured, the begin button also opens the Google OAuth endpoints
+(`google/start?mode=popup`, `google/callback`, `google/job`) in a popup so the
+worker can read, on consent, the account's **YouTube subscriptions + liked
+videos** (YouTube Data API) and **profile demographics** — gender,
+birthday-derived age, employer (People API). The callback fetches these
+synchronously, stores only the sanitized candidates as a ready job (no
+access/refresh token is ever retained), and — in popup mode — returns a small
+HTML page that `postMessage`s the job id back to the opener and closes itself
+(the main page never navigates). The client polls `google/job`, then passes the
+job id + selected candidate ids on the **single** `/web-signals/append` call,
+which merges them into one entry. `google/append` is superseded (left in place,
+unused).
 
 The originally-scaffolded Google Data Portability (My Ad Center) read is
 deliberately not used: that API is EEA-only and refuses US accounts. The dead
-archive-job helpers remain in the worker but are no longer on the path. The
-retired `preview` / `append` / `enroll` endpoints return 410.
+archive-job helpers and `google/append` remain in the worker but are no longer
+on the path. The retired `preview` / `append` / `enroll` endpoints return 410.
 
 ## Worker configuration
 
