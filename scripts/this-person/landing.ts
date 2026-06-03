@@ -250,12 +250,9 @@ function adResolutionLines(result: AdResult): string[] {
 
 function adSlotPlaceholder(config: Config, ad: AdResult | null): HTMLElement {
   const placeholder = h("div", { class: "ad-slot-placeholder" });
-  const widest = config.gam.sizes.reduce(
-    (best, s) => (s[0] >= best[0] ? s : best),
-    config.gam.sizes[0] || [300, 250]
-  );
-  placeholder.style.minWidth = widest[0] + "px";
-  placeholder.style.minHeight = widest[1] + "px";
+  const primary = config.gam.sizes[0] || [300, 250];
+  placeholder.style.minWidth = primary[0] + "px";
+  placeholder.style.minHeight = primary[1] + "px";
 
   let label = "ad slot";
   let note = "";
@@ -276,7 +273,7 @@ function adSlotPlaceholder(config: Config, ad: AdResult | null): HTMLElement {
 
   placeholder.appendChild(h("p", { class: "ad-slot-placeholder__label", text: label }));
   placeholder.appendChild(
-    h("p", { class: "ad-slot-placeholder__dim", text: widest[0] + " × " + widest[1] })
+    h("p", { class: "ad-slot-placeholder__dim", text: primary[0] + " × " + primary[1] })
   );
   if (note) {
     placeholder.appendChild(h("p", { class: "ad-slot-placeholder__note", text: note }));
@@ -324,15 +321,19 @@ function adSlotBlock(config: Config, ad: AdResult | null): HTMLElement {
   return wrapper;
 }
 
-function showCollecting(root: HTMLElement, message: string): void {
+function showCollecting(root: HTMLElement, message: string, adStage?: HTMLElement): void {
   clear(root);
-  root.append(
-    chamberPanel(
-      stepIndicator("collect"),
-      h("h1", { class: "flow-title", text: "exposing the surface" }),
-      h("p", { class: "flow-working", text: message })
-    )
+  const panel = chamberPanel(
+    stepIndicator("collect"),
+    h("h1", { class: "flow-title", text: "exposing the surface" }),
+    h("p", { class: "flow-working", text: message })
   );
+  if (adStage) {
+    const frame = h("div", { class: "ad-slot-frame" });
+    frame.appendChild(adStage);
+    panel.appendChild(frame);
+  }
+  root.append(panel);
 }
 
 function showFailure(root: HTMLElement, message: string, retry: () => void): void {
@@ -524,13 +525,13 @@ async function runUnifiedFlow(root: HTMLElement, config: Config): Promise<void> 
   // concurrently and converge in the one combined review.
   const google = startGooglePopup(config);
 
-  showCollecting(root, "asking the browser what it tells advertisers…");
+  const shouldRenderGam = !!(config.gam.enabled && config.gam.networkCode && config.gam.adUnitPath);
+  const slotStage = shouldRenderGam ? h("div", { class: "ad-slot-stage" }) : null;
+  showCollecting(root, "asking the browser what it tells advertisers…", slotStage || undefined);
 
   // Run web-signals collection and the GAM slot render in parallel. The slot
-  // needs to be in the DOM to actually fire, so we mount it off-screen during
-  // the collect phase and move the live node into the review panel after.
-  const slotStage = h("div", { class: "ad-slot-stage", "aria-hidden": "true" });
-  document.body.appendChild(slotStage);
+  // needs to be visible when GPT evaluates it, so the collect panel owns a
+  // real slot frame and the review panel adopts the live node after render.
 
   let signals: SignalsReading | null = null;
   let ad: AdResult | null = null;
@@ -544,10 +545,10 @@ async function runUnifiedFlow(root: HTMLElement, config: Config): Promise<void> 
     });
 
   const adTask =
-    config.gam.enabled && config.gam.networkCode && config.gam.adUnitPath
+    shouldRenderGam && slotStage
       ? renderGamSlot(slotStage, {
-          networkCode: config.gam.networkCode,
-          adUnitPath: config.gam.adUnitPath,
+          networkCode: config.gam.networkCode as string,
+          adUnitPath: config.gam.adUnitPath as string,
           sizes: config.gam.sizes,
         })
           .then(async (render) => {
@@ -568,7 +569,7 @@ async function runUnifiedFlow(root: HTMLElement, config: Config): Promise<void> 
   try {
     await Promise.all([signalsTask, adTask]);
   } catch (err) {
-    slotStage.remove();
+    slotStage?.remove();
     google.cancel();
     showFailure(root, (err as Error)?.message || "the collection step failed.", () =>
       showStart(root, config)
@@ -577,18 +578,18 @@ async function runUnifiedFlow(root: HTMLElement, config: Config): Promise<void> 
   }
 
   if (!signals) {
-    slotStage.remove();
+    slotStage?.remove();
     google.cancel();
     showFailure(root, "the collection step returned nothing.", () => showStart(root, config));
     return;
   }
 
   // We're about to render into the review panel — adopt the slot node out of
-  // the off-screen stage so its render state and event listeners survive.
-  if (ad && ad.slotNode && ad.slotNode.parentElement === slotStage) {
+  // the collection stage so its render state and event listeners survive.
+  if (slotStage && ad && ad.slotNode && ad.slotNode.parentElement === slotStage) {
     slotStage.removeChild(ad.slotNode);
   }
-  slotStage.remove();
+  slotStage?.remove();
   showReview(root, config, signals, ad, google);
 }
 

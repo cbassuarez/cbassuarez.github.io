@@ -58,8 +58,8 @@ function loadGpt(): Promise<any> {
   });
 }
 
-function pickWidestSize(sizes: [number, number][]): [number, number] {
-  return sizes.reduce((best, s) => (s[0] >= best[0] ? s : best), sizes[0]);
+function pickPrimarySize(sizes: [number, number][]): [number, number] {
+  return sizes[0] || [300, 250];
 }
 
 function uniq(arr: string[]): string[] {
@@ -117,9 +117,10 @@ export async function renderGamSlot(
   const slotElement = document.createElement("div");
   slotElement.id =
     "this-person-gam-slot-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  const widest = pickWidestSize(config.sizes);
-  slotElement.style.minWidth = widest[0] + "px";
-  slotElement.style.minHeight = widest[1] + "px";
+  const primary = pickPrimarySize(config.sizes);
+  slotElement.style.width = primary[0] + "px";
+  slotElement.style.height = primary[1] + "px";
+  slotElement.style.maxWidth = "100%";
   container.appendChild(slotElement);
 
   const startedAt = performance.now();

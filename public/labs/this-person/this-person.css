@@ -652,18 +652,12 @@ body.is-paused .wall-masthead__line::after {
 
 /* ─── ad slot ───────────────────────────────────────────────────────────────*/
 
-/* Off-screen stage used while the GPT slot loads, before it's adopted into
-   the review panel. Visually hidden but still in the layout — GPT will not
-   render into display:none nodes. */
+/* Stage used while GPT evaluates the slot, before the live node is adopted
+   into the review panel. It stays visible so the request looks like a real
+   in-page ad impression instead of hidden inventory. */
 .ad-slot-stage {
-  position: absolute;
-  left: -10000px;
-  top: 0;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
+  display: block;
+  max-width: 100%;
 }
 
 .ad-slot-frame {
