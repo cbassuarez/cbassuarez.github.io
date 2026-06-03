@@ -796,8 +796,8 @@ type GoogleState = "disabled" | "pending" | "ready" | "empty" | "skipped" | "fai
 // The Google account read runs in a popup so the main page never navigates.
 // The controller owns the popup lifecycle, a live section node for the review,
 // and the visitor's candidate selection. It degrades gracefully: if the popup
-// is blocked, closed, errors, or the account/region can't, the section says so
-// and the single append simply proceeds with the silent read.
+// is blocked, times out, errors, or the account/region can't, the section says
+// so and the single append simply proceeds with the silent read.
 interface GoogleController {
   enabled: boolean;
   el: HTMLElement;
@@ -818,7 +818,7 @@ function startGooglePopup(config: Config): GoogleController {
   let errorCode = "";
   let candidates: GoogleAdInterestCandidate[] = [];
   let popup: Window | null = null;
-  let closedTimer: ReturnType<typeof setInterval> | null = null;
+  let popupTimer: ReturnType<typeof setTimeout> | null = null;
   let done = false;
 
   const apiOrigin = (() => {
@@ -935,7 +935,7 @@ function startGooglePopup(config: Config): GoogleController {
     const data = ev.data as { type?: string; jobId?: string; error?: string } | null;
     if (!data || data.type !== "this-person-google") return;
     done = true;
-    if (closedTimer) clearInterval(closedTimer);
+    if (popupTimer) clearTimeout(popupTimer);
     if (data.error) {
       state = "failed";
       errorCode = data.error;
@@ -965,15 +965,13 @@ function startGooglePopup(config: Config): GoogleController {
     }
     state = "pending";
     render();
-    if (closedTimer) clearInterval(closedTimer);
-    closedTimer = setInterval(() => {
-      if (popup && popup.closed && !done && state === "pending") {
-        if (closedTimer) clearInterval(closedTimer);
-        state = "skipped";
-        errorCode = "closed";
-        render();
-      }
-    }, 1000);
+    if (popupTimer) clearTimeout(popupTimer);
+    popupTimer = setTimeout(() => {
+      if (done || state !== "pending") return;
+      state = "skipped";
+      errorCode = "timeout";
+      render();
+    }, 90 * 1000);
   }
 
   openPopup();
@@ -987,9 +985,9 @@ function startGooglePopup(config: Config): GoogleController {
         : null,
     cancel: () => {
       window.removeEventListener("message", onMessage);
-      if (closedTimer) clearInterval(closedTimer);
+      if (popupTimer) clearTimeout(popupTimer);
       try {
-        if (popup && !popup.closed) popup.close();
+        popup?.close();
       } catch {
         // ignore
       }

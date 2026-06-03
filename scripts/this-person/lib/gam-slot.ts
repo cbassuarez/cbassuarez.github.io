@@ -105,6 +105,12 @@ function readIframeUrl(slotElement: HTMLElement): string | null {
   }
 }
 
+function eventId(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const id = String(value).trim();
+  return id && id !== "0" ? id : null;
+}
+
 // Defines a GPT slot inside the given container, returns a promise that
 // resolves once slotRenderEnded fires (or rejects on timeout). The slot stays
 // in the DOM — the caller is responsible for showing it to the visitor.
@@ -173,10 +179,10 @@ export async function renderGamSlot(
             ? ([Number(event.size[0]), Number(event.size[1])] as [number, number])
             : null;
           settle({
-            advertiserId: event.advertiserId != null ? String(event.advertiserId) : null,
-            campaignId: event.campaignId != null ? String(event.campaignId) : null,
-            creativeId: event.creativeId != null ? String(event.creativeId) : null,
-            lineItemId: event.lineItemId != null ? String(event.lineItemId) : null,
+            advertiserId: eventId(event.advertiserId),
+            campaignId: eventId(event.campaignId),
+            creativeId: eventId(event.creativeId),
+            lineItemId: eventId(event.lineItemId),
             orderId: null, // GPT does not expose orderId; the worker derives it
             yieldGroupIds: Array.isArray(event.yieldGroupIds)
               ? event.yieldGroupIds.map((x: any) => String(x))
@@ -192,7 +198,11 @@ export async function renderGamSlot(
           });
         });
 
-        googletag.pubads().enableSingleRequest();
+        if (typeof googletag.setConfig === "function") {
+          googletag.setConfig({ singleRequest: true });
+        } else {
+          googletag.pubads().enableSingleRequest();
+        }
         googletag.pubads().setCentering(true);
         googletag.enableServices();
         googletag.display(slot);
