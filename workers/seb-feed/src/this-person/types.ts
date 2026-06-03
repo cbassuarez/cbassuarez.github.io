@@ -8,6 +8,7 @@
 
 export type ExtractionSource =
   | "google_data_portability"
+  | "google_account_oauth"
   | "screen_capture"
   | "screenshot_ocr"
   | "data_export"
@@ -19,6 +20,7 @@ export type ExtractionSource =
 
 export const EXTRACTION_SOURCES: readonly ExtractionSource[] = [
   "google_data_portability",
+  "google_account_oauth",
   "screen_capture",
   "screenshot_ocr",
   "data_export",

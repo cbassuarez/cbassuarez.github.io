@@ -40,11 +40,14 @@ import {
 import { generateClaims as generateTpClaims } from "./this-person/extraction/generateClaims";
 import {
   GOOGLE_DP_RESOURCE,
-  GOOGLE_DP_SCOPE,
-  buildGoogleDataPortabilityEntry,
   extractGoogleAdInterestCandidatesFromArchiveBytes,
   type GoogleAdInterestCandidate,
 } from "./this-person/googleDataPortability";
+import {
+  GOOGLE_PROFILE_SCOPE,
+  buildGoogleProfileEntry,
+  fetchGoogleProfileCandidates,
+} from "./this-person/googleProfile";
 import {
   buildGamFragments,
   gamConfigured,
@@ -3155,7 +3158,7 @@ async function handleGoogleDpStart(request: Request, env: Env, allowOrigin: stri
   authUrl.searchParams.set("client_id", clean(env.GOOGLE_DP_CLIENT_ID));
   authUrl.searchParams.set("redirect_uri", clean(env.GOOGLE_DP_REDIRECT_URI));
   authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("scope", GOOGLE_DP_SCOPE);
+  authUrl.searchParams.set("scope", GOOGLE_PROFILE_SCOPE);
   authUrl.searchParams.set("state", state);
   authUrl.searchParams.set("code_challenge", await googleCodeChallenge(verifier));
   authUrl.searchParams.set("code_challenge_method", "S256");
@@ -3206,19 +3209,19 @@ async function handleGoogleDpCallback(request: Request, env: Env): Promise<Respo
 
   try {
     const token = await exchangeGoogleCode(env, code, cookie.verifier);
-    const archiveJobId = await initiateGoogleArchive(token.accessToken);
+    // The YouTube + People reads are synchronous, so we do them here and keep
+    // only the sanitized candidates. No access/refresh token is ever stored.
+    const candidates = await fetchGoogleProfileCandidates(token.accessToken);
     const id = randomToken(24);
     const now = new Date().toISOString();
     await putGoogleJob(env, id, {
-      stage: "pending",
-      archiveJobId,
-      accessToken: token.accessToken,
-      refreshToken: token.refreshToken || undefined,
-      accessTokenExpiresAt: token.expiresAt,
+      stage: "ready",
+      archiveJobId: "",
+      candidates,
       returnTo,
       createdAt: now,
       updatedAt: now,
-    }, GOOGLE_DP_PENDING_TTL_SECONDS);
+    }, GOOGLE_DP_READY_TTL_SECONDS);
     return redirectWithHash(returnTo, "google_job", id, { "set-cookie": clearGoogleDpCookie() });
   } catch (error) {
     return fail(error instanceof Error ? error.message : "google_callback_failed");
@@ -3384,7 +3387,7 @@ async function handleGoogleDpAppend(
       headers: jsonHeaders(allowOrigin),
     });
   }
-  const built = buildGoogleDataPortabilityEntry(selected);
+  const built = buildGoogleProfileEntry(selected);
   if (built.claims.length === 0) {
     return new Response(JSON.stringify({ error: "no_claims" }), {
       status: 400,
@@ -3394,9 +3397,9 @@ async function handleGoogleDpAppend(
   const person: TpPerson = {
     id: "0000",
     publicNumber: 0,
-    source: "google_data_portability",
+    source: "google_account_oauth",
     status: "extracted_and_appended",
-    platformHints: ["Google My Ad Center", "Google Data Portability"],
+    platformHints: ["Google account (consented)", "YouTube Data API", "Google People API"],
     fragments: built.fragments,
     claims: built.claims,
     generatedText: built.generatedText,
@@ -4965,8 +4968,8 @@ export default {
             },
             googleDataPortability: {
               enabled: googleDpEnabled,
-              scope: GOOGLE_DP_SCOPE,
-              resource: GOOGLE_DP_RESOURCE,
+              scope: GOOGLE_PROFILE_SCOPE,
+              resource: "youtube.readonly + people",
               startUrl: "/api/this-person/google/start",
             },
             at: new Date().toISOString(),

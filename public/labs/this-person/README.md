@@ -40,12 +40,20 @@ button.
 | `GET /api/this-person/admin/export`, `POST /api/this-person/admin/clear` | Token-gated admin controls. |
 
 The default path flows through `/web-signals/append`. An optional second path —
-the Google Data Portability endpoints (`google/start`, `google/callback`,
-`google/job`, `google/append`) — lets the visitor instead sign into Google and
-export the ad-interest profile Google's My Ad Center holds on them. It is
-surfaced in the funnel (start screen + consent modal) only when the `GOOGLE_DP_*`
-secrets are configured. The retired `preview` / `append` / `enroll` endpoints
-return 410.
+the Google OAuth endpoints (`google/start`, `google/callback`, `google/job`,
+`google/append`) — lets the visitor instead sign into Google so the worker can
+read, on consent, their **YouTube subscriptions + liked videos** (YouTube Data
+API) and **profile demographics** — gender, birthday-derived age, employer
+(People API). The callback fetches these synchronously and stores only the
+sanitized candidates (no access/refresh token is ever retained); the client
+polls `google/job` once and the visitor selects what to append. It is surfaced
+in the funnel (start screen + consent modal) only when the `GOOGLE_DP_*` secrets
+are configured.
+
+The originally-scaffolded Google Data Portability (My Ad Center) read is
+deliberately not used: that API is EEA-only and refuses US accounts. The dead
+archive-job helpers remain in the worker but are no longer on the path. The
+retired `preview` / `append` / `enroll` endpoints return 410.
 
 ## Worker configuration
 
@@ -62,16 +70,17 @@ The Google Ad Manager slot uses `GAM_NETWORK_CODE`, `GAM_AD_UNIT_PATH`,
 `GAM_SERVICE_ACCOUNT_EMAIL`, `GAM_SERVICE_ACCOUNT_PRIVATE_KEY`, and optional
 `GAM_SLOT_SIZES`.
 
-The optional Google My Ad Center export flow needs an OAuth web client with the
-Data Portability API enabled and the `dataportability.myactivity.myadcenter`
-scope:
+The optional Google account read needs an OAuth web client with the **YouTube
+Data API v3** and **People API** enabled, and these scopes on the consent
+screen: `youtube.readonly`, `userinfo.profile`, `user.birthday.read`,
+`user.gender.read`, `user.organization.read`. Same five secrets:
 
 ```
 GOOGLE_DP_CLIENT_ID                  # OAuth 2.0 web client id
 GOOGLE_DP_CLIENT_SECRET              # OAuth 2.0 client secret
 GOOGLE_DP_REDIRECT_URI               # <worker>/api/this-person/google/callback
 GOOGLE_DP_STATE_SECRET               # random string (HMAC key for state/cookie)
-GOOGLE_DP_TOKEN_ENCRYPTION_KEY       # random string (AES key for stored tokens)
+GOOGLE_DP_TOKEN_ENCRYPTION_KEY       # random string (AES key for the short-lived job blob)
 ```
 
 If no ad-tech IDs are configured, the page still runs the browser-side reads
