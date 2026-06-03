@@ -30,8 +30,8 @@ const YT_API = "https://www.googleapis.com/youtube/v3";
 const PEOPLE_API =
   "https://people.googleapis.com/v1/people/me?personFields=genders,birthdays,organizations";
 
-const MAX_SUBSCRIPTIONS = 25;
-const MAX_LIKES = 15;
+const MAX_SUBSCRIPTIONS = 16;
+const MAX_LIKES = 12;
 
 function oneLine(value: unknown, maxLen = 160): string {
   const raw = String(value ?? "");
@@ -105,81 +105,51 @@ function ageFromBirthdays(birthdays: any[]): number | null {
 export async function fetchGoogleProfileCandidates(
   accessToken: string
 ): Promise<GoogleAdInterestCandidate[]> {
-  const byId = new Map<string, GoogleAdInterestCandidate>();
-  const push = (candidate: GoogleAdInterestCandidate | null): void => {
-    if (!candidate) return;
-    if (!byId.has(candidate.id) && byId.size < LIMITS.MAX_FRAGMENTS) {
-      byId.set(candidate.id, candidate);
-    }
-  };
-
+  // Subscriptions are ordered by relevance (YouTube's own engagement ranking),
+  // not alphabetically — so the channels this person actually watches surface
+  // first instead of whatever starts with "A".
   const [subs, likes, person] = await Promise.all([
     googleGetJson(
-      YT_API + "/subscriptions?part=snippet&mine=true&order=alphabetical&maxResults=" + MAX_SUBSCRIPTIONS,
+      YT_API + "/subscriptions?part=snippet&mine=true&order=relevance&maxResults=" + MAX_SUBSCRIPTIONS,
       accessToken
     ),
     googleGetJson(YT_API + "/videos?part=snippet&myRating=like&maxResults=" + MAX_LIKES, accessToken),
     googleGetJson(PEOPLE_API, accessToken),
   ]);
 
-  for (const item of (subs?.items as any[]) || []) {
-    const channel = oneLine(item?.snippet?.title, 120);
-    if (!channel) continue;
-    push(
-      makeCandidate({
-        rawLabel: channel,
-        relation: "likes",
-        confidence: 0.82,
-        claimSentence: "this person subscribes to " + channel + " on YouTube",
-        sourceNote: "YouTube: channel subscription",
-        evidenceTitle: channel,
-      })
-    );
-  }
-
-  for (const item of (likes?.items as any[]) || []) {
-    const title = oneLine(item?.snippet?.title, 120);
-    if (!title) continue;
-    push(
-      makeCandidate({
-        rawLabel: title,
-        relation: "likes",
-        confidence: 0.7,
-        claimSentence: "this person liked the video “" + title + "” on YouTube",
-        sourceNote: "YouTube: liked video",
-        evidenceTitle: title,
-      })
-    );
-  }
+  // Demographics are few and the most defining, so they are always surfaced
+  // first; subscriptions and liked videos are then interleaved so a long
+  // subscription list cannot crowd the likes out of the MAX_FRAGMENTS budget.
+  const demographics: GoogleAdInterestCandidate[] = [];
+  const subscriptions: GoogleAdInterestCandidate[] = [];
+  const likedVideos: GoogleAdInterestCandidate[] = [];
 
   if (person) {
     const gender = oneLine(person?.genders?.[0]?.formattedValue || person?.genders?.[0]?.value, 40);
     if (gender) {
-      push(
-        makeCandidate({
-          rawLabel: gender,
-          relation: "associated",
-          confidence: 0.9,
-          claimSentence: "this person's Google profile lists their gender as " + gender,
-          sourceNote: "Google People API: gender",
-          evidenceTitle: gender,
-        })
-      );
+      const c = makeCandidate({
+        rawLabel: gender,
+        relation: "associated",
+        confidence: 0.9,
+        claimSentence: "this person's Google profile lists their gender as " + gender,
+        sourceNote: "Google People API: gender",
+        evidenceTitle: gender,
+      });
+      if (c) demographics.push(c);
     }
 
     const age = ageFromBirthdays(person?.birthdays);
     if (age != null) {
       const ageLabel = String(age);
-      push(
-        makeCandidate({
-          rawLabel: ageLabel,
-          relation: "associated",
-          confidence: 0.9,
-          claimSentence: "this person is " + age + ", by the birthday on their Google account",
-          sourceNote: "Google People API: birthday",
-          evidenceTitle: ageLabel,
-        })
-      );
+      const c = makeCandidate({
+        rawLabel: ageLabel,
+        relation: "associated",
+        confidence: 0.9,
+        claimSentence: "this person is " + age + ", by the birthday on their Google account",
+        sourceNote: "Google People API: birthday",
+        evidenceTitle: ageLabel,
+      });
+      if (c) demographics.push(c);
     }
 
     const org = (person?.organizations as any[])?.[0];
@@ -187,17 +157,59 @@ export async function fetchGoogleProfileCandidates(
     const orgTitle = oneLine(org?.title, 80);
     if (orgName || orgTitle) {
       const phrase = orgTitle && orgName ? orgTitle + " at " + orgName : orgTitle || orgName;
-      push(
-        makeCandidate({
-          rawLabel: phrase,
-          relation: "associated",
-          confidence: 0.85,
-          claimSentence: "this person's Google profile says they are " + phrase,
-          sourceNote: "Google People API: organization",
-          evidenceTitle: phrase,
-        })
-      );
+      const c = makeCandidate({
+        rawLabel: phrase,
+        relation: "associated",
+        confidence: 0.85,
+        claimSentence: "this person's Google profile says they are " + phrase,
+        sourceNote: "Google People API: organization",
+        evidenceTitle: phrase,
+      });
+      if (c) demographics.push(c);
     }
+  }
+
+  for (const item of (subs?.items as any[]) || []) {
+    const channel = oneLine(item?.snippet?.title, 120);
+    if (!channel) continue;
+    const c = makeCandidate({
+      rawLabel: channel,
+      relation: "likes",
+      confidence: 0.82,
+      claimSentence: "this person subscribes to " + channel + " on YouTube",
+      sourceNote: "YouTube: channel subscription",
+      evidenceTitle: channel,
+    });
+    if (c) subscriptions.push(c);
+  }
+
+  for (const item of (likes?.items as any[]) || []) {
+    const title = oneLine(item?.snippet?.title, 120);
+    if (!title) continue;
+    const c = makeCandidate({
+      rawLabel: title,
+      relation: "likes",
+      confidence: 0.7,
+      claimSentence: "this person liked the video “" + title + "” on YouTube",
+      sourceNote: "YouTube: liked video",
+      evidenceTitle: title,
+    });
+    if (c) likedVideos.push(c);
+  }
+
+  const byId = new Map<string, GoogleAdInterestCandidate>();
+  const add = (candidate: GoogleAdInterestCandidate | undefined): void => {
+    if (!candidate) return;
+    if (!byId.has(candidate.id) && byId.size < LIMITS.MAX_FRAGMENTS) {
+      byId.set(candidate.id, candidate);
+    }
+  };
+
+  demographics.forEach(add);
+  const rounds = Math.max(subscriptions.length, likedVideos.length);
+  for (let i = 0; i < rounds && byId.size < LIMITS.MAX_FRAGMENTS; i++) {
+    add(subscriptions[i]);
+    add(likedVideos[i]);
   }
 
   return [...byId.values()];
