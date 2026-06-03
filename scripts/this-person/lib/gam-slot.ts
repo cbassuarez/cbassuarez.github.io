@@ -199,11 +199,11 @@ export async function renderGamSlot(
         });
 
         if (typeof googletag.setConfig === "function") {
-          googletag.setConfig({ singleRequest: true });
+          googletag.setConfig({ centering: true, singleRequest: true });
         } else {
           googletag.pubads().enableSingleRequest();
+          googletag.pubads().setCentering(true);
         }
-        googletag.pubads().setCentering(true);
         googletag.enableServices();
         googletag.display(slot);
       } catch (err) {

@@ -1,12 +1,11 @@
 // this person — consented industry-ad-tech read.
 //
 // On consent we do exactly what an ordinary commercial site does on page load:
-// ask Chrome for the visitor's Topics, read every fingerprintable surface the
-// ad ecosystem reads, and fire the real Google Ads / GA4 / Meta Pixel beacons
-// against this browser. Then we report back: what was just sent, to whom, and
-// what was returned. The page is not pretending — these are the same calls a
-// shopping site, a publisher, or a SaaS dashboard fires against the visitor
-// silently every day.
+// read every fingerprintable surface the ad ecosystem reads, and fire the real
+// Google Ads / GA4 / Meta Pixel beacons against this browser. Then we report
+// back: what was just sent, to whom, and what was returned. The page is not
+// pretending — these are the same calls a shopping site, a publisher, or a SaaS
+// dashboard fires against the visitor silently every day.
 //
 // What we do not do:
 //   - upload anything;
@@ -177,6 +176,13 @@ async function readTopics(): Promise<{ topics: TopicReading[]; note: string }> {
     return {
       topics: [],
       note: "This browser does not expose the Topics API. Chromium browsers expose document.browsingTopics() to advertisers; the rest of the ecosystem either does not implement it or has it disabled.",
+    };
+  }
+  const shouldProbe = new URLSearchParams(location.search).get("topics") === "1";
+  if (!shouldProbe) {
+    return {
+      topics: [],
+      note: "Chrome exposes the Topics API here, but this origin is not currently Privacy Sandbox-attested for Topics. The direct Topics probe is disabled by default because Chrome can only reject it and write a browser-level warning. Add ?topics=1 after enrollment to force the live probe.",
     };
   }
   try {

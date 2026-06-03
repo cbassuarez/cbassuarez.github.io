@@ -2,11 +2,11 @@
 //
 // One method. The visitor presses a single button, acknowledges a consent
 // modal, then the page does exactly what any commercial site does on a normal
-// page load: asks Chrome for its Topics, reads the browser fingerprint
-// surface, fires real Google Ads / GA4 + Meta Pixel beacons, and renders a
-// Google Ad Manager slot. The slot's slotRenderEnded event hands us the
-// advertiserId/lineItemId/creativeId, which the worker resolves to display
-// names via the GAM REST API. The result becomes a third-person wall entry.
+// page load: reads the browser fingerprint surface, fires real Google Ads /
+// GA4 + Meta Pixel beacons, and renders a Google Ad Manager slot. The slot's
+// slotRenderEnded event hands us the advertiserId/lineItemId/creativeId, which
+// the worker resolves to display names via the GAM REST API. The result becomes
+// a third-person wall entry.
 
 import {
   apiBase,
@@ -607,7 +607,8 @@ function showConsentModal(
   const list = h(
     "ul",
     { class: "consent-list" },
-    h("li", {}, "asks Chrome for the ", h("strong", { text: "Topics" }), " it has assigned this browser."),
+    h("li", {}, "reports whether Chrome's ", h("strong", { text: "Topics" }),
+        " surface can be read from this origin."),
     h("li", {}, "reads ", h("strong", { text: "client hints, fingerprint, and Privacy-Sandbox surface" }), "."),
     h("li", {}, "fires real ", h("strong", { text: "Google Ads / GA4 + Meta Pixel" }), " beacons against this browser."),
     config.gam.enabled
@@ -628,7 +629,7 @@ function showConsentModal(
     h("li", {}, h("strong", { text: "What this is not: " }),
       "the silent reads cannot reach your Google profile, your purchase history, or what other sites know about you — pixel and gtag are write-only. The only way account data enters this is the Google sign-in, which you complete yourself and can skip."),
     h("li", {}, h("strong", { text: "Specificity is best-effort: " }),
-      "expect device + Topics rows at minimum. ‘this person likes Patagonia’-style rows only appear when GAM returns a bid with a resolvable advertiser, or when Topics returns something narrow."),
+      "expect device rows at minimum. ‘this person likes Patagonia’-style rows only appear when GAM returns a bid with a resolvable advertiser, or when an explicitly enabled Topics probe returns something narrow."),
     h("li", {}, h("strong", { text: "Persistence: " }),
       "appended entries are permanent and public on this site. There is no delete-after-append."),
     h("li", {}, h("strong", { text: "What is not stored: " }),
