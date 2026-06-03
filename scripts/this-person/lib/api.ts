@@ -126,12 +126,13 @@ export async function fetchConfig(): Promise<Config> {
   }
 }
 
-// ── Google Data Portability (My Ad Center) ──────────────────────────────────
-// The optional second movement: instead of reading what the browser leaks, the
-// visitor signs into Google and exports the ad-interest profile Google itself
-// holds. The worker runs the OAuth + archive job; the client only kicks off the
-// redirect, reads the job id handed back in the URL hash, polls until the
-// archive is ready, and posts the selected interests for append.
+// ── Google account read (YouTube + People, popup OAuth) ─────────────────────
+// The opt-in enrichment folded into the one flow: the visitor signs into Google
+// in a popup window so the main page never navigates away. The worker runs the
+// OAuth + the synchronous YouTube/People read and stores the sanitized
+// candidates as a ready job; the popup posts the job id back to the opener,
+// which polls until ready and includes the selected candidates in the single
+// merged append.
 
 export interface GoogleAdInterestCandidate {
   id: string;
@@ -153,29 +154,15 @@ export interface GoogleDpJobResult {
   error?: string;
 }
 
-// Builds the URL that begins the OAuth redirect. returnTo must be a
-// this-person page on an allowed host — the worker validates and falls back to
-// the canonical URL otherwise.
-export function googleDpStartUrl(returnTo: string): string {
-  return apiBase() + "/api/this-person/google/start?returnTo=" + encodeURIComponent(returnTo);
-}
-
-// Reads (and clears) the #google_job / #google_error the callback redirect
-// leaves in the URL hash. Clearing keeps a refresh from re-triggering the flow.
-export function readGoogleDpReturn(): { jobId: string | null; error: string | null } {
-  const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
-  const jobId = hash.get("google_job");
-  const error = hash.get("google_error");
-  if (jobId || error) {
-    hash.delete("google_job");
-    hash.delete("google_error");
-    const rest = hash.toString();
-    history.replaceState(null, "", location.pathname + location.search + (rest ? "#" + rest : ""));
-  }
-  return {
-    jobId: jobId && /^[A-Za-z0-9_-]{16,96}$/.test(jobId) ? jobId : null,
-    error: error || null,
-  };
+// Builds the URL that begins the popup OAuth flow. returnTo must be a
+// this-person page on an allowed host — the worker validates it and uses its
+// origin as the postMessage target, falling back to the canonical URL.
+export function googleDpPopupStartUrl(returnTo: string): string {
+  return (
+    apiBase() +
+    "/api/this-person/google/start?mode=popup&returnTo=" +
+    encodeURIComponent(returnTo)
+  );
 }
 
 export async function pollGoogleDpJob(id: string): Promise<GoogleDpJobResult> {
@@ -190,26 +177,6 @@ export async function pollGoogleDpJob(id: string): Promise<GoogleDpJobResult> {
     return { state, candidates, error: j?.error ? String(j.error) : undefined };
   }
   return { state: "in_progress", candidates: [] };
-}
-
-export async function appendGoogleDp(id: string, candidateIds: string[]): Promise<ExtractedPerson> {
-  const r = await fetch(apiBase() + "/api/this-person/google/append", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ id, candidateIds }),
-  });
-  if (!r.ok) {
-    let detail = "";
-    try {
-      const j: any = await r.json();
-      detail = String(j?.error || "");
-    } catch {
-      // ignore
-    }
-    throw new Error("google_append_failed" + (detail ? ":" + detail : ""));
-  }
-  const j: any = await r.json();
-  return j.person as ExtractedPerson;
 }
 
 export interface AdRenderRecord {
@@ -240,6 +207,11 @@ export interface WebSignalsAppendInput {
   fragments: ExtractedFragment[];
   seed: number;
   adRender?: AdRenderRecord;
+  // Optional consented-Google fold-in: a ready job id from the popup OAuth read
+  // plus the candidate ids the visitor chose to publish. The worker merges them
+  // into the same entry.
+  googleJobId?: string;
+  candidateIds?: string[];
 }
 
 export async function appendWebSignals(payload: WebSignalsAppendInput): Promise<ExtractedPerson> {

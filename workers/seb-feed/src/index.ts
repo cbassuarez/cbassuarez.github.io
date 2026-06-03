@@ -3148,12 +3148,13 @@ async function handleGoogleDpStart(request: Request, env: Env, allowOrigin: stri
     return redirectWithHash(returnTo, "google_error", "rate_limited");
   }
 
+  const mode = url.searchParams.get("mode") === "popup" ? "popup" : "redirect";
   const nonce = randomToken(24);
   const verifier = randomToken(48);
   const issuedAt = Date.now();
   const secret = clean(env.GOOGLE_DP_STATE_SECRET);
   const cookie = await signedToken({ nonce, verifier, issuedAt }, secret);
-  const state = await signedToken({ nonce, returnTo, issuedAt }, secret);
+  const state = await signedToken({ nonce, returnTo, issuedAt, mode }, secret);
   const authUrl = new URL(GOOGLE_DP_AUTH_URL);
   authUrl.searchParams.set("client_id", clean(env.GOOGLE_DP_CLIENT_ID));
   authUrl.searchParams.set("redirect_uri", clean(env.GOOGLE_DP_REDIRECT_URI));
@@ -3176,19 +3177,62 @@ async function handleGoogleDpStart(request: Request, env: Env, allowOrigin: stri
   });
 }
 
+// Popup-mode callback response: an HTML page whose inline script hands the job
+// id (or error) back to the opener via postMessage, then closes itself. Used
+// when the OAuth flow was opened in a popup so the main page never navigated
+// away. targetOrigin is the validated returnTo origin; the payload is escaped
+// for safe inline embedding (the error code can echo an attacker-set query).
+function googleDpPopupResponse(
+  payload: { jobId?: string; error?: string },
+  returnTo: string,
+  extraHeaders?: Record<string, string>
+): Response {
+  let targetOrigin = "*";
+  try {
+    targetOrigin = new URL(returnTo).origin;
+  } catch {
+    // keep "*"
+  }
+  const message = JSON.stringify({ type: "this-person-google", ...payload })
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+  const html =
+    '<!doctype html><meta charset="utf-8"><title>this person</title>' +
+    '<body style="font:14px monospace;padding:2rem">you can close this window.' +
+    "<script>(function(){try{if(window.opener)window.opener.postMessage(" +
+    message +
+    "," +
+    JSON.stringify(targetOrigin) +
+    ");}catch(e){}window.close();})();</script></body>";
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'",
+      ...(extraHeaders || {}),
+    },
+  });
+}
+
 async function handleGoogleDpCallback(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   let returnTo = safeGoogleDpReturnTo("", url);
+  let mode: "popup" | "redirect" = "redirect";
+  const clearCookie = { "set-cookie": clearGoogleDpCookie() };
   const fail = (error: string) =>
-    redirectWithHash(returnTo, "google_error", error, { "set-cookie": clearGoogleDpCookie() });
+    mode === "popup"
+      ? googleDpPopupResponse({ error }, returnTo, clearCookie)
+      : redirectWithHash(returnTo, "google_error", error, clearCookie);
 
   if (!googleDpConfigured(env)) return fail("unconfigured");
   const secret = clean(env.GOOGLE_DP_STATE_SECRET);
   const rawState = clean(url.searchParams.get("state"));
   const state = rawState
-    ? await verifySignedToken<{ nonce: string; returnTo: string; issuedAt: number }>(rawState, secret)
+    ? await verifySignedToken<{ nonce: string; returnTo: string; issuedAt: number; mode?: string }>(rawState, secret)
     : null;
   if (state?.returnTo) returnTo = safeGoogleDpReturnTo(state.returnTo, url);
+  if (state?.mode === "popup") mode = "popup";
 
   const oauthError = clean(url.searchParams.get("error"));
   if (oauthError) return fail(oauthError);
@@ -3222,7 +3266,9 @@ async function handleGoogleDpCallback(request: Request, env: Env): Promise<Respo
       createdAt: now,
       updatedAt: now,
     }, GOOGLE_DP_READY_TTL_SECONDS);
-    return redirectWithHash(returnTo, "google_job", id, { "set-cookie": clearGoogleDpCookie() });
+    return mode === "popup"
+      ? googleDpPopupResponse({ jobId: id }, returnTo, clearCookie)
+      : redirectWithHash(returnTo, "google_job", id, clearCookie);
   } catch (error) {
     return fail(error instanceof Error ? error.message : "google_callback_failed");
   }
@@ -3732,10 +3778,23 @@ async function handleThisPersonWebSignalsAppend(
   // client cannot relabel itself as Google Data Portability.
   if (body && typeof body === "object") body.source = "ad_preferences_surface";
 
-  // Pull the GAM ad-render record off the body before validation so the
-  // generic append parser does not have to know about it.
+  // Pull the GAM ad-render record and the optional consented-Google selection
+  // off the body before validation so the generic append parser does not have
+  // to know about them.
   const adRenderRaw = body && typeof body === "object" ? (body as any).adRender : null;
-  if (body && typeof body === "object") delete (body as any).adRender;
+  const googleJobId =
+    body && typeof body === "object" ? validGoogleJobId((body as any).googleJobId) : "";
+  const candidateIds: string[] =
+    body && typeof body === "object" && Array.isArray((body as any).candidateIds)
+      ? (body as any).candidateIds
+          .map(clean)
+          .filter((x: string) => /^[A-Za-z0-9_-]{4,32}$/.test(x))
+      : [];
+  if (body && typeof body === "object") {
+    delete (body as any).adRender;
+    delete (body as any).googleJobId;
+    delete (body as any).candidateIds;
+  }
 
   const parsed = parseTpAppendRequest(body);
   if (!parsed.ok) {
@@ -3777,16 +3836,54 @@ async function handleThisPersonWebSignalsAppend(
       headers: jsonHeaders(allowOrigin),
     });
   }
+
+  // Optional Google fold-in: the popup OAuth callback stored a ready job of
+  // sanitized candidates. If the client passed a job id + selected ids, merge
+  // those into the same entry so one append yields one portrait.
+  let mergedFragments = allFragments;
+  let mergedClaims = generated.claims;
+  let mergedHints = platformHints;
+  let mergedText = generated.generatedText;
+  let mergedSummary = generated.extractionSummary;
+  if (googleJobId && candidateIds.length) {
+    const job = await getGoogleJob(env, googleJobId);
+    if (job && job.stage === "ready" && Array.isArray(job.candidates)) {
+      const wanted = new Set(candidateIds);
+      const selected = job.candidates.filter((candidate) => wanted.has(candidate.id));
+      if (selected.length) {
+        const g = buildGoogleProfileEntry(selected);
+        const seen = new Set(mergedFragments.map((f) => f.value.toLowerCase()));
+        const extraFragments = g.fragments.filter((f) => {
+          const key = f.value.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        mergedFragments = [...mergedFragments, ...extraFragments].slice(0, TP_LIMITS.MAX_FRAGMENTS);
+        mergedClaims = [...mergedClaims, ...g.claims].slice(0, TP_LIMITS.MAX_CLAIMS);
+        mergedHints = [
+          ...platformHints,
+          "Google account (consented)",
+          "YouTube Data API",
+          "Google People API",
+        ];
+        mergedText = [generated.generatedText, g.generatedText].filter(Boolean).join("\n\n");
+        mergedSummary = generated.extractionSummary + " " + g.extractionSummary;
+        await deleteGoogleJob(env, googleJobId);
+      }
+    }
+  }
+
   const person: TpPerson = {
     id: "0000",
     publicNumber: 0,
     source,
     status: "extracted_and_appended",
-    platformHints,
-    fragments: allFragments,
-    claims: generated.claims,
-    generatedText: generated.generatedText,
-    extractionSummary: generated.extractionSummary,
+    platformHints: mergedHints,
+    fragments: mergedFragments,
+    claims: mergedClaims,
+    generatedText: mergedText,
+    extractionSummary: mergedSummary,
     appendedAtOrder: 0,
   };
   const inner = new URL(request.url);

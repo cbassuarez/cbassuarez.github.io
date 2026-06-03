@@ -3,7 +3,7 @@
 An art piece in the shape of an ordinary page load.
 
 A visitor presses one button. The page does exactly what almost every
-commercial site does silently against its visitors:
+commercial site does silently against its visitors, all in one flow:
 
 1. asks Chrome for the topics it has decided this browser is interested in
    this week (the Topics API);
@@ -11,9 +11,16 @@ commercial site does silently against its visitors:
    surface, and Privacy-Sandbox feature presence;
 3. fires real Google Ads / GA4 and Meta Pixel beacons against this browser,
    using configured IDs (so the visitor's real Google and Meta ad profiles
-   are touched, for real);
-4. shows the visitor the exact payload, in third-person, before anything is
-   appended to the public wall.
+   are touched, for real), and renders a real Google Ad Manager slot;
+4. when configured, opens a Google sign-in in a **popup** (the main page never
+   navigates away) and reads, on consent, what the account hands over —
+   YouTube subscriptions + likes and profile demographics;
+5. assembles the served ad, the browser reads, and the Google account data
+   into one combined review, in third-person, then appends a single merged
+   entry to the public wall.
+
+The Google sign-in is optional enrichment: decline it, close the popup, or
+have it blocked, and the flow proceeds with the silent read alone.
 
 Browser history itself is not exposed to JavaScript — the Topics list is
 Chrome's projection of history into the v2 ad-targeting taxonomy. Nothing

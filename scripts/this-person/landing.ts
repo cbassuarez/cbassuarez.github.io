@@ -9,12 +9,11 @@
 // names via the GAM REST API. The result becomes a third-person wall entry.
 
 import {
-  appendGoogleDp,
+  apiBase,
   appendWebSignals,
   fetchConfig,
-  googleDpStartUrl,
+  googleDpPopupStartUrl,
   pollGoogleDpJob,
-  readGoogleDpReturn,
   resolveAdRender,
   type AdRenderRecord,
   type Config,
@@ -363,7 +362,8 @@ function showReview(
   root: HTMLElement,
   config: Config,
   reading: SignalsReading,
-  ad: AdResult | null
+  ad: AdResult | null,
+  google: GoogleController
 ): void {
   const payload = buildAppendPayload(reading);
   if (ad) payload.adRender = ad.render;
@@ -443,8 +443,12 @@ function showReview(
   appendButton.addEventListener("click", async () => {
     appendButton.disabled = true;
     appendButton.textContent = "appending…";
+    const selection = google.getSelection();
+    const body = selection
+      ? { ...payload, googleJobId: selection.jobId, candidateIds: selection.candidateIds }
+      : payload;
     try {
-      const person = await appendWebSignals(payload);
+      const person = await appendWebSignals(body);
       clear(root);
       root.append(
         chamberPanel(
@@ -485,17 +489,18 @@ function showReview(
       fingerprintBlock(reading),
       privacyBlock(reading),
       firedTagsBlock(reading),
+      google.enabled ? google.el : false,
       h(
         "section",
         { class: "chamber-panel" },
         h("h2", { class: "flow-title", text: "preview of the public entry" }),
         previewClaims.length
           ? buildEntry("####", "ad_preferences_surface", previewClaims, {
-              summary: "preview — the worker rewrites these claims on append from the validated fragment list.",
+              summary: "preview — the worker rewrites these claims on append from the validated fragment list. anything you check in the Google panel is merged in too.",
             })
-          : h("p", { class: "flow-text--small", text: "nothing extracted — there is no entry to append yet." })
+          : h("p", { class: "flow-text--small", text: "nothing extracted yet from the browser surface — the Google panel above can still add claims." })
       ),
-      previewClaims.length
+      previewClaims.length || google.enabled
         ? h("div", { class: "flow-actions" }, appendButton)
         : h("p", { class: "flow-text--small", text: "no claims could be drawn from this browser's surface." }),
       message,
@@ -512,7 +517,13 @@ function showReview(
   void config;
 }
 
-async function runFlow(root: HTMLElement, config: Config): Promise<void> {
+async function runUnifiedFlow(root: HTMLElement, config: Config): Promise<void> {
+  // The Google popup MUST open synchronously in this user-gesture turn (this
+  // function is called directly from the consent button's click), or the
+  // browser blocks it. Open it first, then run the silent reads; both proceed
+  // concurrently and converge in the one combined review.
+  const google = startGooglePopup(config);
+
   showCollecting(root, "asking the browser what it tells advertisers…");
 
   // Run web-signals collection and the GAM slot render in parallel. The slot
@@ -558,6 +569,7 @@ async function runFlow(root: HTMLElement, config: Config): Promise<void> {
     await Promise.all([signalsTask, adTask]);
   } catch (err) {
     slotStage.remove();
+    google.cancel();
     showFailure(root, (err as Error)?.message || "the collection step failed.", () =>
       showStart(root, config)
     );
@@ -566,6 +578,7 @@ async function runFlow(root: HTMLElement, config: Config): Promise<void> {
 
   if (!signals) {
     slotStage.remove();
+    google.cancel();
     showFailure(root, "the collection step returned nothing.", () => showStart(root, config));
     return;
   }
@@ -576,7 +589,7 @@ async function runFlow(root: HTMLElement, config: Config): Promise<void> {
     slotStage.removeChild(ad.slotNode);
   }
   slotStage.remove();
-  showReview(root, config, signals, ad);
+  showReview(root, config, signals, ad, google);
 }
 
 function showConsentModal(
@@ -600,6 +613,10 @@ function showConsentModal(
       ? h("li", {}, "renders a real ", h("strong", { text: "Google Ad Manager slot" }),
           " and resolves the winning advertiser to its display name via the GAM API.")
       : false,
+    config.googleDp.enabled
+      ? h("li", {}, "opens a ", h("strong", { text: "Google sign-in in a small window" }),
+          " so it can also read what your account hands over — ", h("strong", { text: "YouTube subscriptions + likes and your profile demographics" }), ".")
+      : false,
     h("li", {}, "publishes a third-person entry on a ", h("strong", { text: "public" }),
         " wall keyed to a number, not to your identity.")
   );
@@ -608,7 +625,7 @@ function showConsentModal(
     "ul",
     { class: "consent-list consent-list--quiet" },
     h("li", {}, h("strong", { text: "What this is not: " }),
-      "the page cannot read your Google profile, your purchase history, or what other sites know about you. Pixel and gtag are write-only — they tell the ad stack about you but do not hand its inferences back."),
+      "the silent reads cannot reach your Google profile, your purchase history, or what other sites know about you — pixel and gtag are write-only. The only way account data enters this is the Google sign-in, which you complete yourself and can skip."),
     h("li", {}, h("strong", { text: "Specificity is best-effort: " }),
       "expect device + Topics rows at minimum. ‘this person likes Patagonia’-style rows only appear when GAM returns a bid with a resolvable advertiser, or when Topics returns something narrow."),
     h("li", {}, h("strong", { text: "Persistence: " }),
@@ -645,23 +662,7 @@ function showConsentModal(
           onAccept();
         },
       })
-    ),
-    config.googleDp.enabled
-      ? h(
-          "p",
-          { class: "flow-text--small consent-google" },
-          "or skip the silent read and ",
-          h("button", {
-            class: "action action--link",
-            type: "button",
-            text: "hand over the profile Google keeps on you",
-            onClick: () => {
-              overlay.remove();
-              startGoogleDp();
-            },
-          })
-        )
-      : false
+    )
   );
 
   overlay.appendChild(dialog);
@@ -691,7 +692,7 @@ function showStart(root: HTMLElement, config: Config): void {
       showConsentModal(
         config,
         () => {
-          void runFlow(root, config);
+          void runUnifiedFlow(root, config);
         },
         () => {
           // user backed out; leave them on the landing
@@ -699,18 +700,6 @@ function showStart(root: HTMLElement, config: Config): void {
       );
     },
   });
-
-  const actions = h("div", { class: "flow-actions" }, beginButton);
-  if (config.googleDp.enabled) {
-    actions.append(
-      h("button", {
-        class: "action action--large",
-        type: "button",
-        text: "or: hand over what your Google account knows",
-        onClick: () => startGoogleDp(),
-      })
-    );
-  }
 
   root.append(
     h(
@@ -729,13 +718,7 @@ function showStart(root: HTMLElement, config: Config): void {
         text: "a repository of people who chose extraction",
       }),
       h("p", { class: "flow-text--small", text: tagsLine(config) }),
-      actions,
-      config.googleDp.enabled
-        ? h("p", {
-            class: "flow-text--small",
-            text: "the first reads what your browser leaks. the second asks Google for the profile it keeps on you, and you hand it over yourself.",
-          })
-        : false,
+      h("div", { class: "flow-actions" }, beginButton),
       h("a", { class: "hero__link", href: "wall/", text: "view the repository" }),
       h("a", { class: "hero__link", href: "/", text: "home" })
     )
@@ -746,173 +729,48 @@ function currentReturnTo(): string {
   return location.origin + location.pathname + location.search;
 }
 
-// Kicks off the Google Data Portability OAuth round-trip. This navigates the
-// whole page to the worker, then to Google's consent screen; the callback
-// redirects back here with a job id in the hash, which main() resumes on.
-function startGoogleDp(): void {
-  window.location.href = googleDpStartUrl(currentReturnTo());
-}
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function showGoogleWorking(root: HTMLElement, message: string): void {
-  clear(root);
-  root.append(
-    chamberPanel(
-      h("h1", { class: "flow-title", text: "asking Google for the profile it keeps on you" }),
-      h("p", { class: "flow-working", text: message }),
-      h("p", {
-        class: "flow-text--small",
-        text: "Reading your YouTube subscriptions and likes and your Google profile demographics. This should only take a moment.",
-      })
-    )
-  );
 }
 
 function googleErrorText(code: string): string {
   switch (code) {
     case "access_denied":
-      return "you declined the Google consent, so nothing was exported.";
+      return "you declined the Google sign-in, so nothing from your account was read.";
     case "unconfigured":
-      return "the Google export flow is not configured on this worker.";
+      return "the Google sign-in is not configured on this worker.";
     case "rate_limited":
-      return "too many attempts just now — wait a moment and try again.";
+      return "too many Google attempts just now — wait a moment and retry.";
     case "bad_state":
     case "bad_cookie":
-      return "the sign-in round-trip expired or did not match. start it again.";
+      return "the sign-in round-trip expired or did not match. retry.";
+    case "popup_blocked":
+      return "the sign-in window was blocked. allow popups for this site and retry.";
+    case "closed":
+      return "the sign-in window closed before finishing.";
     case "timeout":
-      return "Google did not finish the export in time. it may still complete — try again in a minute.";
+      return "Google did not answer in time. retry.";
     case "network":
-      return "the connection to the worker dropped while polling for the export.";
+      return "the connection to the worker dropped while reading your account.";
     default:
-      return "the Google export did not complete (" + code + ").";
+      return "the Google sign-in did not complete (" + code + ").";
   }
 }
 
-function showGoogleError(root: HTMLElement, config: Config, code: string): void {
-  clear(root);
-  root.append(
-    chamberPanel(
-      h("h1", { class: "flow-title", text: "google export did not complete" }),
-      h("p", { class: "flow-text", text: googleErrorText(code) }),
-      h("p", { class: "flow-text--small", text: "nothing was appended." }),
-      h(
-        "div",
-        { class: "flow-actions" },
-        config.googleDp.enabled
-          ? h("button", {
-              class: "action action--primary",
-              type: "button",
-              text: "try again",
-              onClick: () => startGoogleDp(),
-            })
-          : false,
-        h("button", {
-          class: "action action--quiet",
-          type: "button",
-          text: "back to start",
-          onClick: () => showStart(root, config),
-        }),
-        h("a", { class: "action action--quiet", href: "wall/", text: "view the repository" })
-      )
-    )
-  );
-}
-
-function showGoogleEmpty(root: HTMLElement, config: Config): void {
-  clear(root);
-  root.append(
-    chamberPanel(
-      h("h1", { class: "flow-title", text: "Google returned nothing to show" }),
-      h("p", {
-        class: "flow-text",
-        text: "The account read came back empty — no YouTube subscriptions or likes we could read, and no profile demographics shared. That can mean this account has little YouTube activity, or the profile fields are not set.",
-      }),
-      h(
-        "div",
-        { class: "flow-actions" },
-        h("button", {
-          class: "action action--quiet",
-          type: "button",
-          text: "back to start",
-          onClick: () => showStart(root, config),
-        }),
-        h("a", { class: "action action--quiet", href: "wall/", text: "view the repository" })
-      )
-    )
-  );
-}
-
-async function runGoogleFlow(root: HTMLElement, config: Config, jobId: string): Promise<void> {
-  showGoogleWorking(root, "exchanging your authorization and requesting the archive…");
-  const startedAt = Date.now();
-  const maxMs = 3 * 60 * 1000;
-  const intervalMs = 2500;
-
-  for (;;) {
-    let result;
-    try {
-      result = await pollGoogleDpJob(jobId);
-    } catch {
-      showGoogleError(root, config, "network");
-      return;
-    }
-    if (result.state === "in_progress") {
-      if (Date.now() - startedAt > maxMs) {
-        showGoogleError(root, config, "timeout");
-        return;
-      }
-      showGoogleWorking(
-        root,
-        "Google is still building the export… (" + Math.round((Date.now() - startedAt) / 1000) + "s)"
-      );
-      await delay(intervalMs);
-      continue;
-    }
-    if (result.state === "failed") {
-      showGoogleError(root, config, result.error || "failed");
-      return;
-    }
-    if (result.state === "empty") {
-      showGoogleEmpty(root, config);
-      return;
-    }
-    showGoogleReview(root, config, jobId, result.candidates);
-    return;
-  }
-}
-
-function showGoogleReview(
-  root: HTMLElement,
-  config: Config,
-  jobId: string,
-  candidates: GoogleAdInterestCandidate[]
-): void {
-  const selected = new Set<string>(candidates.map((c) => c.id));
-
-  const appendButton = h("button", {
-    class: "action action--primary action--large",
-    type: "button",
-  }) as HTMLButtonElement;
-  const message = h("p", { class: "flow-text", text: "" });
-
-  const updateButton = (): void => {
-    appendButton.disabled = selected.size === 0;
-    appendButton.textContent =
-      selected.size === 0
-        ? "select at least one to append"
-        : "append " + selected.size + " to the repository";
-  };
-
+// Renders the checkbox list of Google candidates; toggling mutates `selected`.
+function googleCandidateList(
+  candidates: GoogleAdInterestCandidate[],
+  selected: Set<string>
+): HTMLElement {
   const rows = candidates.map((candidate) => {
-    const checkbox = h("input", { type: "checkbox", class: "google-candidate__check" }) as HTMLInputElement;
-    checkbox.checked = true;
+    const checkbox = h("input", {
+      type: "checkbox",
+      class: "google-candidate__check",
+    }) as HTMLInputElement;
+    checkbox.checked = selected.has(candidate.id);
     checkbox.addEventListener("change", () => {
       if (checkbox.checked) selected.add(candidate.id);
       else selected.delete(candidate.id);
-      updateButton();
     });
     return h(
       "li",
@@ -929,61 +787,213 @@ function showGoogleReview(
       })
     );
   });
+  return h("ul", { class: "google-candidate-list" }, ...rows);
+}
 
-  updateButton();
+type GoogleState = "disabled" | "pending" | "ready" | "empty" | "skipped" | "failed";
 
-  appendButton.addEventListener("click", async () => {
-    if (selected.size === 0) return;
-    appendButton.disabled = true;
-    appendButton.textContent = "appending…";
+// The Google account read runs in a popup so the main page never navigates.
+// The controller owns the popup lifecycle, a live section node for the review,
+// and the visitor's candidate selection. It degrades gracefully: if the popup
+// is blocked, closed, errors, or the account/region can't, the section says so
+// and the single append simply proceeds with the silent read.
+interface GoogleController {
+  enabled: boolean;
+  el: HTMLElement;
+  getSelection(): { jobId: string; candidateIds: string[] } | null;
+  cancel(): void;
+}
+
+function startGooglePopup(config: Config): GoogleController {
+  const el = h("section", { class: "chamber-panel google-section" });
+  const selected = new Set<string>();
+
+  if (!config.googleDp.enabled) {
+    return { enabled: false, el, getSelection: () => null, cancel: () => {} };
+  }
+
+  let state: GoogleState = "pending";
+  let jobId = "";
+  let errorCode = "";
+  let candidates: GoogleAdInterestCandidate[] = [];
+  let popup: Window | null = null;
+  let closedTimer: ReturnType<typeof setInterval> | null = null;
+  let done = false;
+
+  const apiOrigin = (() => {
     try {
-      const person = await appendGoogleDp(jobId, [...selected]);
-      clear(root);
-      root.append(
-        chamberPanel(
-          stepIndicator("appended"),
-          h("h1", { class: "flow-title", text: "this person has been appended." }),
-          h("p", { class: "flow-done-id", text: "this person #" + person.id }),
-          buildEntry(person.id, person.source, person.claims, { summary: person.extractionSummary }),
-          h(
-            "div",
-            { class: "flow-actions" },
-            h("a", { class: "action action--primary", href: "wall/", text: "view the repository" }),
-            h("a", { class: "action action--quiet", href: "/", text: "home" }),
-            h("a", { class: "action action--quiet", href: "./", text: "start over" })
-          )
-        )
-      );
-    } catch (err) {
-      updateButton();
-      message.textContent = "append failed: " + ((err as Error)?.message || "unknown");
+      return new URL(apiBase()).origin;
+    } catch {
+      return "";
     }
-  });
+  })();
 
-  clear(root);
-  root.append(
-    h(
+  function retryButton(label: string): HTMLElement {
+    return h(
       "div",
-      { class: "flow-panel" },
-      stepIndicator("review"),
-      h("h1", { class: "flow-title", text: "this is what your Google account hands over" }),
-      h("p", {
-        class: "flow-text",
-        text: "Pulled live from your account on consent: YouTube subscriptions and likes, plus the demographics on your Google profile. Pick the ones to publish as a third-person entry, or close the tab and nothing public happens.",
-      }),
-      h("ul", { class: "google-candidate-list" }, ...rows),
-      h("div", { class: "flow-actions" }, appendButton),
-      message,
-      h(
-        "div",
-        { class: "flow-actions" },
-        h("a", { class: "action action--quiet", href: "wall/", text: "view the repository" }),
-        h("a", { class: "action action--quiet", href: "./", text: "start over" })
-      )
-    )
-  );
+      { class: "flow-actions" },
+      h("button", {
+        class: "action action--link",
+        type: "button",
+        text: label,
+        onClick: () => openPopup(),
+      })
+    );
+  }
 
-  void config;
+  const render = (): void => {
+    clear(el);
+    el.append(h("h2", { class: "flow-title", text: "what your Google account hands over" }));
+    if (state === "pending") {
+      el.append(
+        h("p", { class: "flow-working", text: "waiting for Google sign-in in the popup window…" }),
+        h("p", {
+          class: "flow-text--small",
+          text: "finish signing in there and this fills with your YouTube subscriptions + likes and profile demographics. you can append without it.",
+        }),
+        retryButton("open the sign-in window again")
+      );
+      return;
+    }
+    if (state === "ready") {
+      el.append(
+        h("p", {
+          class: "flow-text--small",
+          text: "pulled live from your account on consent. uncheck anything you don't want published.",
+        }),
+        googleCandidateList(candidates, selected)
+      );
+      return;
+    }
+    if (state === "empty") {
+      el.append(
+        h("p", {
+          class: "flow-text--small",
+          text: "Google returned nothing readable — little YouTube activity, or no profile fields set. appending the browser read only.",
+        })
+      );
+      return;
+    }
+    el.append(
+      h("p", {
+        class: "flow-text--small",
+        text:
+          state === "skipped"
+            ? "Google sign-in was not completed. appending the browser read only."
+            : googleErrorText(errorCode),
+      }),
+      retryButton("try the Google sign-in")
+    );
+  };
+
+  const poll = async (id: string): Promise<void> => {
+    const startedAt = Date.now();
+    const maxMs = 90 * 1000;
+    for (;;) {
+      let result;
+      try {
+        result = await pollGoogleDpJob(id);
+      } catch {
+        state = "failed";
+        errorCode = "network";
+        render();
+        return;
+      }
+      if (result.state === "in_progress") {
+        if (Date.now() - startedAt > maxMs) {
+          state = "failed";
+          errorCode = "timeout";
+          render();
+          return;
+        }
+        await delay(1500);
+        continue;
+      }
+      if (result.state === "failed") {
+        state = "failed";
+        errorCode = result.error || "failed";
+        render();
+        return;
+      }
+      if (result.state === "empty") {
+        state = "empty";
+        render();
+        return;
+      }
+      candidates = result.candidates;
+      for (const candidate of candidates) selected.add(candidate.id);
+      jobId = id;
+      state = "ready";
+      render();
+      return;
+    }
+  };
+
+  const onMessage = (ev: MessageEvent): void => {
+    if (apiOrigin && ev.origin !== apiOrigin) return;
+    const data = ev.data as { type?: string; jobId?: string; error?: string } | null;
+    if (!data || data.type !== "this-person-google") return;
+    done = true;
+    if (closedTimer) clearInterval(closedTimer);
+    if (data.error) {
+      state = "failed";
+      errorCode = data.error;
+      render();
+      return;
+    }
+    if (data.jobId) {
+      state = "pending";
+      render();
+      void poll(data.jobId);
+    }
+  };
+
+  function openPopup(): void {
+    done = false;
+    window.addEventListener("message", onMessage);
+    popup = window.open(
+      googleDpPopupStartUrl(currentReturnTo()),
+      "tp_google",
+      "popup,width=480,height=760"
+    );
+    if (!popup) {
+      state = "skipped";
+      errorCode = "popup_blocked";
+      render();
+      return;
+    }
+    state = "pending";
+    render();
+    if (closedTimer) clearInterval(closedTimer);
+    closedTimer = setInterval(() => {
+      if (popup && popup.closed && !done && state === "pending") {
+        if (closedTimer) clearInterval(closedTimer);
+        state = "skipped";
+        errorCode = "closed";
+        render();
+      }
+    }, 1000);
+  }
+
+  openPopup();
+
+  return {
+    enabled: true,
+    el,
+    getSelection: () =>
+      state === "ready" && jobId && selected.size > 0
+        ? { jobId, candidateIds: [...selected] }
+        : null,
+    cancel: () => {
+      window.removeEventListener("message", onMessage);
+      if (closedTimer) clearInterval(closedTimer);
+      try {
+        if (popup && !popup.closed) popup.close();
+      } catch {
+        // ignore
+      }
+    },
+  };
 }
 
 async function main(): Promise<void> {
@@ -1005,19 +1015,6 @@ async function main(): Promise<void> {
       gam: { enabled: false, networkCode: null, adUnitPath: null, sizes: [[300, 250]] },
       googleDp: { enabled: false },
     };
-  }
-
-  // If we just came back from the Google OAuth round-trip, the callback left a
-  // job id (or an error) in the URL hash. Resume straight into the Google
-  // results flow rather than dropping the visitor back on the start screen.
-  const googleReturn = readGoogleDpReturn();
-  if (googleReturn.jobId) {
-    void runGoogleFlow(root, config, googleReturn.jobId);
-    return;
-  }
-  if (googleReturn.error) {
-    showGoogleError(root, config, googleReturn.error);
-    return;
   }
 
   showStart(root, config);
