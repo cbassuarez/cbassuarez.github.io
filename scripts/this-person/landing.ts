@@ -321,19 +321,26 @@ function adSlotBlock(config: Config, ad: AdResult | null): HTMLElement {
   return wrapper;
 }
 
-function showCollecting(root: HTMLElement, message: string, adStage?: HTMLElement): void {
+interface CollectingView {
+  panel: HTMLElement;
+  adFrame: HTMLElement | null;
+}
+
+function showCollecting(root: HTMLElement, message: string, adStage?: HTMLElement): CollectingView {
   clear(root);
   const panel = chamberPanel(
     stepIndicator("collect"),
     h("h1", { class: "flow-title", text: "exposing the surface" }),
     h("p", { class: "flow-working", text: message })
   );
+  let adFrame: HTMLElement | null = null;
   if (adStage) {
-    const frame = h("div", { class: "ad-slot-frame" });
-    frame.appendChild(adStage);
-    panel.appendChild(frame);
+    adFrame = h("div", { class: "ad-slot-frame" });
+    adFrame.appendChild(adStage);
+    panel.appendChild(adFrame);
   }
   root.append(panel);
+  return { panel, adFrame };
 }
 
 function showFailure(root: HTMLElement, message: string, retry: () => void): void {
@@ -359,12 +366,40 @@ function showFailure(root: HTMLElement, message: string, retry: () => void): voi
   );
 }
 
+function adLinesList(lines: string[]): HTMLElement {
+  return h(
+    "ul",
+    { class: "fragment-list" },
+    ...lines.map((line) =>
+      h(
+        "li",
+        { class: "fragment" },
+        h("span", { class: "fragment__value", text: line })
+      )
+    )
+  );
+}
+
+function preparePreservedAdFrame(
+  frame: HTMLElement,
+  config: Config,
+  ad: AdResult | null
+): void {
+  const liveSlot = ad?.slotNode && !ad.render.isEmpty && frame.contains(ad.slotNode)
+    ? ad.slotNode
+    : null;
+  if (liveSlot) return;
+  clear(frame);
+  frame.appendChild(adSlotPlaceholder(config, ad));
+}
+
 function showReview(
   root: HTMLElement,
   config: Config,
   reading: SignalsReading,
   ad: AdResult | null,
-  google: GoogleController
+  google: GoogleController,
+  preservedAdFrame?: HTMLElement | null
 ): void {
   const payload = buildAppendPayload(reading);
   if (ad) payload.adRender = ad.render;
@@ -473,45 +508,79 @@ function showReview(
     }
   });
 
+  const introNodes = [
+    stepIndicator("review"),
+    h("h1", { class: "flow-title", text: "this is what the industry just saw" }),
+    h("p", {
+      class: "flow-text",
+      text: "Everything below was read from this browser, sent out from it, or served to it in the last few seconds. Review and append, or close the tab and nothing public happens.",
+    }),
+    h("h2", { class: "flow-title", text: "the ad Google served to this person" }),
+    h("p", {
+      class: "flow-text--small",
+      text:
+        "the real creative GAM returns for this slot. its bidder, line item, and brand are what end up in the entry.",
+    }),
+  ];
+
+  const adLines = ad ? adResolutionLines(ad) : [];
+  const tailNodes: (Node | false)[] = [
+    adLines.length ? adLinesList(adLines) : false,
+    topicsBlock(reading),
+    clientHintsBlock(reading),
+    fingerprintBlock(reading),
+    privacyBlock(reading),
+    firedTagsBlock(reading),
+    google.enabled ? google.el : false,
+    h(
+      "section",
+      { class: "chamber-panel" },
+      h("h2", { class: "flow-title", text: "preview of the public entry" }),
+      previewClaims.length
+        ? buildEntry("####", "ad_preferences_surface", previewClaims, {
+            summary: "preview — the worker rewrites these claims on append from the validated fragment list. anything you check in the Google panel is merged in too.",
+          })
+        : h("p", { class: "flow-text--small", text: "nothing extracted yet from the browser surface — the Google panel above can still add claims." })
+    ),
+    previewClaims.length || google.enabled
+      ? h("div", { class: "flow-actions" }, appendButton)
+      : h("p", { class: "flow-text--small", text: "no claims could be drawn from this browser's surface." }),
+    message,
+    h(
+      "div",
+      { class: "flow-actions" },
+      h("a", { class: "action action--quiet", href: "wall/", text: "view the repository" }),
+      h("a", { class: "action action--quiet", href: "/", text: "home" }),
+      h("a", { class: "action action--quiet", href: "./", text: "start over" })
+    ),
+  ];
+
+  if (preservedAdFrame?.isConnected && root.contains(preservedAdFrame)) {
+    const panel = preservedAdFrame.parentElement;
+    if (panel) {
+      for (const child of [...panel.childNodes]) {
+        if (child !== preservedAdFrame) child.remove();
+      }
+      panel.className = "flow-panel";
+      preparePreservedAdFrame(preservedAdFrame, config, ad);
+      for (const node of introNodes) {
+        panel.insertBefore(node, preservedAdFrame);
+      }
+      for (const node of tailNodes) {
+        if (node) panel.appendChild(node);
+      }
+      return;
+    }
+  }
+
   clear(root);
   root.append(
     h(
       "div",
       { class: "flow-panel" },
-      stepIndicator("review"),
-      h("h1", { class: "flow-title", text: "this is what the industry just saw" }),
-      h("p", {
-        class: "flow-text",
-        text: "Everything below was read from this browser, sent out from it, or served to it in the last few seconds. Review and append, or close the tab and nothing public happens.",
-      }),
+      ...introNodes.slice(0, 3),
       adSlotBlock(config, ad),
-      topicsBlock(reading),
-      clientHintsBlock(reading),
-      fingerprintBlock(reading),
-      privacyBlock(reading),
-      firedTagsBlock(reading),
-      google.enabled ? google.el : false,
-      h(
-        "section",
-        { class: "chamber-panel" },
-        h("h2", { class: "flow-title", text: "preview of the public entry" }),
-        previewClaims.length
-          ? buildEntry("####", "ad_preferences_surface", previewClaims, {
-              summary: "preview — the worker rewrites these claims on append from the validated fragment list. anything you check in the Google panel is merged in too.",
-            })
-          : h("p", { class: "flow-text--small", text: "nothing extracted yet from the browser surface — the Google panel above can still add claims." })
-      ),
-      previewClaims.length || google.enabled
-        ? h("div", { class: "flow-actions" }, appendButton)
-        : h("p", { class: "flow-text--small", text: "no claims could be drawn from this browser's surface." }),
-      message,
-      h(
-        "div",
-        { class: "flow-actions" },
-        h("a", { class: "action action--quiet", href: "wall/", text: "view the repository" }),
-        h("a", { class: "action action--quiet", href: "/", text: "home" }),
-        h("a", { class: "action action--quiet", href: "./", text: "start over" })
-      )
+      ...tailNodes
     )
   );
 
@@ -527,7 +596,11 @@ async function runUnifiedFlow(root: HTMLElement, config: Config): Promise<void> 
 
   const shouldRenderGam = !!(config.gam.enabled && config.gam.networkCode && config.gam.adUnitPath);
   const slotStage = shouldRenderGam ? h("div", { class: "ad-slot-stage" }) : null;
-  showCollecting(root, "asking the browser what it tells advertisers…", slotStage || undefined);
+  const collectingView = showCollecting(
+    root,
+    "asking the browser what it tells advertisers…",
+    slotStage || undefined
+  );
 
   // Run web-signals collection and the GAM slot render in parallel. The slot
   // needs to be visible when GPT evaluates it, so the collect panel owns a
@@ -584,13 +657,7 @@ async function runUnifiedFlow(root: HTMLElement, config: Config): Promise<void> 
     return;
   }
 
-  // We're about to render into the review panel — adopt the slot node out of
-  // the collection stage so its render state and event listeners survive.
-  if (slotStage && ad && ad.slotNode && ad.slotNode.parentElement === slotStage) {
-    slotStage.removeChild(ad.slotNode);
-  }
-  slotStage?.remove();
-  showReview(root, config, signals, ad, google);
+  showReview(root, config, signals, ad, google, collectingView.adFrame);
 }
 
 function showConsentModal(
@@ -711,13 +778,11 @@ function showStart(root: HTMLElement, config: Config): void {
       h(
         "p",
         { class: "hero__core" },
-        "this already happens.",
-        h("br"),
-        "this time, you get the page."
+        "digital advertising infrastructure made visible",
       ),
       h("p", {
         class: "hero__secondary",
-        text: "a repository of people who chose extraction",
+        text: "ads, topics, and identity, anonymized and consented to",
       }),
       h("p", { class: "flow-text--small", text: tagsLine(config) }),
       h("div", { class: "flow-actions" }, beginButton),
