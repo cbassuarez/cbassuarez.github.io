@@ -246,6 +246,21 @@ function canvasSnapshotDataUrl(canvas: HTMLCanvasElement): string {
   return canvas.toDataURL("image/jpeg", 0.42);
 }
 
+// The snapshot should frame just the served creative, so the crop target is
+// the rendered ad element — the GPT iframe, or the slot/placeholder when no
+// creative filled — rather than the surrounding .ad-slot-frame chrome.
+function adCaptureTarget(frame: HTMLElement | null): HTMLElement | null {
+  if (!frame) return null;
+  const wide = (el: HTMLElement | null): el is HTMLElement =>
+    !!el && el.getBoundingClientRect().width > 24 && el.getBoundingClientRect().height > 24;
+  const iframe = frame.querySelector<HTMLElement>("iframe");
+  if (wide(iframe)) return iframe;
+  const slot = frame.querySelector<HTMLElement>('[id^="this-person-gam-slot-"]');
+  if (wide(slot)) return slot;
+  const placeholder = frame.querySelector<HTMLElement>(".ad-slot-placeholder");
+  return placeholder || frame;
+}
+
 async function captureSnapshot(target: HTMLElement | null): Promise<ExtractedSnapshot> {
   const mediaDevices = navigator.mediaDevices as (MediaDevices & {
     getDisplayMedia?: (constraints?: DisplayMediaStreamOptions & Record<string, unknown>) => Promise<MediaStream>;
@@ -264,6 +279,30 @@ async function captureSnapshot(target: HTMLElement | null): Promise<ExtractedSna
     preferCurrentTab: true,
   } as DisplayMediaStreamOptions & Record<string, unknown>);
 
+  // Region Capture crops the tab stream to the ad element in the browser
+  // compositor, so the produced frames are just the served creative — no
+  // dependence on mapping viewport coordinates onto the captured surface.
+  const track = stream.getVideoTracks()[0] as MediaStreamTrack & {
+    cropTo?: (target: unknown) => Promise<void>;
+  };
+  const cropTargetFactory = (window as unknown as {
+    CropTarget?: { fromElement?: (el: Element) => Promise<unknown> };
+  }).CropTarget;
+  let regionCropped = false;
+  if (
+    target &&
+    typeof cropTargetFactory?.fromElement === "function" &&
+    typeof track?.cropTo === "function"
+  ) {
+    try {
+      const cropTarget = await cropTargetFactory.fromElement(target);
+      await track.cropTo(cropTarget);
+      regionCropped = true;
+    } catch {
+      regionCropped = false;
+    }
+  }
+
   const video = document.createElement("video");
   video.muted = true;
   video.playsInline = true;
@@ -271,6 +310,8 @@ async function captureSnapshot(target: HTMLElement | null): Promise<ExtractedSna
   try {
     await loadedVideo(video);
     await video.play();
+    // Let the crop take effect before sampling a frame.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
     const videoWidth = video.videoWidth;
@@ -279,12 +320,13 @@ async function captureSnapshot(target: HTMLElement | null): Promise<ExtractedSna
     let sy = 0;
     let sw = videoWidth;
     let sh = videoHeight;
-    let targetKind: ExtractedSnapshot["target"] = "page";
+    let targetKind: ExtractedSnapshot["target"] = regionCropped ? "ad_slot" : "page";
 
     const rect = target?.getBoundingClientRect();
     const viewportRatio = window.innerWidth / Math.max(1, window.innerHeight);
     const videoRatio = videoWidth / Math.max(1, videoHeight);
     const canMapToViewport =
+      !regionCropped &&
       !!rect &&
       rect.width > 24 &&
       rect.height > 24 &&
@@ -359,8 +401,8 @@ function adResolutionLines(result: AdResult): string[] {
 function adSlotPlaceholder(config: Config, ad: AdResult | null): HTMLElement {
   const placeholder = h("div", { class: "ad-slot-placeholder" });
   const primary = config.gam.sizes[0] || [300, 250];
-  placeholder.style.minWidth = primary[0] + "px";
-  placeholder.style.minHeight = primary[1] + "px";
+  placeholder.style.setProperty("--ad-slot-width", primary[0] + "px");
+  placeholder.style.setProperty("--ad-slot-height", primary[1] + "px");
 
   let label = "ad slot";
   let note = "";
@@ -598,11 +640,11 @@ function showReview(
     message.textContent = "choose this tab or window so the served ad can be remembered with the entry.";
     let snapshot: ExtractedSnapshot;
     try {
-      const target =
+      const frame =
         collectingView?.adFrame?.isConnected
           ? collectingView.adFrame
           : (root.querySelector(".ad-slot-frame") as HTMLElement | null);
-      snapshot = await captureSnapshot(target);
+      snapshot = await captureSnapshot(adCaptureTarget(frame));
     } catch (err) {
       appendButton.disabled = false;
       appendButton.textContent = "append snapshot to the repository";
@@ -647,12 +689,15 @@ function showReview(
     }
   });
 
-  const introNodes = [
+  const headerNodes = [
     h("h1", { class: "flow-title", text: "this is what the industry just saw" }),
     h("p", {
       class: "flow-text",
       text: "Everything below was read from this browser, sent out from it, or served to it in the last few seconds. Review and append, or close the tab and nothing public happens.",
     }),
+  ];
+
+  const introNodes = [
     h("h2", { class: "flow-title", text: "the ad Google served to this person" }),
     h("p", {
       class: "flow-text--small",
@@ -674,7 +719,6 @@ function showReview(
           })
         : h("p", { class: "flow-text--small", text: "the ad snapshot is the primary entry object. any checked Google account rows are merged in too." })
     ),
-    diagnosticsBlock(reading, adLines),
     h("div", { class: "flow-actions" }, appendButton),
     message,
     h(
@@ -684,6 +728,7 @@ function showReview(
       h("a", { class: "action action--quiet", href: "/", text: "home" }),
       h("a", { class: "action action--quiet", href: "./", text: "start over" })
     ),
+    diagnosticsBlock(reading, adLines),
   ];
 
   const panel = collectingView?.panel || null;
@@ -709,9 +754,12 @@ function showReview(
     for (const node of rightNodes) {
       if (node) rightColumn.appendChild(node);
     }
+    panel.querySelector(".review-header")?.remove();
+    const reviewHeader = h("div", { class: "review-header" }, ...headerNodes);
+    panel.insertBefore(reviewHeader, leftColumn);
     const existingSteps = panel.querySelector(".chamber-steps");
     if (existingSteps) existingSteps.replaceWith(stepIndicator("review"));
-    else panel.insertBefore(stepIndicator("review"), leftColumn);
+    else panel.insertBefore(stepIndicator("review"), reviewHeader);
     return;
   }
 
@@ -728,6 +776,7 @@ function showReview(
       "div",
       { class: "review-layout" },
       stepIndicator("review"),
+      h("div", { class: "review-header" }, ...headerNodes),
       leftColumnFallback,
       h("section", { class: "review-column review-column--secondary" }, ...rightNodes)
     )

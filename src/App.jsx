@@ -1317,7 +1317,7 @@ function ThisPersonLabPage({ pathname }) {
       title="this person"
       src={thisPersonStaticSrc(pathname)}
       onLoad={(event) => wireIframeTopNavigation(event.currentTarget)}
-      style={{ width: '100%', height: '100vh', border: 0, display: 'block' }}
+      style={{ width: '100%', height: '100dvh', minHeight: '100vh', border: 0, display: 'block' }}
     />
   );
 }

@@ -15,8 +15,6 @@
     <p class="wall-masthead__line">participants enter as users. they leave as entries.</p>
   </header>
 
-  <main id="wall" class="wall" aria-live="polite" aria-label="the repository of extracted persons"></main>
-
   <aside class="wall-qr">
     <p class="wall-qr__label">scan to be extracted</p>
     <canvas id="qr" class="wall-qr__canvas" width="320" height="320" aria-label="QR code to the consent route"></canvas>
@@ -24,6 +22,8 @@
     <p class="wall-qr__meta"><span id="count">0</span> extracted &middot; <span id="status">connecting</span></p>
     <p id="source-mix" class="wall-qr__mix"></p>
   </aside>
+
+  <main id="wall" class="wall" aria-live="polite" aria-label="the repository of extracted persons"></main>
 
   <script src="../wall.bundle.js?v=25dec3ff6e" defer></script>
 </body>

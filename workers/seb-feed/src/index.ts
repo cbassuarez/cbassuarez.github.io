@@ -204,8 +204,31 @@ const jsonHeaders = (origin: string) => ({
   "access-control-allow-headers": "content-type,authorization",
   "cache-control": "no-store",
   "content-type": "application/json; charset=utf-8",
+  vary: "origin",
   link: DISCOVERY_LINK_HEADER,
 });
+
+// CORS allow-origin is computed per request: the configured FEED_ALLOW_ORIGIN
+// (which may be a comma-separated allowlist) plus any localhost/127.0.0.1 dev
+// origin. When the caller's Origin is allowed we reflect it back so credentialed
+// fetches from local dev work; otherwise we fall back to the first configured
+// origin. A configured "*" stays wide open.
+function resolveAllowOrigin(request: Request, env: Env): string {
+  const configured = env.FEED_ALLOW_ORIGIN || "*";
+  if (configured === "*") return "*";
+  const allow = configured.split(",").map((s) => s.trim()).filter(Boolean);
+  const requestOrigin = request.headers.get("origin");
+  if (requestOrigin) {
+    if (allow.includes(requestOrigin)) return requestOrigin;
+    try {
+      const host = new URL(requestOrigin).hostname;
+      if (host === "localhost" || host === "127.0.0.1") return requestOrigin;
+    } catch {
+      // not a parseable origin — fall through to the configured default
+    }
+  }
+  return allow[0] || configured;
+}
 
 const clean = (value: unknown) =>
   String(value ?? "")
@@ -4591,7 +4614,7 @@ async function handleCliRequest(
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const allowOrigin = env.FEED_ALLOW_ORIGIN || "*";
+    const allowOrigin = resolveAllowOrigin(request, env);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: jsonHeaders(allowOrigin) });

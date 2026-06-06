@@ -38,6 +38,7 @@ body {
 
 h1, h2, h3, p, ol, ul { margin: 0; }
 a { color: var(--ink); }
+img, canvas, iframe { max-width: 100%; }
 
 /* ─── topbar ────────────────────────────────────────────────────────────────*/
 
@@ -65,6 +66,7 @@ a { color: var(--ink); }
 .action {
   appearance: none;
   display: inline-block;
+  max-width: 100%;
   font: inherit;
   font-size: 0.86rem;
   letter-spacing: 0.04em;
@@ -76,6 +78,8 @@ a { color: var(--ink); }
   border: 1.5px solid var(--ink);
   padding: 0.7em 1.2em;
   cursor: pointer;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .action:hover,
@@ -196,6 +200,7 @@ a { color: var(--ink); }
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 6px;
+  min-width: 0;
 }
 .flow-actions--stacked { flex-direction: column; align-items: stretch; }
 
@@ -227,7 +232,7 @@ body.is-reviewing .stage {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 14px 18px;
   overflow: hidden;
 }
@@ -235,6 +240,19 @@ body.is-reviewing .stage {
 .review-layout > .chamber-steps {
   grid-column: 1 / -1;
   margin: 0;
+}
+
+.review-header {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+  align-items: center;
+}
+
+.review-header .flow-text {
+  max-width: 64ch;
 }
 
 .review-column {
@@ -426,6 +444,7 @@ body.is-reviewing .stage {
   background: var(--field);
   padding: 16px 18px 18px;
   break-inside: avoid;
+  min-width: 0;
 }
 .entry--preview { border-color: var(--ink); }
 
@@ -444,6 +463,7 @@ body.is-reviewing .stage {
   letter-spacing: 0.18em;
   color: var(--ink-faint);
   white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .entry__claims {
@@ -468,6 +488,7 @@ body.is-reviewing .stage {
   font-size: 0.62rem;
   letter-spacing: 0.12em;
   color: var(--ink-faint);
+  overflow-wrap: anywhere;
 }
 
 .claim { border-left: 2px solid var(--rule); padding-left: 11px; }
@@ -513,6 +534,7 @@ body.is-reviewing .stage {
   font-size: 0.66rem;
   letter-spacing: 0.12em;
   color: var(--ink-faint);
+  overflow-wrap: anywhere;
 }
 
 /* ─── repository wall ───────────────────────────────────────────────────────*/
@@ -547,7 +569,7 @@ body.is-paused .wall-masthead__line::after {
 
 .wall {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(330px, 100%), 1fr));
   gap: 16px;
   padding: 24px;
   align-content: start;
@@ -573,18 +595,27 @@ body.is-paused .wall-masthead__line::after {
   gap: 7px;
   width: 236px;
   z-index: 20;
+  max-width: calc(100vw - 44px);
+  min-width: 0;
 }
 .wall-qr__label {
   letter-spacing: 0.18em;
   font-size: 0.7rem;
   font-weight: 700;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
-.wall-qr__canvas { width: 196px; height: 196px; display: block; }
+.wall-qr__canvas {
+  width: min(196px, 100%);
+  height: auto;
+  display: block;
+}
 .wall-qr__url {
   font-size: 0.6rem;
   color: var(--ink-soft);
   overflow-wrap: anywhere;
   text-align: center;
+  max-width: 100%;
 }
 .wall-qr__meta,
 .wall-qr__mix {
@@ -592,6 +623,8 @@ body.is-paused .wall-masthead__line::after {
   letter-spacing: 0.08em;
   color: var(--ink-faint);
   text-align: center;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .kiosk .wall-qr__meta,
@@ -623,13 +656,18 @@ body.is-paused .wall-masthead__line::after {
   font-size: 0.8rem;
 }
 .gallery__text { font-size: 0.86rem; color: var(--ink-soft); }
-.gallery__links { display: flex; flex-wrap: wrap; gap: 10px; }
-.gallery__qr { width: 240px; height: 240px; align-self: center; }
+.gallery__links { display: flex; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.gallery__qr {
+  width: min(240px, 100%);
+  height: auto;
+  align-self: center;
+}
 .gallery__url {
   font-size: 0.66rem;
   color: var(--ink-soft);
   overflow-wrap: anywhere;
   text-align: center;
+  max-width: 100%;
 }
 
 /* ─── admin ─────────────────────────────────────────────────────────────────*/
@@ -660,7 +698,7 @@ body.is-paused .wall-masthead__line::after {
   font-size: 0.8rem;
 }
 .admin__subtitle--small { font-size: 0.7rem; color: var(--ink-faint); }
-.admin__note { font-size: 0.82rem; color: var(--ink-soft); }
+.admin__note { font-size: 0.82rem; color: var(--ink-soft); overflow-wrap: anywhere; }
 .admin__field { display: flex; flex-direction: column; gap: 5px; }
 .admin__label {
   letter-spacing: 0.14em;
@@ -676,7 +714,7 @@ body.is-paused .wall-masthead__line::after {
   padding: 9px 11px;
 }
 .admin__input:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
-.admin__actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.admin__actions { display: flex; flex-wrap: wrap; gap: 10px; min-width: 0; }
 .admin__status { font-size: 0.8rem; min-height: 1.2em; }
 .admin__mono { font-size: 0.74rem; overflow-wrap: anywhere; }
 .admin__entries { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -686,12 +724,14 @@ body.is-paused .wall-masthead__line::after {
   font-size: 0.78rem;
   border-bottom: 1px solid var(--rule);
   padding-bottom: 6px;
+  min-width: 0;
 }
 .admin__entry-id { font-weight: 700; }
 .admin__entry-source {
   font-size: 0.6rem;
   letter-spacing: 0.12em;
   color: var(--ink-faint);
+  overflow-wrap: anywhere;
 }
 .admin__entry-claim { color: var(--ink-soft); overflow-wrap: anywhere; }
 
@@ -762,6 +802,7 @@ body.is-paused .wall-masthead__line::after {
 .ad-slot-stage {
   display: block;
   max-width: 100%;
+  min-width: 0;
 }
 
 .ad-slot-frame {
@@ -774,8 +815,13 @@ body.is-paused .wall-masthead__line::after {
   gap: 8px;
   min-height: 120px;
   overflow: hidden;
+  min-width: 0;
 }
-.ad-slot-frame > div { max-width: 100%; }
+.ad-slot-frame > div {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
 
 /* Placeholder rendered when GAM is unconfigured, fails, or returns empty fill.
    Echoes the slot's would-be dimensions so the lane is visible at all times. */
@@ -794,6 +840,8 @@ body.is-paused .wall-masthead__line::after {
   justify-content: center;
   gap: 6px;
   padding: 18px;
+  width: min(100%, var(--ad-slot-width, 300px));
+  min-height: min(var(--ad-slot-height, 250px), 70vw);
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -815,13 +863,117 @@ body.is-paused .wall-masthead__line::after {
   text-align: center;
   max-width: 32ch;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 /* ─── narrow screens ────────────────────────────────────────────────────────*/
 
-@media (max-width: 560px) {
-  .wall { grid-template-columns: 1fr; padding: 14px; }
+@media (max-width: 900px), (orientation: portrait) {
+  body.is-reviewing {
+    display: block;
+    height: auto;
+    min-height: 100dvh;
+    overflow: auto;
+  }
+
+  body.is-reviewing .stage {
+    width: min(760px, 100%);
+    max-width: none;
+    min-height: 0;
+    padding: 14px 14px 56px;
+    overflow: visible;
+  }
+
+  .review-layout,
+  .review-layout--collecting {
+    height: auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow: visible;
+  }
+
+  .review-layout > .chamber-steps {
+    grid-column: auto;
+  }
+
+  .review-header {
+    grid-column: auto;
+    text-align: left;
+    align-items: flex-start;
+  }
+
+  .review-column {
+    overflow: visible;
+    overscroll-behavior: auto;
+    padding-right: 0;
+  }
+
+  .flow-actions,
+  .gallery__links,
+  .admin__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .flow-actions .action,
+  .gallery__links .action,
+  .admin__actions .action {
+    width: 100%;
+  }
+
+  .flow-actions .action--link {
+    width: auto;
+    align-self: flex-start;
+  }
+
+  .entry__head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .entry__source,
+  .fragment__kind {
+    white-space: normal;
+  }
+
+  .google-candidate__label,
+  .fragment {
+    align-items: flex-start;
+  }
+
   .page-wall { padding-bottom: 16px; }
-  .wall-qr { position: static; width: auto; margin: 16px; }
+  .wall { grid-template-columns: 1fr; padding: 14px; }
+  .wall-qr {
+    position: static;
+    width: auto;
+    max-width: none;
+    margin: 16px;
+  }
+
+  .wall-masthead {
+    padding: 18px 18px 15px;
+  }
+
+  .wall-masthead__subtitle {
+    overflow-wrap: anywhere;
+  }
+
+  .admin__entry {
+    flex-direction: column;
+    gap: 2px;
+  }
+
   .consent-dialog { padding: 18px 18px 16px; }
+}
+
+.kiosk.page-wall { padding-bottom: 16px; }
+.kiosk .wall { grid-template-columns: 1fr; padding: 14px; }
+.kiosk .wall-qr {
+  position: static;
+  width: auto;
+  max-width: none;
+  margin: 16px;
 }
