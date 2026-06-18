@@ -25,6 +25,7 @@ pedal   0.20
 release 0.35
 human   0.02
 pan     -0.55
+fade    in 5s
 
 // 2. the drifting hand — 1% faster. listen for the moment a chord forms,
 //    then dissolves into another. each "meeting point" is a new harmony.
@@ -36,6 +37,7 @@ pedal   0.20
 release 0.35
 human   0.02
 pan     0.55
+fade    in 5s
 
 // 3. resonant pad — held notes underneath, sympathetic full, pedal open.
 //    glues the two phasing hands into a single shimmering body.
