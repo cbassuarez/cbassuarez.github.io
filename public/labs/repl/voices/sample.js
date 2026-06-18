@@ -771,6 +771,15 @@
     return Promise.all(list().map((n) => loadBuffer(audioCtx, n)));
   }
 
+  // Pre-decode a specific set of named buffers (e.g. every sample a freshly
+  // evaluated program references) so the first scheduler dispatch finds them
+  // cached instead of dropping/retrying the first loop's hits.
+  function warm(audioCtx, names) {
+    if (!audioCtx || !names) return Promise.resolve([]);
+    const wanted = Array.isArray(names) ? names : Array.from(names);
+    return Promise.all(wanted.map((n) => loadBuffer(audioCtx, n).catch(() => null)));
+  }
+
     root.SampleVoice = {
       loadManifest,
       playSample,
@@ -782,6 +791,7 @@
       kitById,
       ready,
       preload,
+        warm,
         preloadKit,
         expandPrefix,
         isUnavailable,

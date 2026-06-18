@@ -1269,7 +1269,36 @@
         timer = setInterval(tick, LOOKAHEAD_MS);
       }
 
+      // Eagerly decode every sample/drum buffer a freshly evaluated program
+      // references so the first dispatch after eval finds them cached. Without
+      // this the first loop drops (or late-retries) any not-yet-decoded sample.
+      function prewarmProgramSamples(prog) {
+        if (typeof root.SampleVoice === 'undefined' || !prog || !Array.isArray(prog.blocks)) return;
+        const SV = root.SampleVoice;
+        const names = new Set();
+        for (const block of prog.blocks) {
+          const voice = block && block.voice;
+          if (voice === 'drum') {
+            const kitId = block.kit && block.kit.id ? String(block.kit.id) : '';
+            if (kitId && typeof SV.preloadKit === 'function') SV.preloadKit(audioCtx, kitId);
+            continue;
+          }
+          if (voice !== 'sample') continue;
+          for (const leaf of collectBlockLeaves(block)) {
+            const tok = leaf && leaf.token;
+            if (!tok) continue;
+            if (tok.kind === 'sample' && tok.value) {
+              names.add(String(tok.value));
+            } else if (tok.kind === 'sample-selector' && tok.value) {
+              for (const n of expandSelectorPool(tok.value)) names.add(n);
+            }
+          }
+        }
+        if (names.size && typeof SV.warm === 'function') SV.warm(audioCtx, names);
+      }
+
       function update(newProgram) {
+        prewarmProgramSamples(newProgram);
         pendingEvaluate = null;
         const oldProgram = program;
         const oldBarSec = program ? barSeconds(program) : null;
@@ -1356,6 +1385,10 @@
           update(newProgram);
           return null;
         }
+
+        // Warm buffers now (the reset is up to a full bar away) so the first
+        // post-reset loop plays instead of dropping undecoded samples.
+        prewarmProgramSamples(newProgram);
 
         const stopVoices = Boolean(options && options.stopVoices);
         const when = nextBarResetTime(audioCtx.currentTime);

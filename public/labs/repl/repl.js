@@ -10142,7 +10142,13 @@ if (block.voice === 'video' || block.voice === 'video-gen') {
       if (loadedFromHash) {
         patchLinkState.bootedFromHash = true;
       } else {
-        await loadDefaultExample();
+        const exampleFromHash = readExampleHash();
+        if (exampleFromHash) {
+          await loadExampleByFile(exampleFromHash);
+        }
+        if (!currentExampleFile) {
+          await loadDefaultExample();
+        }
       }
 
       patchLinkState.lastSavedCode = editorAPI ? editorAPI.getValue() : '';
