@@ -604,7 +604,6 @@
 
     if (!rawLayerPlans.length) return false;
 
-    let allReady = true;
     const readyPlans = [];
 
     for (const rawPlan of rawLayerPlans) {
@@ -613,7 +612,6 @@
       const key = bufferKey(effectiveEntry.entry);
 
       if (!_buffers.has(key)) {
-        allReady = false;
         loadBuffer(audioCtx, effectiveEntry.entry);
         continue;
       }
@@ -626,7 +624,12 @@
       });
     }
 
-    if (!allReady || !readyPlans.length) return false;
+    // Play whatever layers are already decoded rather than dropping the whole
+    // note when one xfade layer is still loading. Otherwise the first loop after
+    // an eval is silent — each note would wait on every pp/mf/ff layer being
+    // cached — which also swallows fade-ins. Missing layers were queued above
+    // and join on the next loop.
+    if (!readyPlans.length) return false;
 
     enforcePolyphony(audioCtx, opts.poly);
 
