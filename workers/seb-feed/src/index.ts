@@ -9,7 +9,6 @@ import {
   tokenizeSpeech as bfvTokenize,
   mulberry32 as bfvRng,
 } from "./body-for-visits/grammar.js";
-import { foldBody as bfvFold } from "./body-for-visits/fold.js";
 import { renderSnapshotHTML as bfvSnapshot } from "./body-for-visits/snapshot.js";
 import {
   createNet as bfvCreateNet,
@@ -1817,6 +1816,7 @@ export class BodyForVisitsRoom {
     );
     void this.state.blockConcurrencyWhile(async () => {
       this.ensureSchema();
+      this.unfoldBody();
       this.ready = true;
     });
   }
@@ -1890,6 +1890,74 @@ export class BodyForVisitsRoom {
          step_count INTEGER NOT NULL,
          updated_at INTEGER NOT NULL
        )`
+    );
+  }
+
+  // One-time unfold. The body used to cap its visible length by absorbing the
+  // oldest tokens into a ⟨folded …⟩ marker; the sentence now stays whole. Every
+  // accepted token also lives in the events journal, so the absorbed entries
+  // are restored from there and the marker dropped.
+  private unfoldBody(): void {
+    const stateRow = this.readState();
+    const body = this.parseBody(stateRow);
+    if (body.length === 0 || body[0].role !== "fold_marker") return;
+
+    const tail = body.slice(1);
+    const firstEventId = tail.find((t) => typeof t.event_id === "number")?.event_id;
+    const resetId = this.lastAdminResetEventId();
+
+    const toToken = (row: { id: number; ts: number; token: string; role: string; style_json: string }): BfvToken => {
+      let spans: BfvSpan[] | undefined;
+      if (row.style_json) {
+        try {
+          spans = bfvNormalizeSpans(JSON.parse(row.style_json), row.token);
+        } catch {
+          spans = undefined;
+        }
+      }
+      return {
+        token: row.token,
+        role: row.role,
+        event_id: row.id,
+        ts: row.ts,
+        ...(spans ? { spans } : {}),
+      };
+    };
+
+    const sql = this.state.storage.sql;
+    let restoredBody: BfvToken[];
+    if (typeof firstEventId === "number") {
+      const absorbed = sql
+        .exec<{ id: number; ts: number; token: string; role: string; style_json: string }>(
+          `SELECT id, ts, token, role, style_json FROM events
+            WHERE kind = 'human' AND id > ? AND id < ?
+            ORDER BY id`,
+          resetId,
+          firstEventId
+        )
+        .toArray()
+        .map(toToken);
+      restoredBody = [...absorbed, ...tail];
+    } else {
+      // No anchor in the tail — rebuild the whole body from the journal.
+      restoredBody = sql
+        .exec<{ id: number; ts: number; token: string; role: string; style_json: string }>(
+          `SELECT id, ts, token, role, style_json FROM events
+            WHERE kind = 'human' AND id > ?
+            ORDER BY id`,
+          resetId
+        )
+        .toArray()
+        .map(toToken);
+    }
+
+    sql.exec(
+      `UPDATE body_state
+         SET body_json = ?, body_version = ?, fold_count = 0, fold_generations = 0, updated_at = ?
+       WHERE id = 1`,
+      JSON.stringify(restoredBody),
+      stateRow.body_version + 1,
+      Date.now()
     );
   }
 
@@ -2536,28 +2604,27 @@ export class BodyForVisitsRoom {
       ts: now,
       ...(nextSpans ? { spans: nextSpans } : {}),
     };
+    // The body never folds: the sentence stays whole, readable from its
+    // first token. The events table remains the durable journal behind it.
     const nextBody: BfvToken[] = [...body, nextEntry];
-    const folded = bfvFold(nextBody, stateRow.fold_count, stateRow.fold_generations, now);
-    const newTokenIndex = folded.body.length - 1;
+    const newTokenIndex = nextBody.length - 1;
     const nextVersion = stateRow.body_version + 1;
 
     sql.exec(
       `UPDATE body_state
-         SET body_json = ?, body_version = ?, fold_count = ?, fold_generations = ?, pending_json = ?, updated_at = ?
+         SET body_json = ?, body_version = ?, pending_json = ?, updated_at = ?
        WHERE id = 1`,
-      JSON.stringify(folded.body),
+      JSON.stringify(nextBody),
       nextVersion,
-      folded.fold_count,
-      folded.fold_generations,
       JSON.stringify(pending),
       now
     );
 
     const updated: BfvStateRow = {
-      body_json: JSON.stringify(folded.body),
+      body_json: JSON.stringify(nextBody),
       body_version: nextVersion,
-      fold_count: folded.fold_count,
-      fold_generations: folded.fold_generations,
+      fold_count: stateRow.fold_count,
+      fold_generations: stateRow.fold_generations,
       corruption_count: stateRow.corruption_count,
       fringe_json: stateRow.fringe_json,
       pending_json: JSON.stringify(pending),

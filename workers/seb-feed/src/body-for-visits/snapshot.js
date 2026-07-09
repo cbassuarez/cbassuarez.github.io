@@ -33,7 +33,6 @@ export function renderSnapshotHTML(state, takenAt = new Date().toISOString()) {
   const body = Array.isArray(state?.body) ? state.body : [];
   const fringe = String(state?.fringe || "");
   const version = Number(state?.body_version || 0);
-  const folded = Number(state?.fold_count || 0);
   const corrupt = Number(state?.corruption_count || 0);
 
   // Punctuation that clings to the previous word ("," ";" ":") takes no
@@ -66,7 +65,7 @@ main { max-width:640px; margin:14vh auto 18vh; padding:0 24px;
 <p class="status">static snapshot taken at ${esc(takenAt)} — not the live work</p>
 <p class="body-text">${bodyHTML || "<span class=\"fold-marker\">⟨awaiting first visit⟩</span>"}</p>
 <p class="fringe">${esc(fringe)}</p>
-<p class="status">body version ${version} · ${folded} folded · ${corrupt} corruptions</p>
+<p class="status">body version ${version} · ${corrupt} corruptions</p>
 </main></body></html>
 `;
 }
