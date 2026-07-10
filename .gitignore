@@ -29,3 +29,8 @@ public/labs/repl/public/instruments/
 public/labs/repl/public/
 public/labs/repl/source/
 public/labs/repl/samples/
+
+# chunk-surfer diffusion lens: local secrets, never commit
+public/labs/chunk-surfer/lens.local.json
+tools/chunk_surfer/diffusion_server/.lens-token
+tools/chunk_surfer/diffusion_server/.venv/
