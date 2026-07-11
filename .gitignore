@@ -34,3 +34,7 @@ public/labs/repl/samples/
 public/labs/chunk-surfer/lens.local.json
 tools/chunk_surfer/diffusion_server/.lens-token
 tools/chunk_surfer/diffusion_server/.venv/
+
+# large local GLB inputs for build-props (artifacts are committed, sources are not)
+tools/chunk_surfer/prop-sources/
+tools/chunk_surfer/portrait-sources/
