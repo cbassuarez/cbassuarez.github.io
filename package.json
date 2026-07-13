@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "lens:local": "tools/chunk_surfer/diffusion_server/run-local.sh",
     "build:repl-cm": "node scripts/build-repl-cm.mjs",
     "build:corpus-motion": "node scripts/build-corpus-motion.mjs",
     "build:corpus-text-flow": "node scripts/build-corpus-text-flow.mjs",
