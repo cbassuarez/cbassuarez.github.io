@@ -90,7 +90,7 @@ const LAB_ENTRIES = [
     label: 'chunk surfer',
     href: '/labs/chunk-surfer',
     still: '/labs/stills/chunk-surfer.webp',
-    description: 'navigable chunk-field lab surface'
+    description: '3D psychological horror · public beta'
   },
   {
     key: 'tell-me-about-your-day',
@@ -1360,40 +1360,6 @@ function ReplLabPage() {
         <p>
           <small>
             mobile fallback: [ <a href="/labs/repl/index.html?v=20260503r5">open repl directly</a> ]
-          </small>
-        </p>
-      ) : null}
-    </>
-  );
-}
-
-function ChunkSurferLabPage() {
-  const isMobile = useIsMobile();
-
-  return (
-    <>
-      <center>
-        <h1>{SITE_DOMAIN}</h1>
-        <p>
-          <i>labs / chunk surfer</i>
-        </p>
-        <p>
-          [ <a href="/">home</a> ] [ <a href="/works">works</a> ] [ <a href="/labs">labs</a> ] [ <a href="/labs/string">string</a> ] [ <a href="/labs/repl">repl</a> ] [ <a href="/about">about</a> ] [ <a href="/contact">contact</a> ]
-        </p>
-      </center>
-
-      <hr />
-
-      <iframe
-        title="Chunk Surfer Lab"
-        src="/labs/chunk-surfer/index.html"
-        onLoad={(event) => wireIframeTopNavigation(event.currentTarget)}
-        style={{ width: '100%', height: isMobile ? '64vh' : '78vh', border: 0, display: 'block' }}
-      />
-      {isMobile ? (
-        <p>
-          <small>
-            mobile fallback: [ <a href="/labs/chunk-surfer/index.html">open chunk surfer directly</a> ]
           </small>
         </p>
       ) : null}
@@ -3637,7 +3603,6 @@ export default function App() {
   const isTalkRecapPage = /^\/dma-2026\/?$/i.test(pathname);
   const isRecentPage = /^\/(?:recent|events)\/?$/i.test(pathname);
   const isLabsWorksListPage = /^\/labs\/works?-list\/?$/i.test(pathname);
-  const isChunkSurferPage = /^\/labs\/chunk-surfer\/?$/i.test(pathname);
   const isLabsDirectoryPage = /^\/labs\/?$/i.test(pathname);
   const isLabsChildRoute = /^\/labs\/.+/i.test(pathname);
   const isCorpusLabPage = /^\/labs\/corpus\/?$/i.test(pathname);
@@ -3664,7 +3629,6 @@ export default function App() {
   isTalkRecapPage ||
   isRecentPage ||
   isLabsWorksListPage ||
-  isChunkSurferPage ||
   isLabsDirectoryPage ||
   isCorpusLabPage ||
   isMortsLabPage ||
@@ -3681,8 +3645,6 @@ const isNotFoundRoute = !isKnownRoute;
   let page = isHomePage ? <HomePage shellMode={useSplitPaneShell} /> : <NotFoundPage />;
   if (isLabsWorksListPage) {
     page = <LabsWorksListPage />;
-  } else if (isChunkSurferPage) {
-    page = <ChunkSurferLabPage />;
   } else if (isCorpusLabPage) {
     page = <CorpusLabPage />;
   } else if (isMortsLabPage) {

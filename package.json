@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test:chunk-surfer": "node --test scripts/test-chunk-surfer-page.mjs",
     "build:repl-cm": "node scripts/build-repl-cm.mjs",
     "build:corpus-motion": "node scripts/build-corpus-motion.mjs",
     "build:corpus-text-flow": "node scripts/build-corpus-text-flow.mjs",
@@ -22,10 +24,11 @@
     "dry-run:tmayd-api": "WRANGLER_LOG_PATH=.wrangler/logs npm --prefix workers/tmayd-api run deploy -- --dry-run",
     "test:workers": "npm run test:seb-feed && npm run test:tmayd-api && npm run typecheck:tmayd-api",
     "dry-run:workers": "npm run dry-run:seb-feed && npm run dry-run:tmayd-api",
-    "ci:all": "npm run build && npm run test:this-person && npm run test:workers && npm run dry-run:workers"
+    "ci:all": "npm run build && npm run test:chunk-surfer && npm run test:this-person && npm run test:workers && npm run dry-run:workers"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.7",
+    "@paper-design/shaders-react": "^0.0.77",
     "framer-motion": "^12.39.0",
     "jszip": "^3.10.1",
     "qrcode": "^1.5.4",
@@ -33,6 +36,9 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "@codemirror/autocomplete": "^6.20.1",
     "@codemirror/commands": "^6.10.3",
     "@codemirror/language": "^6.12.3",
@@ -43,6 +49,8 @@
     "@lezer/highlight": "^1.2.3",
     "@vitejs/plugin-react": "^4.3.2",
     "puppeteer-core": "^25.3.0",
+    "tailwindcss": "^4.3.2",
+    "typescript": "^7.0.2",
     "vite": "^5.4.10"
   }
 }

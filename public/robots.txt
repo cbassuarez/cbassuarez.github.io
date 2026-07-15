@@ -14,3 +14,5 @@
 
 User-agent: *
 Allow: /
+
+Sitemap: https://cbassuarez.com/sitemap.xml
