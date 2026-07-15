@@ -120,10 +120,13 @@ h2 {
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: 0;
-  text-transform: uppercase;
+}
+.cs-machine-footer {
+  text-transform: lowercase;
 }
 
-.cs-machine-header { min-height: 50px; padding: 8px clamp(14px, 1.8vw, 24px) 7px; }
+
+.cs-machine-header { min-height: 50px; text-transform: uppercase; padding: 8px clamp(14px, 1.8vw, 24px) 7px; }
 .cs-machine-footer { min-height: 40px; padding: 7px clamp(14px, 1.8vw, 24px); }
 .cs-machine-wordmark { color: var(--cs-vfd-wordmark); }
 
@@ -182,7 +185,7 @@ h2 {
   color: var(--cs-vfd-silkscreen);
   font-size: 0.65rem;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: lowercase;
 }
 
 .cs-topbar__nav { display: flex; align-items: center; gap: 0.75rem; }
@@ -232,7 +235,7 @@ h2 {
   color: var(--cs-vfd-silkscreen);
   font-size: 0.64rem;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: lowercase;
 }
 
 .cs-hero h1 {
@@ -271,7 +274,7 @@ h2 {
   color: var(--cs-vfd-phosphor);
   font-size: 0.73rem;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: lowercase;
 }
 
 .cs-hero__pitch { margin-top: clamp(2.25rem, 6vw, 4.75rem); }
@@ -306,7 +309,7 @@ h2 {
   font-size: 0.65rem;
   font-weight: 700;
   text-decoration: none;
-  text-transform: uppercase;
+  text-transform: lowercase;
 }
 
 .cs-cta--primary { border-color: var(--cs-vfd-phosphor); color: var(--cs-vfd-phosphor); }
@@ -377,7 +380,7 @@ h2 {
   padding: 0.65rem 0.8rem;
   color: var(--cs-vfd-silkscreen);
   font-size: 0.56rem;
-  text-transform: uppercase;
+  text-transform: lowercase;
 }
 
 .cs-platform-strip li + li { border-left: 1px solid #242424; }
@@ -413,7 +416,7 @@ h2 {
   color: var(--cs-vfd-silkscreen);
   font-size: 0.6rem;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: lowercase;
 }
 
 .cs-lede {
@@ -553,7 +556,7 @@ h2 {
   color: var(--cs-vfd-silkscreen);
   font-size: 0.55rem;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: lowercase;
 }
 
 .cs-feature__copy blockquote {
