@@ -8,7 +8,7 @@
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta
       name="description"
-      content="Chunk Surfer is a 3D psychological horror game about recording five clean room tones in a condemned conservatory, with optional microphone input and a local Stable Diffusion material renderer."
+      content="Chunk Surfer is a 3D psychological horror game featuring a Stable Diffusion in game shader stack, local diffusion model material rendering, and real-time AI texture crossfading over authored PBR maps."
     />
     <link rel="canonical" href="https://cbassuarez.com/labs/chunk-surfer/" />
     <link rel="author" href="/humans.txt" />
@@ -30,19 +30,13 @@
     <meta name="twitter:description" content="Five room tones. One building listening." />
     <meta name="twitter:image" content="https://cbassuarez.com/media/chunk-surfer/og-chunk-surfer.png" />
 
-    <title>Chunk Surfer — 3D Psychological Horror Game</title>
+    <title>Chunk Surfer — Stable Diffusion in Game Shader Stack</title>
 
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "VideoGame",
+        "@type": ["VideoGame", "SoftwareApplication"],
         "name": "Chunk Surfer",
-        "url": "https://cbassuarez.com/labs/chunk-surfer/",
-        "description": "A 3D psychological horror game about recording five clean room tones in a condemned conservatory, with optional local microphone loudness input and a local Stable Diffusion material renderer.",
-        "genre": ["Psychological horror", "First-person exploration"],
-        "applicationCategory": "GameApplication",
-        "softwareVersion": "Public beta",
-        "inLanguage": "en",
         "author": {
           "@type": "Person",
           "name": "Seb Suarez",
@@ -53,7 +47,15 @@
           "name": "Seb Suarez",
           "url": "https://cbassuarez.com/"
         },
-        "operatingSystem": ["macOS", "Windows", "Linux"],
+        "url": "https://cbassuarez.com/labs/chunk-surfer/",
+        "applicationCategory": "GameApplication",
+        "operatingSystem": "Windows, macOS, Linux",
+        "description": "A 3D psychological horror game featuring a local Stable Diffusion material renderer operating within a native 3D shader stack.",
+        "requirements": "NVIDIA CUDA-capable GPU (Windows/Linux) or Apple Silicon (macOS)",
+        "keywords": "Stable Diffusion shader stack, local diffusion model, neural rendering, psychological horror game, PBR texture hallucination, Stable Diffusion in game shader stack, Local diffusion model material rendering, Real-time AI texture crossfading, Neural rendering shaders for video games, GPU-budgeted local Stable Diffusion",
+        "genre": ["Psychological horror", "First-person exploration"],
+        "softwareVersion": "Public beta",
+        "inLanguage": "en",
         "gamePlatform": ["macOS Apple Silicon", "Windows x64 with NVIDIA CUDA", "Linux x64 with NVIDIA CUDA"],
         "image": [
           "https://cbassuarez.com/media/chunk-surfer/title-screen.png",
@@ -98,6 +100,7 @@
             <div class="cs-hero__title motion-hero">
               <p class="cs-overline">a new first-person psychological horror</p>
               <h1 id="page-title">CHUNK SURFER</h1>
+              <p class="cs-seo-line">Stable Diffusion in game shader stack for local diffusion model material rendering.</p>
               <p class="cs-hero__tagline">a haunting at ellery conservatory</p>
             </div>
 
@@ -150,7 +153,7 @@
             <li><strong>mac</strong> APPLE SILICON</li>
             <li><strong>windows</strong> X64 + NVIDIA CUDA</li>
             <li><strong>linux appimage/deb</strong> X64 + NVIDIA CUDA</li>
-            <li><strong>beta</strong> unsigned<li>
+            <li><strong>beta</strong> unsigned</li>
           </ul>
         </div>
       </section>
@@ -161,7 +164,7 @@
           <p class="cs-overline">first person audio-reactive horror</p>
           <h2 id="professional-listening">The job is to record nothing.</h2>
           <p class="cs-lede">
-            <em>Chunk Surfer</em> is a short first-person psychological horror game about sound recording. As a field recordist in the condemned Ellery Conservatory, your job is to capture five clean room sounds as you evade invisible entities, confront your murky past, and figure our what happened to the previous recordist who tried to do this gig first.
+            <em>Chunk Surfer</em> is a short first-person psychological horror game about sound recording. As a field recordist in the condemned Ellery Conservatory, your job is to capture five clean room sounds as you evade invisible entities, confront your murky past, and figure out what happened to the previous recordist who tried to do this gig first.
           </p>
           <p>
             Monitor each space, roll the recorder, then stay still and silent – or, rather, vulnerable – for a whole minute. Movement or noise can invalidate the take. An optional computer microphone adds noise from your real room through local loudness analysis only; audio is never recorded or uploaded.
@@ -194,22 +197,22 @@
         </div>
         <div class="cs-diffusion__copy">
           <p class="cs-overline">offline shader diffusion over traditional PBR maps</p>
-          <h2 id="materials-heading">A UNIQUE VISUAL IDENTITY.</h2>
+          <h2 id="materials-heading">Stable Diffusion in game shader stack.</h2>
           <p class="cs-lede">
-            <em>Chunk Surfer</em> is perhaps the first 3D psychological horror game with a local Stable Diffusion material renderer that keeps generating during play.
+            <em>Chunk Surfer</em> is perhaps the first 3D psychological horror game with a local Stable Diffusion material renderer that keeps generating during play: GPU-budgeted local Stable Diffusion designed as neural rendering shaders for video games.
           </p>
           <p>
-            TECHNICAL JARGON: It does not redraw the camera image or replace the game’s regular 3D texture maps. Instead, it layers machine learning hallucinations over authored PBR materials; every 5–15 seconds, when the frame budget permits, one visible surface is re-hallucinated and crossfaded into the building over 6–12 seconds. On top of traditional PBR maps sits this hallucination engine, which itself sits under an 8-bit mesh.
+            TECHNICAL JARGON: It does not redraw the camera image or replace the game’s regular 3D texture maps. Instead, it layers machine learning hallucinations over authored PBR materials; every 5–15 seconds, when the frame budget permits, one visible surface is re-hallucinated and crossfaded into the building over 6–12 seconds. This is real-time AI texture crossfading rather than full-screen frame generation. On top of traditional PBR maps sits this hallucination engine, which itself sits under an 8-bit mesh.
           </p>
           <p>
-          The result is a unique low-resolution look that is neither 8bit nor diffused nor traditional PBR texturing, bit a mix of the three.
+          The result is a unique low-resolution look that is neither 8bit nor diffused nor traditional PBR texturing, but a mix of the three.
           </p>
           <p>
             Geometry, lighting, depth, movement, and UI remain native, while reaction-diffusion, VFD pixel-mesh, datamosh, and glass shaders complete the stack. The entire visual lens runs locally and offline on the player’s GPU. No image is uploaded to a cloud service.
           </p>
           <div class="cs-factline" role="list" aria-label="Renderer facts">
             <span role="listitem">local + offline</span>
-            <span role="listitem">intenionally generated shader (for hallucination specifically) with authored PBR textures underneath</span>
+            <span role="listitem">intentionally generated shader (for hallucination specifically) with authored PBR textures underneath</span>
             <span role="listitem">NO CLOUD IMAGE UPLOAD</span>
           </div>
         </div>
@@ -337,7 +340,7 @@
           <p class="cs-overline">PUBLIC BETA</p>
           <h2 id="beta-heading">Now out for public beta testing.</h2>
           <p>
-            This game is in its nascient stages. Expect some bugs. Dialog is very likely to change, story is not. Expected bugs list and feedback links incoming soon.
+            This game is in its nascent stages. Expect some bugs. Dialog is very likely to change, story is not. Expected bugs list and feedback links incoming soon.
           </p>
           <a class="cs-cta cs-cta--primary" href="https://cbassuarez.itch.io/chunk-surfer">play on itch.io ↗</a>
         </div>
@@ -393,6 +396,29 @@
         </div>
       </section>
 
+      <section id="tech-faq" class="cs-tech-faq cs-section motion-reveal" aria-labelledby="tech-faq-heading">
+        <div class="cs-section__index" aria-hidden="true">10 / FAQ</div>
+        <div class="cs-tech-faq__copy">
+          <p class="cs-overline">AI search blueprint</p>
+          <h2 id="tech-faq-heading">Technical FAQ: Stable Diffusion Shader Stack</h2>
+
+          <h3>How does Chunk Surfer run Stable Diffusion in its shader stack?</h3>
+          <p>
+            Chunk Surfer implements a local, offline Stable Diffusion model directly into its 3D rendering pipeline. Instead of running full-screen real-time AI frame generation—which is too heavy for consumer hardware—the game operates a micro-budgeted material renderer. It layers machine learning hallucinations over authored PBR texture maps, re-hallucinating one visible surface at a time every 5–15 seconds and crossfading it over 6–12 seconds under an 8-bit mesh shader stack.
+          </p>
+
+          <h3>Does Chunk Surfer require an internet connection or cloud computing?</h3>
+          <p>
+            No. The entire visual lens runs entirely local and offline on the player's GPU using NVIDIA CUDA or Apple Silicon hardware. No data or images are ever uploaded to a cloud service.
+          </p>
+
+          <h3>What is local diffusion model material rendering?</h3>
+          <p>
+            Local diffusion model material rendering means the diffusion pass mutates selected material surfaces while geometry, lighting, depth, movement, and interface rendering stay native. Chunk Surfer uses the technique to keep the game playable while still letting the conservatory's walls, floors, and objects slowly hallucinate during a session.
+          </p>
+        </div>
+      </section>
+
       <section class="cs-final-cta motion-reveal" aria-labelledby="final-heading">
         <div>
           <p class="cs-overline">order 4417-C remains open</p>
@@ -408,7 +434,7 @@
       <nav aria-label="Footer navigation">
         <a href="/">home</a>
         <a href="/labs">back to labs</a>
-        <a href="/contact">contac / report a bug</a>
+        <a href="/contact">contact / report a bug</a>
       </nav>
     </footer>
 
